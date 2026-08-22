@@ -29,10 +29,14 @@ namespace Duality {
     };
 
     // Screen is which physical 3DS screen this camera renders to -- the
-    // concrete mechanism behind "dual-screen aware from the start".
+    // concrete mechanism behind "dual-screen aware from the start". The
+    // camera's own TransformComponent::Translation is the world point it's
+    // centered on; Zoom is a uniform world-to-pixel scale (1.0 = 1 world
+    // unit per pixel, matching every scene authored before Zoom existed).
     struct CameraComponent {
         Duality::Screen Screen = Duality::Screen::Top;
         bool Primary = true;
+        float Zoom = 1.0f;
     };
 
     // Which Behaviour subclass is attached, looked up by name at Play time
@@ -44,6 +48,36 @@ namespace Duality {
         std::string ClassName;
         Behaviour* Instance = nullptr;
         void (*Destroy)(Behaviour*) = nullptr;
+    };
+
+    // Box2D-backed 2D physics (classic v2.4 API, b2World owned by Scene).
+    // RuntimeBody/RuntimeFixture are opaque (void*, actually b2Body*/
+    // b2Fixture*) so this header doesn't need to include Box2D itself --
+    // only valid between Scene::OnRuntimeStart and OnRuntimeStop, never
+    // serialized (TypeRegistry only ever registers the authored fields
+    // below, per-field opt-in).
+    struct Rigidbody2DComponent {
+        bool IsStatic = false;
+        bool FixedRotation = false;
+        void* RuntimeBody = nullptr;
+    };
+
+    struct BoxCollider2DComponent {
+        glm::vec2 Offset{ 0.0f, 0.0f };
+        glm::vec2 Size{ 16.0f, 16.0f }; // half-extents, in the same world units as Transform
+        float Density = 1.0f;
+        float Friction = 0.5f;
+        float Restitution = 0.0f;
+        void* RuntimeFixture = nullptr;
+    };
+
+    struct CircleCollider2DComponent {
+        glm::vec2 Offset{ 0.0f, 0.0f };
+        float Radius = 16.0f;
+        float Density = 1.0f;
+        float Friction = 0.5f;
+        float Restitution = 0.0f;
+        void* RuntimeFixture = nullptr;
     };
 
 }

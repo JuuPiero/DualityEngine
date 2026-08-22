@@ -22,6 +22,7 @@
 #include <imgui_impl_opengl3.h>
 #include <imgui_internal.h> // DockBuilder* -- for the initial Unity/Cocos-Creator-style dock layout
 
+#include "DualityEditor/BuildPipeline.h"
 #include "DualityEditor/Framebuffer.h"
 #include "DualityEditor/Panels/ContentBrowserPanel.h"
 #include "DualityEditor/ScriptEngine.h"
@@ -80,6 +81,7 @@ int main() {
     RegisterBuiltinComponents();
 
     std::string buildDirectory = GetBuildDirectory();
+    std::string repoRoot = buildDirectory.substr(0, buildDirectory.find_last_of("\\/")); // parent of "build-desktop"
     ScriptEngine::Reload(buildDirectory);
 
     OpenGLRenderer2D renderer;
@@ -96,20 +98,54 @@ int main() {
 
     Scene scene;
 
+    // Cameras are their own entities (no SpriteRendererComponent), matching
+    // Unity/Cocos convention -- earlier revisions put CameraComponent
+    // directly on TopQuad/BottomQuad, which conflated "what renders" with
+    // "what's the viewpoint" and doesn't generalize once a screen needs to
+    // show more than one sprite (which the renderer already supports).
+    Entity topCamera = scene.CreateEntity("TopCamera");
+    topCamera.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f, 0.0f };
+    topCamera.AddComponent<CameraComponent>().Screen = Screen::Top;
+
+    Entity bottomCamera = scene.CreateEntity("BottomCamera");
+    bottomCamera.GetComponent<TransformComponent>().Translation = { BottomScreenWidth * 0.5f, BottomScreenHeight * 0.5f, 0.0f };
+    bottomCamera.AddComponent<CameraComponent>().Screen = Screen::Bottom;
+
     Entity topQuad = scene.CreateEntity("TopQuad");
     topQuad.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f, 0.0f };
     auto& topSprite = topQuad.AddComponent<SpriteRendererComponent>();
     topSprite.Size = { 80.0f, 80.0f };
     topSprite.Color = { 0.85f, 0.25f, 0.25f, 1.0f };
-    topQuad.AddComponent<CameraComponent>().Screen = Screen::Top;
 
     Entity bottomQuad = scene.CreateEntity("BottomQuad");
     bottomQuad.GetComponent<TransformComponent>().Translation = { BottomScreenWidth * 0.5f, BottomScreenHeight * 0.5f, 0.0f };
     auto& bottomSprite = bottomQuad.AddComponent<SpriteRendererComponent>();
     bottomSprite.Size = { 60.0f, 60.0f };
     bottomSprite.Color = { 0.25f, 0.45f, 0.9f, 1.0f };
-    bottomQuad.AddComponent<CameraComponent>().Screen = Screen::Bottom;
     bottomQuad.AddComponent<BehaviourComponent>().ClassName = "BounceBehaviour";
+
+    // Physics demo: a ball falls onto a static platform when Play starts,
+    // proving Box2D integration + the camera-relative multi-sprite
+    // rendering (three sprites now share TopCamera, not just TopQuad's own).
+    Entity physicsGround = scene.CreateEntity("PhysicsGround");
+    physicsGround.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, 220.0f, 0.0f };
+    auto& groundSprite = physicsGround.AddComponent<SpriteRendererComponent>();
+    groundSprite.Size = { 360.0f, 16.0f };
+    groundSprite.Color = { 0.3f, 0.75f, 0.35f, 1.0f };
+    auto& groundBody = physicsGround.AddComponent<Rigidbody2DComponent>();
+    groundBody.IsStatic = true;
+    auto& groundCollider = physicsGround.AddComponent<BoxCollider2DComponent>();
+    groundCollider.Size = { 180.0f, 8.0f };
+
+    Entity physicsBall = scene.CreateEntity("PhysicsBall");
+    physicsBall.GetComponent<TransformComponent>().Translation = { 100.0f, 40.0f, 0.0f };
+    auto& ballSprite = physicsBall.AddComponent<SpriteRendererComponent>();
+    ballSprite.Size = { 20.0f, 20.0f };
+    ballSprite.Color = { 0.95f, 0.85f, 0.2f, 1.0f };
+    physicsBall.AddComponent<Rigidbody2DComponent>();
+    auto& ballCollider = physicsBall.AddComponent<CircleCollider2DComponent>();
+    ballCollider.Radius = 10.0f;
+    ballCollider.Restitution = 0.4f;
 
     Entity selected = topQuad;
     bool isPlaying = false;
@@ -210,6 +246,11 @@ int main() {
         ImGui::SameLine();
         if (ImGui::Button("Load Scene")) {
             SceneSerializer(scene).Deserialize(scenePath);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Build for 3DS")) {
+            SceneSerializer(scene).Serialize(scenePath); // build packages the last-saved scene
+            BuildPipeline::BuildFor3DS(repoRoot, scenePath);
         }
 
         ImGui::Separator();

@@ -23,6 +23,27 @@ add_library(nlohmann_json INTERFACE)
 target_include_directories(nlohmann_json INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/json/include)
 add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
 
+# --- Box2D (2D physics) ------------------------------------------------------
+# Pinned to the classic v2.4.1 C++ API (matching devkitPro's own 3ds-box2d/
+# ppc-box2d/switch-box2d portlib version) on BOTH platforms, rather than
+# using the mingw-w64 package for desktop -- that one is Box2D v3.x, a
+# ground-up rewrite to a plain C API with no b2World/b2Body/b2Fixture
+# classes at all, which would force Rigidbody2DComponent/BoxCollider2DComponent
+# to have two incompatible implementations instead of one shared one.
+# Confirmed elsewhere (devkitPro's own physics/box2d example) that this
+# version builds and runs fine on real 3DS hardware.
+include(FetchContent)
+FetchContent_Declare(
+    box2d
+    GIT_REPOSITORY https://github.com/erincatto/box2d.git
+    GIT_TAG v2.4.1
+    GIT_SHALLOW TRUE
+)
+set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
+set(BOX2D_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(box2d)
+
 # --- Desktop-only editor dependencies -------------------------------------
 # Never pulled in for the 3DS configure (the Editor itself is desktop-only).
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")

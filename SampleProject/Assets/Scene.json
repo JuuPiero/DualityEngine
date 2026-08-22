@@ -1,12 +1,112 @@
 {
   "Entities": [
     {
+      "Circle Collider 2D": {
+        "Density": 1.0,
+        "Friction": 0.5,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Radius": 10.0,
+        "Restitution": 0.4000000059604645
+      },
+      "Rigidbody 2D": {
+        "Fixed Rotation": false,
+        "Is Static": false
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.949999988079071,
+          0.8500000238418579,
+          0.20000000298023224,
+          1.0
+        ],
+        "Size": [
+          20.0,
+          20.0
+        ]
+      },
+      "Tag": {
+        "Tag": "PhysicsBall"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          100.0,
+          40.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Friction": 0.5,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Restitution": 0.0,
+        "Size": [
+          180.0,
+          8.0
+        ]
+      },
+      "Rigidbody 2D": {
+        "Fixed Rotation": false,
+        "Is Static": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.30000001192092896,
+          0.75,
+          0.3499999940395355,
+          1.0
+        ],
+        "Size": [
+          360.0,
+          16.0
+        ]
+      },
+      "Tag": {
+        "Tag": "PhysicsGround"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          200.0,
+          220.0,
+          0.0
+        ]
+      }
+    },
+    {
       "Behaviour": {
         "Class": "BounceBehaviour"
       },
       "Camera": {
         "Primary": true,
-        "Screen": "Bottom"
+        "Screen": "Bottom",
+        "Zoom": 1.0
       },
       "Sprite Renderer": {
         "Color": [
@@ -44,7 +144,8 @@
     {
       "Camera": {
         "Primary": true,
-        "Screen": "Top"
+        "Screen": "Top",
+        "Zoom": 1.0
       },
       "Sprite Renderer": {
         "Color": [

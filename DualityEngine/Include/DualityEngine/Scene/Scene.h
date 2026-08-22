@@ -30,6 +30,10 @@ namespace Duality {
 
     private:
         entt::registry m_Registry;
+
+        // Opaque (actually b2World*) so this header doesn't need to include
+        // Box2D -- only non-null between OnRuntimeStart and OnRuntimeStop.
+        void* m_PhysicsWorld = nullptr;
     };
 
     // --- Entity template method definitions -------------------------------

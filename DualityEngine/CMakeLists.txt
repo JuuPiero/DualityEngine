@@ -10,7 +10,7 @@ add_library(DualityEngine STATIC
 )
 
 target_include_directories(DualityEngine PUBLIC Include)
-target_link_libraries(DualityEngine PUBLIC EnTT::EnTT glm::glm nlohmann_json::nlohmann_json)
+target_link_libraries(DualityEngine PUBLIC EnTT::EnTT glm::glm nlohmann_json::nlohmann_json box2d)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     target_sources(DualityEngine PRIVATE Source/Renderer/N3DS/Citro2DRenderer.cpp)

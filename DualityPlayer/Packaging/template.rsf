@@ -1,0 +1,18 @@
+BasicInfo:
+  Title                   : $(APP_TITLE)
+  ProductCode             : CTR-P-CTAP
+  Logo                    : Nintendo # placeholder logo; homebrew builds are unsigned/unofficial regardless
+
+RomFs:
+  RootPath                : $(APP_ROMFS)
+
+TitleInfo:
+  Category                : Application
+  UniqueId                : $(APP_UNIQUE_ID)
+
+Option:
+  UseOnSD                 : true    # install to SD card
+  FreeProductCode         : true    # removes ProductCode format restrictions (needed for homebrew)
+  MediaFootPadding        : false
+  EnableCrypt             : false   # homebrew CIAs are unencrypted
+  EnableCompress          : true

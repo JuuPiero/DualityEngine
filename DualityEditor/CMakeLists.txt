@@ -3,6 +3,7 @@ add_executable(DualityEditor
     Source/Framebuffer.cpp
     Source/ThumbnailCache.cpp
     Source/ScriptEngine.cpp
+    Source/BuildPipeline.cpp
     Source/Panels/ContentBrowserPanel.cpp
 )
 
