@@ -1,0 +1,83 @@
+{
+  "Entities": [
+    {
+      "Behaviour": {
+        "Class": "BounceBehaviour"
+      },
+      "Camera": {
+        "Primary": true,
+        "Screen": "Bottom"
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.25,
+          0.44999998807907104,
+          0.8999999761581421,
+          1.0
+        ],
+        "Size": [
+          60.0,
+          60.0
+        ]
+      },
+      "Tag": {
+        "Tag": "BottomQuad"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          160.0,
+          120.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Camera": {
+        "Primary": true,
+        "Screen": "Top"
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.8500000238418579,
+          0.25,
+          0.25,
+          1.0
+        ],
+        "Size": [
+          80.0,
+          80.0
+        ]
+      },
+      "Tag": {
+        "Tag": "TopQuad"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          200.0,
+          120.0,
+          0.0
+        ]
+      }
+    }
+  ]
+}
