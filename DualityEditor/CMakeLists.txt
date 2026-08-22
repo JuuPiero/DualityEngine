@@ -4,7 +4,9 @@ add_executable(DualityEditor
     Source/ThumbnailCache.cpp
     Source/ScriptEngine.cpp
     Source/BuildPipeline.cpp
+    Source/SceneGizmo.cpp
     Source/Panels/ContentBrowserPanel.cpp
+    Source/Panels/ConsolePanel.cpp
 )
 
 # find_package's imported targets are only guaranteed visible within the

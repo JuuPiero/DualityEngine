@@ -1,5 +1,6 @@
 add_library(DualityEngine STATIC
     Source/Core/Log.cpp
+    Source/Asset/AssetMeta.cpp
     Source/Reflection/TypeRegistry.cpp
     Source/Reflection/Reflection.cpp
     Source/Scripting/ScriptRegistry.cpp

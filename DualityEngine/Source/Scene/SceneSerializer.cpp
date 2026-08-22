@@ -60,7 +60,7 @@ namespace Duality {
         json root;
         json entities = json::array();
 
-        for (auto handle : m_Scene.Registry().view<TagComponent>()) {
+        for (auto handle : m_Scene.Registry().view<NameComponent>()) {
             Entity entity(handle, &m_Scene);
             json entityJson;
 

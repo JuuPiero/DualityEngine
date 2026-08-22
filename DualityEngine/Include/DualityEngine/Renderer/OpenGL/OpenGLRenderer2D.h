@@ -28,6 +28,16 @@ namespace Duality {
         void EndScene() override;
 
         void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color) override;
+
+        // Desktop-editor-only extra (not part of IRenderer2D -- there is no
+        // device equivalent): an orthographic view centered on an arbitrary
+        // world-space point at an arbitrary zoom/viewport size, instead of
+        // one of the two fixed physical screens. Backs the Editor's Scene
+        // view (a free-roam camera for laying out the whole scene, like
+        // Unity's Scene view), as opposed to BeginScene which always renders
+        // exactly what a real CameraComponent+Screen would show (the Game
+        // view).
+        void BeginCustomView(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, const glm::vec4& clearColor);
     };
 
 }

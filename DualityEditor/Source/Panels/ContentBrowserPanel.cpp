@@ -5,6 +5,8 @@
 
 #include <imgui.h>
 
+#include "DualityEngine/Asset/AssetMeta.h"
+
 namespace Duality {
 
     static void DrawFolderIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max) {
@@ -63,8 +65,17 @@ namespace Duality {
 
         for (auto& entry : std::filesystem::directory_iterator(m_CurrentDirectory)) {
             const std::filesystem::path& path = entry.path();
-            std::string name = path.filename().string();
             bool isDirectory = entry.is_directory();
+
+            // ".meta" sidecars are bookkeeping, not browsable assets in
+            // their own right -- Unity/Unreal hide them from their asset
+            // views the same way.
+            if (!isDirectory && path.extension() == ".meta")
+                continue;
+            if (!isDirectory)
+                AssetMeta::EnsureMetaFile(path);
+
+            std::string name = path.filename().string();
 
             ImGui::PushID(name.c_str());
             ImGui::BeginGroup();

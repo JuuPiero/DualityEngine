@@ -3,3 +3,4 @@ build
 build-3ds
 build-desktop
 build-3ds-test
+*.log

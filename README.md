@@ -50,12 +50,26 @@ with.
 - **Properties** (right) -- shows every component on the selected entity,
   fields fully generic (reflection-driven -- adding a new component/field
   never needs editor code changes).
-- **Device Preview** (center) -- the 3DS's two physical screens stacked
-  (Top 400x240 above, Bottom 320x240 below), rendered live.
-- **Content Browser** (bottom) -- browses `SampleProject/Assets/` as a grid
-  of icons, with real thumbnails for image files.
+- **Scene** (center, tabbed with Game) -- a free-roam editor camera over the
+  whole scene, independent of any in-scene camera: right-drag to pan, mouse
+  wheel to zoom, left-click a sprite to select it. Camera entities show as
+  small color-coded markers (cyan = Top, orange = Bottom) since they have no
+  sprite of their own. The selected entity gets a 2D translate gizmo (red X
+  / green Y arrows + a yellow free-move square) -- drag a handle to move it.
+- **Game** (center, tabbed with Scene) -- exactly what the real
+  TopCamera/BottomCamera entities render, stacked to match the console's
+  physical layout (Top 400x240 above, Bottom 320x240 below). This is the
+  same render pass the 3DS build itself uses.
+- **Console** (bottom, tabbed with Content Browser) -- `Duality::Log`
+  output, with per-level (Trace/Info/Warn/Error) filtering and a Clear
+  button.
+- **Content Browser** (bottom, tabbed with Console) -- browses
+  `SampleProject/Assets/` as a grid of icons, with real thumbnails for image
+  files. Every asset gets a companion `<name>.meta` file (a stable GUID,
+  Unity/Unreal-style) generated the first time the Content Browser sees it;
+  `.meta` files themselves are hidden from the grid.
 
-Toolbar buttons (top of Device Preview):
+Toolbar buttons (top of the Game panel):
 - **Play / Stop** -- runs `Behaviour` script lifecycle (`OnCreate`/
   `OnUpdate`/`OnDestroy`) against the live scene.
 - **Reload Scripts** -- rebuilds `GameScripts` and hot-reloads it into the
@@ -68,8 +82,9 @@ Toolbar buttons (top of Device Preview):
 
 ### Writing gameplay scripts
 
-Scripts live in `GameScripts/` (built as a hot-reloadable DLL for desktop
-Play-in-Editor). To add one:
+Scripts live in `GameScripts/` -- built as a hot-reloadable DLL for desktop
+Play-in-Editor, or linked statically straight into `DualityPlayer` for the
+3DS build (same source files, no code changes either way). To add one:
 
 1. Add a class deriving from `Duality::Behaviour` (see
    `GameScripts/Include/BounceBehaviour.h`/`Source/BounceBehaviour.cpp` for
@@ -104,9 +119,11 @@ file -- a full rebuild avoids it and only takes well under a minute).
 `DualityPlayer` loads whatever scene was last packaged into
 `DualityPlayer/romfs/Scene.json` (copied there automatically by the
 Editor's "Build for 3DS" button, or by `build-3ds.bat` if you've placed one
-there yourself). `Behaviour` scripts do **not** run on-device yet -- static
-linking `GameScripts` into the device build (so the exact same script files
-work in both places with no code changes) is a planned follow-up.
+there yourself). `Behaviour` scripts and Box2D physics both run for real
+on-device -- `GameScripts` links `STATIC` into `DualityPlayer` (vs. the
+hot-reload `SHARED` DLL used for desktop Play-in-Editor), the exact same
+script source files either way. There's no Play/Stop on a real device: the
+simulation runs continuously from launch until START is pressed.
 
 ## Repository layout
 
@@ -131,10 +148,15 @@ come from the mingw-w64 package repo (prebuilt binaries).
 ## Known limitations
 
 - No "New/Open Project" flow -- the Editor always uses `SampleProject/`.
-- `Behaviour` scripts only run in the desktop Editor (Play mode), not yet on
-  the 3DS device build.
-- The renderer's per-screen draw pass is an interim rule (a screen's
-  primary camera's own sprite, if it has one) -- not yet real multi-sprite
-  camera/viewport composition.
+- `Entity` handles held across a "Load Scene" click (e.g. the current
+  selection) can go stale, since Load replaces the whole registry.
+- `GameScripts` can't call `Duality::Log` yet (it deliberately doesn't link
+  `DualityEngine`'s compiled lib -- see Vendor/architecture notes), so
+  script code has no `Debug.Log`-equivalent into the Console panel yet.
+- Asset `.meta` files carry a GUID but nothing reads it back yet -- no
+  component has a real asset-reference field (texture, prefab, ...) to
+  resolve by GUID. Also, `.meta` generation only happens for a folder once
+  the Content Browser has actually been navigated into it (no upfront
+  recursive scan), and folders don't get their own `.meta` yet.
 - The in-game UI system (declarative XML+CSS, à la Unity UI Toolkit) is
   planned but not started.

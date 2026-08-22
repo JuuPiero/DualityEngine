@@ -9,8 +9,19 @@
 
 namespace Duality {
 
+    // The entity's display identifier (Hierarchy label, future Find-by-name)
+    // -- kept separate from TagComponent below since they're orthogonal in
+    // Unity too (rename an object and its tag/category stays put).
+    struct NameComponent {
+        std::string Name;
+    };
+
+    // A free-text gameplay category, matching Unity's GameObject.tag
+    // (Find-by-tag isn't implemented yet, but the field needs to already
+    // exist and round-trip through the Inspector/serializer before anything
+    // can query by it). "Untagged" mirrors Unity's own default.
     struct TagComponent {
-        std::string Tag;
+        std::string Tag = "Untagged";
     };
 
     // Position/rotation/scale is kept as full 3D vectors even though only 2D

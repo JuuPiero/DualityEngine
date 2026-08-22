@@ -9,6 +9,10 @@ namespace Duality {
         if (!TypeRegistry::All().empty())
             return;
 
+        TypeRegistry::Register<NameComponent>("Name", true, {
+            MakeField("Name", &NameComponent::Name),
+        });
+
         TypeRegistry::Register<TagComponent>("Tag", true, {
             MakeField("Tag", &TagComponent::Tag),
         });

@@ -1,12 +1,15 @@
-// DualityEditor -- Phase 1: Project system, JSON scene save/load, a minimal
-// Content Browser, and a Play/Stop toggle that runs Behaviour lifecycle
-// methods against the desktop preview.
-//
-// Still renders the same two-screen demo Scene through the desktop OpenGL
-// backend, each screen into its own fixed-size framebuffer, displayed
-// stacked in a "Device Preview" panel that mirrors the physical top/bottom
-// layout of the console.
+// DualityEditor -- Project system, JSON scene save/load, a Content Browser,
+// a Play/Stop toggle running Behaviour + Box2D lifecycle against the desktop
+// preview, and Unity-style Scene/Game/Console panels:
+//   - Scene:  free-roam editor-only camera over the whole scene (own
+//             offscreen framebuffer, pan with right-drag, zoom with wheel,
+//             left-click to select) -- no CameraComponent involved.
+//   - Game:   exactly what the real TopCamera/BottomCamera entities render,
+//             stacked top/bottom to mirror the console's physical layout --
+//             the same RenderScreen pass DualityPlayer uses on-device.
+//   - Console: Duality::Log's in-memory entries (see ConsolePanel.h).
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <type_traits>
@@ -24,7 +27,9 @@
 
 #include "DualityEditor/BuildPipeline.h"
 #include "DualityEditor/Framebuffer.h"
+#include "DualityEditor/Panels/ConsolePanel.h"
 #include "DualityEditor/Panels/ContentBrowserPanel.h"
+#include "DualityEditor/SceneGizmo.h"
 #include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Reflection/Reflection.h"
@@ -89,6 +94,20 @@ int main() {
 
     Framebuffer topFramebuffer(TopScreenWidth, TopScreenHeight);
     Framebuffer bottomFramebuffer(BottomScreenWidth, BottomScreenHeight);
+
+    // Scene view: a free-roam editor-only camera over a fixed-size canvas
+    // (no CameraComponent involved), so the whole scene can be laid out in
+    // one shared space regardless of which physical screen a given sprite
+    // ends up on -- Unity's Scene view, as opposed to Game view below which
+    // is exactly what the real TopCamera/BottomCamera entities see.
+    constexpr int SceneViewWidth = 960;
+    constexpr int SceneViewHeight = 540;
+    Framebuffer sceneFramebuffer(SceneViewWidth, SceneViewHeight);
+    glm::vec2 sceneCameraPos{ TopScreenWidth * 0.5f, TopScreenHeight * 0.5f };
+    float sceneZoom = 1.0f;
+    GizmoAxis draggingGizmoAxis = GizmoAxis::None;
+
+    ConsolePanel consolePanel;
 
     // No Project Hub / "New Project" dialog yet -- always open (or create)
     // a fixed sample project next to the working directory.
@@ -168,6 +187,41 @@ int main() {
         bottomFramebuffer.Bind();
         RenderScreen(renderer, scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
         bottomFramebuffer.Unbind();
+
+        // BeginCustomView's projection is already centered on
+        // sceneCameraPos/sceneZoom (see OpenGLRenderer2D::BeginCustomView),
+        // unlike BeginScene's fixed 0..width/0..height projection that
+        // RenderScreen manually pre-transforms into before drawing -- so
+        // DrawQuad calls here must use plain world coordinates. Manually
+        // re-applying the camera offset/zoom on top of that (as an earlier
+        // version of this loop did) double-transforms every position,
+        // drifting further from the gizmo/selection math -- which already
+        // computes a single correct transform -- the more the camera pans
+        // or zooms away from its default.
+        sceneFramebuffer.Bind();
+        renderer.BeginCustomView(sceneCameraPos, sceneZoom, static_cast<float>(SceneViewWidth), static_cast<float>(SceneViewHeight), { 0.15f, 0.15f, 0.18f, 1.0f });
+        for (auto handle : scene.Registry().view<TransformComponent, SpriteRendererComponent>()) {
+            auto& transform = scene.Registry().get<TransformComponent>(handle);
+            auto& sprite = scene.Registry().get<SpriteRendererComponent>(handle);
+            glm::vec2 topLeft{ transform.Translation.x - sprite.Size.x * 0.5f, transform.Translation.y - sprite.Size.y * 0.5f };
+            renderer.DrawQuad(topLeft, sprite.Size, sprite.Color);
+        }
+        // Cameras have no sprite of their own -- draw a small gizmo marker at
+        // each one's position (color-coded by target screen) so the Scene
+        // view still shows where TopCamera/BottomCamera actually are. Sized
+        // in world units scaled inversely by zoom so it reads as a constant
+        // screen size (like a real editor camera-frustum icon) rather than
+        // shrinking/growing with the world content around it.
+        for (auto handle : scene.Registry().view<TransformComponent, CameraComponent>()) {
+            auto& transform = scene.Registry().get<TransformComponent>(handle);
+            auto& camera = scene.Registry().get<CameraComponent>(handle);
+            float markerSize = 14.0f / sceneZoom;
+            glm::vec4 markerColor = (camera.Screen == Screen::Top) ? glm::vec4{ 0.3f, 0.9f, 0.9f, 1.0f } : glm::vec4{ 0.95f, 0.6f, 0.2f, 1.0f };
+            renderer.DrawQuad({ transform.Translation.x - markerSize * 0.5f, transform.Translation.y - markerSize * 0.5f }, { markerSize, markerSize }, markerColor);
+        }
+        renderer.EndScene();
+        sceneFramebuffer.Unbind();
+
         renderer.EndFrame();
 
         int displayW, displayH;
@@ -213,7 +267,11 @@ int main() {
             ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
             ImGui::DockBuilderDockWindow("Properties", dockRight);
             ImGui::DockBuilderDockWindow("Content Browser", dockBottom);
-            ImGui::DockBuilderDockWindow("Device Preview", dockMain);
+            ImGui::DockBuilderDockWindow("Console", dockBottom);
+            // Scene and Game share the same center dock node, so they come up
+            // as tabs -- matching Unity's default layout exactly.
+            ImGui::DockBuilderDockWindow("Scene", dockMain);
+            ImGui::DockBuilderDockWindow("Game", dockMain);
             ImGui::DockBuilderFinish(dockspaceId);
 
             dockLayoutInitialized = true;
@@ -222,7 +280,87 @@ int main() {
         ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
         ImGui::End();
 
-        ImGui::Begin("Device Preview");
+        ImGui::Begin("Scene");
+        {
+            ImVec2 imagePos = ImGui::GetCursorScreenPos();
+            ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(sceneFramebuffer.GetColorAttachment())),
+                         ImVec2(static_cast<float>(SceneViewWidth), static_cast<float>(SceneViewHeight)), ImVec2(0, 1), ImVec2(1, 0));
+            bool imageHovered = ImGui::IsItemHovered();
+            ImGuiIO& io = ImGui::GetIO();
+
+            auto WorldToSceneScreen = [&](const glm::vec2& worldPos) {
+                return ImVec2(
+                    imagePos.x + (worldPos.x - sceneCameraPos.x) * sceneZoom + SceneViewWidth * 0.5f,
+                    imagePos.y + (worldPos.y - sceneCameraPos.y) * sceneZoom + SceneViewHeight * 0.5f);
+            };
+
+            // Draw+hit-test the gizmo every frame (not just while hovered) so
+            // a drag already in progress keeps tracking even if the mouse
+            // drifts outside the image mid-drag.
+            bool hasGizmoTarget = selected && selected.HasComponent<TransformComponent>();
+            GizmoAxis hoveredGizmoAxis = GizmoAxis::None;
+            if (hasGizmoTarget) {
+                auto& selectedTransform = selected.GetComponent<TransformComponent>();
+                ImVec2 gizmoOrigin = WorldToSceneScreen({ selectedTransform.Translation.x, selectedTransform.Translation.y });
+                hoveredGizmoAxis = DrawAndHitTestGizmo2D(gizmoOrigin, draggingGizmoAxis);
+            }
+
+            if (imageHovered) {
+                if (io.MouseWheel != 0.0f)
+                    sceneZoom = std::clamp(sceneZoom * (1.0f + io.MouseWheel * 0.1f), 0.1f, 5.0f);
+
+                if (ImGui::IsMouseDragging(ImGuiMouseButton_Right, 0.0f)) {
+                    sceneCameraPos.x -= io.MouseDelta.x / sceneZoom;
+                    sceneCameraPos.y -= io.MouseDelta.y / sceneZoom;
+                }
+
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                    if (hasGizmoTarget && hoveredGizmoAxis != GizmoAxis::None) {
+                        draggingGizmoAxis = hoveredGizmoAxis;
+                    } else {
+                        glm::vec2 local{ io.MousePos.x - imagePos.x, io.MousePos.y - imagePos.y };
+                        glm::vec2 worldPoint{
+                            (local.x - SceneViewWidth * 0.5f) / sceneZoom + sceneCameraPos.x,
+                            (local.y - SceneViewHeight * 0.5f) / sceneZoom + sceneCameraPos.y
+                        };
+
+                        Entity hit;
+                        for (auto handle : scene.Registry().view<TransformComponent, SpriteRendererComponent>()) {
+                            Entity candidate(handle, &scene);
+                            auto& transform = candidate.GetComponent<TransformComponent>();
+                            auto& sprite = candidate.GetComponent<SpriteRendererComponent>();
+                            bool inside = worldPoint.x >= transform.Translation.x - sprite.Size.x * 0.5f &&
+                                          worldPoint.x <= transform.Translation.x + sprite.Size.x * 0.5f &&
+                                          worldPoint.y >= transform.Translation.y - sprite.Size.y * 0.5f &&
+                                          worldPoint.y <= transform.Translation.y + sprite.Size.y * 0.5f;
+                            if (inside)
+                                hit = candidate; // topmost (last drawn) match wins
+                        }
+                        if (hit)
+                            selected = hit;
+                    }
+                }
+            }
+
+            // Not gated on imageHovered: once a drag starts it should keep
+            // following the mouse even if the cursor leaves the image rect,
+            // matching how ImGui's own drag widgets behave.
+            if (draggingGizmoAxis != GizmoAxis::None) {
+                if (hasGizmoTarget && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                    auto& selectedTransform = selected.GetComponent<TransformComponent>();
+                    glm::vec2 worldDelta{ io.MouseDelta.x / sceneZoom, io.MouseDelta.y / sceneZoom };
+                    if (draggingGizmoAxis == GizmoAxis::X || draggingGizmoAxis == GizmoAxis::Both)
+                        selectedTransform.Translation.x += worldDelta.x;
+                    if (draggingGizmoAxis == GizmoAxis::Y || draggingGizmoAxis == GizmoAxis::Both)
+                        selectedTransform.Translation.y += worldDelta.y;
+                }
+                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                    draggingGizmoAxis = GizmoAxis::None;
+            }
+        }
+        ImGui::End();
+
+        ImGui::Begin("Game");
 
         if (!isPlaying) {
             if (ImGui::Button("Play")) {
@@ -264,10 +402,10 @@ int main() {
         ImGui::End();
 
         ImGui::Begin("Hierarchy");
-        for (auto handle : scene.Registry().view<TagComponent>()) {
+        for (auto handle : scene.Registry().view<NameComponent>()) {
             Entity entity(handle, &scene);
             const bool isSelected = (entity == selected);
-            if (ImGui::Selectable(entity.GetComponent<TagComponent>().Tag.c_str(), isSelected))
+            if (ImGui::Selectable(entity.GetComponent<NameComponent>().Name.c_str(), isSelected))
                 selected = entity;
         }
         ImGui::End();
@@ -327,6 +465,7 @@ int main() {
         ImGui::End();
 
         contentBrowser.OnImGuiRender();
+        consolePanel.OnImGuiRender();
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
