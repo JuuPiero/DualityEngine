@@ -4,3 +4,8 @@ build-3ds
 build-desktop
 build-3ds-test
 *.log
+
+# Cooked at "Build for 3DS" time by BuildPipeline::CookAssets (from SampleProject/Assets) --
+# generated build output, not hand-authored source, regenerated fresh on every build.
+DualityPlayer/romfs/Assets/
+DualityPlayer/romfs/AssetManifest.json

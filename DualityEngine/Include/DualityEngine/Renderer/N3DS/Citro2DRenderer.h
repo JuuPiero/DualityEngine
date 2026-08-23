@@ -1,5 +1,9 @@
 #pragma once
 
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include <3ds.h>
 #include <citro2d.h>
 
@@ -24,11 +28,12 @@ namespace Duality {
 
         void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0) override;
 
-        // Always returns 0 -- citro2d has no PNG-loading path on real
-        // hardware (needs pre-converted .t3x via the tex3ds tool, a
-        // separate future asset-cooking pipeline). DrawQuad ignores
-        // textureId here since it's always 0 from this backend, falling
-        // back to its flat Color.
+        // `path` is expected to already be a citro2d-loadable ".t3x" path (e.g.
+        // "romfs:/Assets/Textures/foo.t3x") -- BuildPipeline::CookAssets converts every
+        // project PNG to this format at "Build for 3DS" time, and AssetDatabase::LoadManifest
+        // resolves an AssetRef's guid to exactly this kind of path on-device, so this never
+        // needs to see a raw ".png" itself. Returns 0 (same "no texture" contract as the
+        // desktop backend) if the file doesn't exist or isn't a valid ".t3x".
         uint32_t LoadTexture(const std::string& path) override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
@@ -38,6 +43,12 @@ namespace Duality {
         C3D_RenderTarget* m_TopTarget = nullptr;
         C3D_RenderTarget* m_BottomTarget = nullptr;
         uint32_t m_DrawCallCount = 0;
+
+        // Index i (0-based) backs textureId i+1 -- 0 stays reserved for "none", matching
+        // OpenGLRenderer2D's own handle convention. Cached by path so the same AssetRef drawn
+        // by many entities only calls C2D_SpriteSheetLoad once.
+        std::vector<C2D_SpriteSheet> m_TextureSheets;
+        std::unordered_map<std::string, uint32_t> m_TextureCache;
     };
 
 }

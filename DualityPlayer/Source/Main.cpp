@@ -12,6 +12,7 @@
 
 #include <3ds.h>
 
+#include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Input/Input.h"
 #include "DualityEngine/Reflection/Reflection.h"
@@ -43,6 +44,13 @@ int main(int argc, char* argv[]) {
     Citro2DRenderer renderer;
     renderer.Init();
     AudioEngine::Init();
+
+    // Populates the guid->path index from the manifest BuildPipeline::CookAssets baked into
+    // romfs at build time -- DualityPlayer has no real filesystem to scan (unlike the Editor's
+    // AssetDatabase::Refresh against the desktop project folder), so this is the on-device
+    // equivalent. Without it, every AssetRef (sprite textures, PlaySound guids) would resolve
+    // to an empty path here even though the exact same scene works fine in the Editor.
+    AssetDatabase::LoadManifest("romfs:/AssetManifest.json");
 
     Scene scene;
     SceneSerializer(scene).Deserialize("romfs:/Scene.json");

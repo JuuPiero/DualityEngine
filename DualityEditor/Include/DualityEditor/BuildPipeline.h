@@ -38,6 +38,13 @@ namespace Duality {
         static BuildStatus GetStatus() { return s_Status; }
 
     private:
+        // Cooks every asset under `assetsDirectory` into `DualityPlayer/romfs/Assets/` (images
+        // to .t3x via tex3ds, everything else copied verbatim) and writes a guid->romfs-path
+        // manifest (DualityPlayer/romfs/AssetManifest.json) that AssetDatabase::LoadManifest
+        // loads on-device at startup. A single bad/unconvertible file is logged and skipped,
+        // not fatal to the whole build.
+        static bool CookAssets(const std::string& repoRoot, const std::string& assetsDirectory);
+
         static std::atomic<BuildStatus> s_Status;
     };
 

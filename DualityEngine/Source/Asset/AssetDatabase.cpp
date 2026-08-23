@@ -48,6 +48,26 @@ namespace Duality {
             s_GuidToPath[guid] = path;
     }
 
+    void AssetDatabase::LoadManifest(const std::string& manifestPath) {
+        std::ifstream file(manifestPath);
+        if (!file.is_open())
+            return;
+
+        json root;
+        try {
+            file >> root;
+        } catch (const json::parse_error&) {
+            return;
+        }
+
+        if (!root.is_object())
+            return;
+        for (auto& [guid, path] : root.items()) {
+            if (path.is_string())
+                Register(guid, path.get<std::string>());
+        }
+    }
+
     std::string AssetDatabase::ResolvePath(const std::string& guid) {
         auto it = s_GuidToPath.find(guid);
         return it != s_GuidToPath.end() ? it->second : std::string();

@@ -11,11 +11,22 @@ namespace Duality {
         C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
         C2D_Prepare();
 
+        // Global tint state (citro2d has no per-draw mode parameter) -- TintMult (texture
+        // color x tint color) matches DrawQuad's documented "a texture with color {1,1,1,1}
+        // draws unmodified" contract, the same modulate semantics OpenGLRenderer2D gets for
+        // free from glColor4f + a textured GL_QUADS draw.
+        C2D_SetTintMode(C2D_TintMult);
+
         m_TopTarget = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
         m_BottomTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
     }
 
     void Citro2DRenderer::Shutdown() {
+        for (C2D_SpriteSheet sheet : m_TextureSheets)
+            C2D_SpriteSheetFree(sheet);
+        m_TextureSheets.clear();
+        m_TextureCache.clear();
+
         C2D_Fini();
         C3D_Fini();
     }
@@ -46,8 +57,24 @@ namespace Duality {
         // implementation has a defined place to flush from.
     }
 
-    void Citro2DRenderer::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t /*textureId*/) {
-        m_DrawCallCount++; // one C2D_DrawRectSolid call below == one real draw call
+    void Citro2DRenderer::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t textureId) {
+        m_DrawCallCount++; // one C2D_DrawRectSolid/C2D_DrawSpriteTinted call below == one real draw call
+
+        if (textureId != 0) {
+            C2D_Sprite sprite;
+            C2D_SpriteFromSheet(&sprite, m_TextureSheets[textureId - 1], 0); // single-image .t3x (BuildPipeline::CookAssets) -> always index 0
+            C2D_SpriteSetCenter(&sprite, 0.5f, 0.5f); // rotate/scale around center, matching this function's own documented contract
+            if (sprite.params.pos.w > 0.0f && sprite.params.pos.h > 0.0f)
+                C2D_SpriteSetScale(&sprite, size.x / sprite.params.pos.w, size.y / sprite.params.pos.h); // native px -> requested Size
+            glm::vec2 center = position + size * 0.5f;
+            C2D_SpriteSetPos(&sprite, center.x, center.y);
+            C2D_SpriteSetRotationDegrees(&sprite, rotationDegrees);
+
+            C2D_ImageTint tint;
+            C2D_PlainImageTint(&tint, ToC2DColor(color), 1.0f);
+            C2D_DrawSpriteTinted(&sprite, &tint);
+            return;
+        }
 
         if (rotationDegrees == 0.0f) {
             C2D_DrawRectSolid(position.x, position.y, 0.0f, size.x, size.y, ToC2DColor(color));
@@ -65,8 +92,19 @@ namespace Duality {
         C2D_ViewReset();
     }
 
-    uint32_t Citro2DRenderer::LoadTexture(const std::string& /*path*/) {
-        return 0;
+    uint32_t Citro2DRenderer::LoadTexture(const std::string& path) {
+        auto it = m_TextureCache.find(path);
+        if (it != m_TextureCache.end())
+            return it->second;
+
+        C2D_SpriteSheet sheet = C2D_SpriteSheetLoad(path.c_str());
+        uint32_t textureId = 0;
+        if (sheet) {
+            m_TextureSheets.push_back(sheet);
+            textureId = static_cast<uint32_t>(m_TextureSheets.size()); // 1-based, 0 reserved for "none"
+        }
+        m_TextureCache[path] = textureId; // cache failures too, matching OpenGLRenderer2D's own behavior
+        return textureId;
     }
 
 }

@@ -90,10 +90,23 @@ namespace Duality {
     // camera's own TransformComponent::Translation is the world point it's
     // centered on; Zoom is a uniform world-to-pixel scale (1.0 = 1 world
     // unit per pixel, matching every scene authored before Zoom existed).
+    // Orthographic drives this screen's existing 2D sprite pipeline (unchanged); Perspective
+    // switches that screen over to the 3D mesh pipeline for the frame -- a screen is always
+    // fully one or the other, never both composited together (see MeshRendererComponent).
+    enum class ProjectionType {
+        Orthographic,
+        Perspective
+    };
+
     struct CameraComponent {
         Duality::Screen Screen = Duality::Screen::Top;
         bool Primary = true;
-        float Zoom = 1.0f;
+        float Zoom = 1.0f; // Orthographic only
+
+        ProjectionType Projection = ProjectionType::Orthographic;
+        float FovDegrees = 60.0f; // Perspective only
+        float NearPlane = 0.1f;   // Perspective only
+        float FarPlane = 1000.0f; // Perspective only
     };
 
     // Which Behaviour subclass is attached, looked up by name at Play time

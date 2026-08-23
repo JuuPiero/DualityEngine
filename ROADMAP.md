@@ -8,16 +8,27 @@ this file whenever something below actually gets built, or a new deferred item c
 
 - [ ] Spritesheet/atlas-based animation (UV sub-rects), as an alternative to the
       fixed-frame-slot flipbook (`SpriteFlipbookComponent`).
-- [ ] 3D renderer. Explicitly deferred (see the DualityEngine project memory's
-      Polyphase-Engine research notes) -- the project doesn't even have textured 2D
-      sprites yet, so this is intentionally not next. If/when it starts: a two-tier
-      full/lite material system (arbitrary shader graph on desktop, a simplified
-      fixed-function/TEV-stage model for the 3DS's PICA200 GPU) is the one idea worth
-      carrying over from that research, not the reference codebase itself.
-- [ ] Texture rendering on the actual 3DS build. citro2d needs pre-converted `.t3x`
-      files (via the `tex3ds` tool) -- there's no PNG-loading path on real hardware.
-      Desktop Editor already supports real textures; on-device, textured sprites
-      currently fall back to their flat `Color`.
+- [~] 3D renderer -- in progress, first pass scoped to: unlit only (no lighting/material
+      system), procedural primitives only (Cube/Sphere/Plane, no mesh import pipeline), no 3D
+      gizmo (Properties panel's existing generic vec3 fields cover Translation/Rotation/Scale
+      editing instead), and a per-screen *exclusive* 2D-or-3D switch (never both composited on
+      one screen in the same frame) -- see `IRenderer3D`/`OpenGLRenderer3D`/`Citro3DRenderer`.
+      A two-tier full/lite material system (arbitrary shader graph on desktop, a simplified
+      fixed-function/TEV-stage model for the 3DS's PICA200 GPU) remains the one idea worth
+      carrying over from the earlier Polyphase-Engine research, once real materials/lighting
+      are in scope.
+- [x] Texture rendering on the actual 3DS build (`BuildPipeline::CookAssets`,
+      `AssetDatabase::LoadManifest`, `Citro2DRenderer::LoadTexture`/`DrawQuad`) -- every PNG
+      under a project's `Assets/` is converted to `.t3x` via `tex3ds` at "Build for 3DS" time
+      and baked into romfs alongside a guid->romfs-path manifest, since `AssetDatabase` has no
+      real filesystem to scan on-device the way the Editor scans the desktop project folder.
+      The same manifest mechanism incidentally fixed an identical latent gap in audio's GUID
+      resolution (`PlaySound`) for free. Found and fixed along the way: a real `cmd.exe /c`
+      quoting bug in `BuildPipeline::RunCommand` -- `std::system()`'s command wrapping only
+      preserves quotes for a bare single-argument executable path; anything with more than two
+      quote characters (like a multi-argument `tex3ds` invocation) needs an extra outer quote
+      layer to survive cmd's quote-stripping, confirmed empirically after the naive version
+      silently corrupted the command and mis-reported tex3ds as failing with no useful error.
 
 ## UI
 
