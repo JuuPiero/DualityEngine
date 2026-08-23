@@ -7,7 +7,12 @@ namespace Duality {
     }
 
     void Citro2DRenderer::Init() {
-        C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
+        // C3D_Init is NOT called here -- it's process-global, singular state, owned once by
+        // the app entry point (DualityPlayer::Main.cpp) now that a second, raw-citro3d
+        // renderer (Citro3DRenderer) also needs it, since citro2d itself is built on top of
+        // citro3d and C3D_Init must never be called twice. The caller is responsible for
+        // calling C3D_Init before this Init(), same as it owns C3D_FrameBegin/FrameEnd now
+        // too (see BeginFrame/EndFrame below).
         C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
         C2D_Prepare();
 
@@ -28,16 +33,18 @@ namespace Duality {
         m_TextureCache.clear();
 
         C2D_Fini();
-        C3D_Fini();
+        // C3D_Fini is the caller's responsibility too, see Init()'s comment.
     }
 
     void Citro2DRenderer::BeginFrame() {
-        C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+        // C3D_FrameBegin is the caller's responsibility (see Init()'s comment) -- it now
+        // wraps BOTH this renderer's and Citro3DRenderer's screen draws for the frame,
+        // whichever screens use which pipeline. This only resets this renderer's own stats.
         m_DrawCallCount = 0;
     }
 
     void Citro2DRenderer::EndFrame() {
-        C3D_FrameEnd(0);
+        // C3D_FrameEnd is the caller's responsibility, see BeginFrame()'s comment.
     }
 
     C3D_RenderTarget* Citro2DRenderer::TargetFor(Screen screen) const {

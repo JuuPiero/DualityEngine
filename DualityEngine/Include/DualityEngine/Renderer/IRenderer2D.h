@@ -24,7 +24,12 @@ namespace Duality {
         virtual void Init() = 0;
         virtual void Shutdown() = 0;
 
-        // Frame bracket: on device, C3D_FrameBegin/C3D_FrameEnd.
+        // Per-renderer-instance bookkeeping bracket (currently just resets
+        // GetDrawCallCount()) -- NOT the GPU frame bracket itself. On device, C3D_FrameBegin/
+        // C3D_FrameEnd is owned once by the app entry point (DualityPlayer::Main.cpp), not by
+        // this renderer, since a second renderer (IRenderer3D's Citro3DRenderer) may also
+        // draw within the same C3D frame when a different screen uses the 3D pipeline that
+        // frame -- C3D's frame bracket is process-global, singular state.
         virtual void BeginFrame() = 0;
         virtual void EndFrame() = 0;
 

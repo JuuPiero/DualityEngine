@@ -24,6 +24,15 @@ namespace Duality {
         return renderer.LoadTexture(path);
     }
 
+    uint32_t ResolveMeshTexture(IRenderer3D& renderer, const AssetRef& textureRef) {
+        if (textureRef.Guid.empty())
+            return 0;
+        std::string path = AssetDatabase::ResolvePath(textureRef.Guid);
+        if (path.empty())
+            return 0;
+        return renderer.LoadTexture(path);
+    }
+
     bool ShouldRenderOnScreen(Scene& scene, entt::entity handle, Screen screen) {
         Screen entityScreen;
         if (scene.TryResolveEntityScreen(Entity(handle, &scene), entityScreen))
@@ -41,10 +50,15 @@ namespace Duality {
         }
     }
 
-    void RenderScreen(IRenderer2D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor) {
-        renderer.BeginScene(screen, clearColor);
-
+    void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor) {
         Entity camera = scene.GetPrimaryCamera(screen);
+        if (camera && camera.GetComponent<CameraComponent>().Projection == ProjectionType::Perspective) {
+            RenderScreen3D(renderer3D, scene, screen, clearColor);
+            return;
+        }
+
+        renderer2D.BeginScene(screen, clearColor);
+
         if (camera) {
             TransformComponent cameraTransform = scene.GetWorldTransform(camera);
             auto& cameraComponent = camera.GetComponent<CameraComponent>();
@@ -72,10 +86,36 @@ namespace Duality {
                     (transform.Translation.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f
                 };
                 glm::vec2 size = sprite.Size * cameraComponent.Zoom;
-                uint32_t textureId = ResolveSpriteTexture(renderer, GetActiveSpriteTexture(scene, handle));
+                uint32_t textureId = ResolveSpriteTexture(renderer2D, GetActiveSpriteTexture(scene, handle));
 
-                renderer.DrawQuad({ screenCenter.x - size.x * 0.5f, screenCenter.y - size.y * 0.5f }, size, sprite.Color, transform.Rotation.z, textureId);
+                renderer2D.DrawQuad({ screenCenter.x - size.x * 0.5f, screenCenter.y - size.y * 0.5f }, size, sprite.Color, transform.Rotation.z, textureId);
             }
+        }
+
+        renderer2D.EndScene();
+    }
+
+    void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor) {
+        Entity camera = scene.GetPrimaryCamera(screen);
+        if (!camera)
+            return; // nothing to render without a camera, matching RenderScreen's own no-camera behavior
+
+        TransformComponent cameraTransform = scene.GetWorldTransform(camera);
+        auto& cameraComponent = camera.GetComponent<CameraComponent>();
+        float screenWidth, screenHeight;
+        ScreenExtents(screen, screenWidth, screenHeight);
+
+        renderer.BeginScene(screen, cameraTransform.Translation, cameraTransform.Rotation, cameraComponent.FovDegrees, screenWidth / screenHeight, cameraComponent.NearPlane, cameraComponent.FarPlane, clearColor);
+
+        auto view = scene.Registry().view<TransformComponent, MeshRendererComponent>();
+        for (auto handle : view) {
+            if (!ShouldRenderOnScreen(scene, handle, screen))
+                continue;
+            TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
+            auto& mesh = view.get<MeshRendererComponent>(handle);
+            uint32_t textureId = ResolveMeshTexture(renderer, mesh.Texture);
+
+            renderer.DrawMesh(mesh.Primitive, transform.Translation, transform.Rotation, transform.Scale, mesh.Color, textureId);
         }
 
         renderer.EndScene();

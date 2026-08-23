@@ -89,6 +89,20 @@ namespace Duality {
                                 v = (current == 0) ? Screen::Top : Screen::Bottom;
                                 changed = true;
                             }
+                        } else if constexpr (std::is_same_v<T, ProjectionType>) {
+                            const char* items[] = { "Orthographic", "Perspective" };
+                            int current = (v == ProjectionType::Orthographic) ? 0 : 1;
+                            if (ImGui::Combo(field.Name.c_str(), &current, items, 2)) {
+                                v = (current == 0) ? ProjectionType::Orthographic : ProjectionType::Perspective;
+                                changed = true;
+                            }
+                        } else if constexpr (std::is_same_v<T, MeshPrimitive>) {
+                            const char* items[] = { "Cube", "Sphere", "Plane" };
+                            int current = static_cast<int>(v);
+                            if (ImGui::Combo(field.Name.c_str(), &current, items, 3)) {
+                                v = static_cast<MeshPrimitive>(current);
+                                changed = true;
+                            }
                         } else if constexpr (std::is_same_v<T, AssetRef>) {
                             // Drag-drop target only for this pass -- no
                             // inline thumbnail preview (would need

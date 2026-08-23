@@ -11,12 +11,14 @@
 // until START is pressed.
 
 #include <3ds.h>
+#include <citro3d.h>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Input/Input.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/N3DS/Citro2DRenderer.h"
+#include "DualityEngine/Renderer/N3DS/Citro3DRenderer.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -41,8 +43,17 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < entryCount; i++)
         ScriptRegistry::Register(entries[i]);
 
+    // C3D_Init/Fini and C3D_FrameBegin/FrameEnd are owned here, not inside Citro2DRenderer --
+    // citro2d is itself built on top of citro3d, and this process-global GPU-frame bracket
+    // must be entered/exited exactly once per frame regardless of which screens use the 2D
+    // (citro2d) vs. 3D (raw citro3d, once added) pipeline that frame. See Citro2DRenderer::
+    // Init/BeginFrame's own comments for the full reasoning.
+    C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
+
     Citro2DRenderer renderer;
     renderer.Init();
+    Citro3DRenderer renderer3D;
+    renderer3D.Init();
     AudioEngine::Init();
 
     // Populates the guid->path index from the manifest BuildPipeline::CookAssets baked into
@@ -103,14 +114,18 @@ int main(int argc, char* argv[]) {
         scene.OnRuntimeUpdate(deltaTime);
 
         renderer.BeginFrame();
-        RenderScreen(renderer, scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f });
-        RenderScreen(renderer, scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
+        C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+        RenderScreen(renderer, renderer3D, scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f });
+        RenderScreen(renderer, renderer3D, scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
+        C3D_FrameEnd(0);
         renderer.EndFrame();
     }
 
     scene.OnRuntimeStop();
     AudioEngine::Shutdown();
     renderer.Shutdown();
+    renderer3D.Shutdown();
+    C3D_Fini();
     romfsExit();
     gfxExit();
     return 0;

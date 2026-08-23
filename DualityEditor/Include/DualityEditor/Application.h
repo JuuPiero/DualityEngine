@@ -6,6 +6,7 @@
 
 #include <glm/glm.hpp>
 
+#include "DualityEditor/EditorContext.h" // for RenderMode -- an m_Top/BottomRenderMode member needs its full definition, not just a forward declaration
 #include "DualityEditor/Event.h"
 #include "DualityEditor/Framebuffer.h"
 #include "DualityEditor/Panels/ConsolePanel.h"
@@ -17,9 +18,11 @@
 #include "DualityEditor/Panels/ScenePanel.h"
 #include "DualityEditor/SceneGizmo.h"
 #include "DualityEditor/SceneViewCamera.h"
+#include "DualityEditor/SceneViewCamera3D.h"
 #include "DualityEditor/Window.h"
 #include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
+#include "DualityEngine/Renderer/OpenGL/OpenGLRenderer3D.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Scene.h"
 
@@ -51,6 +54,7 @@ namespace Duality {
         std::shared_ptr<Project> m_Project;
         Scene m_Scene;
         OpenGLRenderer2D m_Renderer;
+        OpenGLRenderer3D m_Renderer3D;
 
         Framebuffer m_TopFramebuffer;
         Framebuffer m_BottomFramebuffer;
@@ -78,6 +82,10 @@ namespace Duality {
 
         SceneViewCamera m_TopSceneView;
         SceneViewCamera m_BottomSceneView;
+        RenderMode m_TopRenderMode = RenderMode::Mode2D;
+        RenderMode m_BottomRenderMode = RenderMode::Mode2D;
+        SceneViewCamera3D m_TopSceneView3D;
+        SceneViewCamera3D m_BottomSceneView3D;
         GizmoMode m_ActiveGizmoMode = GizmoMode::Translate;
         GizmoAxis m_DraggingGizmoAxis = GizmoAxis::None;
         Screen m_DraggingGizmoScreen = Screen::Top;

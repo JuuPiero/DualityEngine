@@ -7,6 +7,8 @@
 
 #include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Reflection/Field.h"
+#include "DualityEngine/Renderer/MeshPrimitive.h"
+#include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Behaviour.h"
 
@@ -45,6 +47,20 @@ namespace Duality {
     struct SpriteRendererComponent {
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec2 Size{ 32.0f, 32.0f };
+        AssetRef Texture;
+    };
+
+    // Unlit -- no lighting/material system yet (see ROADMAP.md). A procedural primitive
+    // (no mesh import pipeline yet) sized/oriented by the entity's own TransformComponent
+    // (world-space Scale IS the mesh's size here, unlike SpriteRendererComponent's separate
+    // Size field, since a 3D mesh has no meaningful "pixel size" the way a 2D quad does).
+    // Color/Texture follow SpriteRendererComponent's exact convention (empty Guid = flat
+    // Color, Color still modulates a resolved texture). Only drawn on a screen whose primary
+    // camera is ProjectionType::Perspective -- see CameraComponent. MeshPrimitive itself lives
+    // in Renderer/MeshPrimitive.h, not here -- see that header's own comment for why.
+    struct MeshRendererComponent {
+        MeshPrimitive Primitive = MeshPrimitive::Cube;
+        glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
         AssetRef Texture;
     };
 
@@ -90,14 +106,8 @@ namespace Duality {
     // camera's own TransformComponent::Translation is the world point it's
     // centered on; Zoom is a uniform world-to-pixel scale (1.0 = 1 world
     // unit per pixel, matching every scene authored before Zoom existed).
-    // Orthographic drives this screen's existing 2D sprite pipeline (unchanged); Perspective
-    // switches that screen over to the 3D mesh pipeline for the frame -- a screen is always
-    // fully one or the other, never both composited together (see MeshRendererComponent).
-    enum class ProjectionType {
-        Orthographic,
-        Perspective
-    };
-
+    // Projection (ProjectionType, Renderer/ProjectionType.h) picks which pipeline this
+    // screen uses -- see that header's own comment.
     struct CameraComponent {
         Duality::Screen Screen = Duality::Screen::Top;
         bool Primary = true;

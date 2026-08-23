@@ -47,6 +47,16 @@ namespace Duality {
             MakeField("Screen", &CameraComponent::Screen),
             MakeField("Primary", &CameraComponent::Primary),
             MakeField("Zoom", &CameraComponent::Zoom),
+            MakeField("Projection", &CameraComponent::Projection),
+            MakeField("Fov Degrees", &CameraComponent::FovDegrees),
+            MakeField("Near Plane", &CameraComponent::NearPlane),
+            MakeField("Far Plane", &CameraComponent::FarPlane),
+        });
+
+        TypeRegistry::Register<MeshRendererComponent>("Mesh Renderer", false, {
+            MakeField("Primitive", &MeshRendererComponent::Primitive),
+            MakeColorField("Color", &MeshRendererComponent::Color),
+            MakeField("Texture", &MeshRendererComponent::Texture),
         });
 
         TypeRegistry::Register<ScreenGroupComponent>("Screen Group", false, {

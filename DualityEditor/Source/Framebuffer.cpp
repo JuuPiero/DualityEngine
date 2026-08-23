@@ -11,6 +11,7 @@ namespace Duality {
     Framebuffer::~Framebuffer() {
         glDeleteFramebuffers(1, &m_RendererId);
         glDeleteTextures(1, &m_ColorAttachment);
+        glDeleteRenderbuffers(1, &m_DepthStencilAttachment);
     }
 
     void Framebuffer::CreateAttachments() {
@@ -24,6 +25,11 @@ namespace Duality {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_ColorAttachment, 0);
 
+        glGenRenderbuffers(1, &m_DepthStencilAttachment);
+        glBindRenderbuffer(GL_RENDERBUFFER, m_DepthStencilAttachment);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_DepthStencilAttachment);
+
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
@@ -33,6 +39,7 @@ namespace Duality {
 
         glDeleteFramebuffers(1, &m_RendererId);
         glDeleteTextures(1, &m_ColorAttachment);
+        glDeleteRenderbuffers(1, &m_DepthStencilAttachment);
 
         m_Width = width;
         m_Height = height;

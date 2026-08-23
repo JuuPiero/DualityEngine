@@ -8,12 +8,19 @@
 #include "DualityEditor/Framebuffer.h"
 #include "DualityEditor/SceneGizmo.h"
 #include "DualityEditor/SceneViewCamera.h"
+#include "DualityEditor/SceneViewCamera3D.h"
 #include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
+#include "DualityEngine/Renderer/OpenGL/OpenGLRenderer3D.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Scene.h"
 
 namespace Duality {
+
+    // Per-pane 2D/3D switch for the Scene view (see ScenePanel.cpp's toggle buttons) -- a pane
+    // renders through exactly one pipeline at a time, mirroring CameraComponent::Projection's
+    // own exclusive-switch convention for the real Game view/device screens.
+    enum class RenderMode { Mode2D, Mode3D };
 
     // The editor's shared mutable state, threaded by reference into every
     // panel's OnImGuiRender instead of each panel taking ~10 individual
@@ -39,11 +46,21 @@ namespace Duality {
         // mid-drag doesn't reinterpret the drag with the wrong pane's zoom/pan.
         Screen& DraggingGizmoScreen;
 
+        // Per-pane 2D/3D switch (see RenderMode above) and each pane's own 3D orbit
+        // camera -- the 3D analogs of TopSceneView/BottomSceneView above, independent
+        // per pane since orbiting one screen's 3D view has no cross-pane ambiguity to
+        // resolve (unlike the shared gizmo drag, which needs DraggingGizmoScreen).
+        RenderMode& TopRenderMode;
+        RenderMode& BottomRenderMode;
+        SceneViewCamera3D& TopSceneView3D;
+        SceneViewCamera3D& BottomSceneView3D;
+
         Framebuffer& TopSceneFramebuffer;
         Framebuffer& BottomSceneFramebuffer;
         Framebuffer& TopFramebuffer;
         Framebuffer& BottomFramebuffer;
         OpenGLRenderer2D& Renderer;
+        OpenGLRenderer3D& Renderer3D;
 
         // Stats overlay (GamePanel): Fps is exponentially smoothed by Application;
         // GameDrawCallCount is the real dual-screen render pass's draw call count

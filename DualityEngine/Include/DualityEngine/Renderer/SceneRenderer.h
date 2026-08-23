@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DualityEngine/Renderer/IRenderer2D.h"
+#include "DualityEngine/Renderer/IRenderer3D.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Scene.h"
 
@@ -8,8 +9,15 @@ namespace Duality {
 
     // Shared per-screen render pass, used identically by DualityPlayer (real
     // 3DS screens) and DualityEditor's Game view (offscreen framebuffers) --
-    // the only difference between platforms is which IRenderer2D backend is
-    // passed in.
+    // the only difference between platforms is which IRenderer2D/IRenderer3D
+    // backend is passed in.
+    //
+    // Checks `screen`'s primary camera's Projection before doing anything
+    // else: Perspective dispatches to RenderScreen3D (below) and returns --
+    // Orthographic falls through to the original sprite-drawing body,
+    // unchanged. A screen renders through exactly one pipeline per frame,
+    // never both composited together (see IRenderer3D.h/CameraComponent::
+    // Projection).
     //
     // Draws every (Transform, SpriteRenderer) entity in the scene, positioned
     // relative to `screen`'s primary CameraComponent entity (world position
@@ -18,7 +26,17 @@ namespace Duality {
     // Editor's Game view and the real device show; the Editor's separate
     // Scene view (a free-roam editor-only camera, see OpenGLRenderer2D::
     // BeginCustomView) intentionally does not go through this function.
-    void RenderScreen(IRenderer2D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor);
+    void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor);
+
+    // The Perspective half of RenderScreen's dispatch -- draws every
+    // (Transform, MeshRenderer) entity in the scene through `screen`'s
+    // primary camera (world position/rotation, Fov/Near/FarPlane), unlit.
+    // Exposed separately (not just a RenderScreen implementation detail) so
+    // the Editor's 3D Scene view pane can call it too, same convention as
+    // GetActiveSpriteTexture/ResolveSpriteTexture below being shared with
+    // the 2D Scene view. No-ops if `screen` has no primary camera, matching
+    // RenderScreen's own no-camera behavior.
+    void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor);
 
     // Whichever AssetRef should currently be drawn for this entity's
     // sprite: its SpriteFlipbookComponent's current frame if it has one
@@ -34,6 +52,11 @@ namespace Duality {
     // Color path either way). Shared by RenderScreen and the Editor's
     // Scene view.
     uint32_t ResolveSpriteTexture(IRenderer2D& renderer, const AssetRef& textureRef);
+
+    // Same guid->path->LoadTexture chain as ResolveSpriteTexture, just against
+    // IRenderer3D's own LoadTexture instead. Shared by RenderScreen3D and the
+    // Editor's 3D Scene view.
+    uint32_t ResolveMeshTexture(IRenderer3D& renderer, const AssetRef& textureRef);
 
     // True "2 worlds" screen separation: an entity tagged (directly or via an
     // ancestor) with ScreenGroupComponent/CameraComponent for the OTHER screen is

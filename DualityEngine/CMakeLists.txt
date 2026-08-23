@@ -9,6 +9,7 @@ add_library(DualityEngine STATIC
     Source/Scene/Scene.cpp
     Source/Scene/SceneSerializer.cpp
     Source/Renderer/SceneRenderer.cpp
+    Source/Renderer/PrimitiveMeshes.cpp
     Source/Project/Project.cpp
 )
 
@@ -18,6 +19,7 @@ target_link_libraries(DualityEngine PUBLIC EnTT::EnTT glm::glm nlohmann_json::nl
 if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     target_sources(DualityEngine PRIVATE
         Source/Renderer/N3DS/Citro2DRenderer.cpp
+        Source/Renderer/N3DS/Citro3DRenderer.cpp
         Source/Audio/AudioEngine_3DS.cpp
         Source/Audio/WavLoader.cpp
     )
@@ -27,9 +29,29 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     # be added explicitly. Their headers/libs already live under libctru's
     # own include/lib dirs, which ARE on the default search path.
     target_link_libraries(DualityEngine PUBLIC citro2d citro3d)
+
+    # Compiles Citro3DRenderer's unlit mesh vertex shader (Assets3DS/mesh.v.pica) to a .shbin
+    # via picasso, then embeds it as a linkable object exposing mesh_shbin/mesh_shbin_size
+    # symbols (via bin2s) -- these are devkitPro's own CMake helpers (Platform/Nintendo3DS.cmake,
+    # dkp-embedded-binary.cmake), the same pattern the tex3ds/.t3x asset pipeline mirrors, just
+    # for fixed engine-owned shader source instead of a dynamic per-project asset folder (see
+    # BuildPipeline::CookAssets for that one).
+    # NOTE: sources must be passed positionally, NOT via a SOURCES keyword --
+    # devkitPro's own ctr_add_shader_library (Platform/Nintendo3DS.cmake)
+    # only treats CTR_PICASSO_UNPARSED_ARGUMENTS as sources; passing SOURCES
+    # explicitly makes cmake_parse_arguments populate CTR_PICASSO_SOURCES
+    # directly, which the function's own logic then rejects as "no source
+    # code file" (confirmed by hitting that exact error message).
+    ctr_add_shader_library(mesh_shader
+        ${CMAKE_CURRENT_SOURCE_DIR}/Assets3DS/mesh.v.pica
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mesh.shbin
+    )
+    dkp_add_embedded_binary_library(mesh_shader_embed mesh_shader)
+    target_link_libraries(DualityEngine PUBLIC mesh_shader_embed)
 else()
     target_sources(DualityEngine PRIVATE
         Source/Renderer/OpenGL/OpenGLRenderer2D.cpp
+        Source/Renderer/OpenGL/OpenGLRenderer3D.cpp
         Source/Renderer/OpenGL/GLTextureLoader.cpp
         Source/Audio/AudioEngine_Desktop.cpp
     )

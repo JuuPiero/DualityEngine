@@ -58,6 +58,7 @@ namespace Duality {
         ScriptEngine::Reload(m_BuildDirectory);
 
         m_Renderer.Init();
+        m_Renderer3D.Init();
         AudioEngine::Init();
 
         m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.json";
@@ -77,7 +78,22 @@ namespace Duality {
 
         Entity bottomCamera = m_Scene.CreateEntity("BottomCamera");
         bottomCamera.GetComponent<TransformComponent>().Translation = { BottomScreenWidth * 0.5f, BottomScreenHeight * 0.5f, 0.0f };
-        bottomCamera.AddComponent<CameraComponent>().Screen = Screen::Bottom;
+        auto& bottomCameraComponent = bottomCamera.AddComponent<CameraComponent>();
+        bottomCameraComponent.Screen = Screen::Bottom;
+        // TEMPORARY 3D pipeline smoke test (to be reverted once verified) -- switches the
+        // Bottom screen over to Perspective/3D for this run, per the plan's verification step.
+        bottomCameraComponent.Projection = ProjectionType::Perspective;
+        bottomCamera.GetComponent<TransformComponent>().Translation = { 0.0f, 60.0f, 200.0f };
+        bottomCamera.GetComponent<TransformComponent>().Rotation = { -10.0f, 0.0f, 0.0f };
+
+        // TEMPORARY 3D pipeline smoke test entity (to be reverted once verified).
+        Entity testCube = m_Scene.CreateEntity("TestCube3D");
+        testCube.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
+        testCube.GetComponent<TransformComponent>().Rotation = { 20.0f, 35.0f, 0.0f };
+        testCube.GetComponent<TransformComponent>().Scale = { 60.0f, 60.0f, 60.0f };
+        auto& testCubeMesh = testCube.AddComponent<MeshRendererComponent>();
+        testCubeMesh.Primitive = MeshPrimitive::Cube;
+        testCubeMesh.Color = { 0.9f, 0.5f, 0.2f, 1.0f };
 
         Entity topQuad = m_Scene.CreateEntity("TopQuad");
         topQuad.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f, 0.0f };
@@ -195,10 +211,10 @@ namespace Duality {
 
             m_Renderer.BeginFrame();
             m_TopFramebuffer.Bind();
-            RenderScreen(m_Renderer, m_Scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f });
+            RenderScreen(m_Renderer, m_Renderer3D, m_Scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f });
             m_TopFramebuffer.Unbind();
             m_BottomFramebuffer.Bind();
-            RenderScreen(m_Renderer, m_Scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
+            RenderScreen(m_Renderer, m_Renderer3D, m_Scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
             m_BottomFramebuffer.Unbind();
             // Snapshotted here, before the Scene view's own (Editor-only) draws
             // below add to the same renderer's running total -- this is what a
@@ -257,7 +273,8 @@ namespace Duality {
             EditorContext ctx{
                 m_Scene, m_Selected, m_IsPlaying,
                 m_TopSceneView, m_BottomSceneView, m_ActiveGizmoMode, m_DraggingGizmoAxis, m_DraggingGizmoScreen,
-                m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer,
+                m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
+                m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
                 m_Fps, m_GameDrawCallCount,
                 m_ScenePath, m_BuildDirectory, m_RepoRoot,
                 m_RequestOpenProject
@@ -291,6 +308,7 @@ namespace Duality {
 
         ScriptEngine::Shutdown();
         m_Renderer.Shutdown();
+        m_Renderer3D.Shutdown();
         AudioEngine::Shutdown();
     }
 

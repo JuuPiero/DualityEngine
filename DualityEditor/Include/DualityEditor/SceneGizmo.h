@@ -17,11 +17,14 @@ namespace Duality {
     // dragged). For Translate/Scale, Both is the free-move/free-scale
     // center square (drags X and Y at once); for Rotate there is only ever
     // one handle (the ring), reported as Both too so callers don't need a
-    // separate "is dragging" flag per mode.
+    // separate "is dragging" flag per mode. Z is the 3D Scene view pane's
+    // own third axis (see ScenePanel.cpp's DrawAndHitTestGizmo3D) -- the 2D
+    // gizmo above never produces or consumes it.
     enum class GizmoAxis {
         None,
         X,
         Y,
+        Z,
         Both
     };
 

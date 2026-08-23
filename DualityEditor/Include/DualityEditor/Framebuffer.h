@@ -4,13 +4,19 @@
 
 namespace Duality {
 
-    // Minimal color-only framebuffer object, used to render scene content
-    // off-screen so it can be shown inside an ImGui panel via
-    // ImGui::Image(). The Top/Bottom screen framebuffers never call
-    // Resize() -- those are a fixed resolution forever, matching real 3DS
-    // hardware -- but the Editor's Scene view is desktop-only tooling with
-    // no hardware size constraint, and needs to track its ImGui panel's
-    // size like a real editor viewport.
+    // Framebuffer object used to render scene content off-screen so it can
+    // be shown inside an ImGui panel via ImGui::Image(). The Top/Bottom
+    // screen framebuffers never call Resize() -- those are a fixed
+    // resolution forever, matching real 3DS hardware -- but the Editor's
+    // Scene view is desktop-only tooling with no hardware size constraint,
+    // and needs to track its ImGui panel's size like a real editor
+    // viewport.
+    //
+    // Carries a depth-stencil renderbuffer attachment unconditionally --
+    // unused/harmless for the existing 2D-only framebuffers (OpenGLRenderer2D
+    // never enables GL_DEPTH_TEST), but needed for the Scene view's 3D pane
+    // (OpenGLRenderer3D) to depth-test correctly. Not worth a parallel
+    // Framebuffer type just for that one flag.
     class Framebuffer {
     public:
         Framebuffer(uint32_t width, uint32_t height);
@@ -36,6 +42,7 @@ namespace Duality {
 
         uint32_t m_RendererId = 0;
         uint32_t m_ColorAttachment = 0;
+        uint32_t m_DepthStencilAttachment = 0;
         uint32_t m_Width, m_Height;
     };
 

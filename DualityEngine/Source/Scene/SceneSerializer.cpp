@@ -30,6 +30,11 @@ namespace Duality {
                 return json::array({ v.Value.x, v.Value.y, v.Value.z, v.Value.w });
             } else if constexpr (std::is_same_v<T, Screen>) {
                 return v == Screen::Top ? "Top" : "Bottom";
+            } else if constexpr (std::is_same_v<T, ProjectionType>) {
+                return v == ProjectionType::Orthographic ? "Orthographic" : "Perspective";
+            } else if constexpr (std::is_same_v<T, MeshPrimitive>) {
+                const char* names[] = { "Cube", "Sphere", "Plane" };
+                return names[static_cast<int>(v)];
             } else if constexpr (std::is_same_v<T, AssetRef>) {
                 return v.Guid;
             } else {
@@ -54,6 +59,13 @@ namespace Duality {
                 return Color4{ glm::vec4{ j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>() } };
             } else if constexpr (std::is_same_v<T, Screen>) {
                 return j.get<std::string>() == "Top" ? Screen::Top : Screen::Bottom;
+            } else if constexpr (std::is_same_v<T, ProjectionType>) {
+                return j.get<std::string>() == "Orthographic" ? ProjectionType::Orthographic : ProjectionType::Perspective;
+            } else if constexpr (std::is_same_v<T, MeshPrimitive>) {
+                std::string name = j.get<std::string>();
+                if (name == "Sphere") return MeshPrimitive::Sphere;
+                if (name == "Plane") return MeshPrimitive::Plane;
+                return MeshPrimitive::Cube;
             } else if constexpr (std::is_same_v<T, AssetRef>) {
                 return AssetRef{ j.get<std::string>() };
             } else {

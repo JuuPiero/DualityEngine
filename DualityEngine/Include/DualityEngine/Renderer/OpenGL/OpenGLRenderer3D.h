@@ -1,0 +1,59 @@
+#pragma once
+
+#include <unordered_map>
+
+#include "DualityEngine/Renderer/IRenderer3D.h"
+
+namespace Duality {
+
+    // Desktop OpenGL implementation of IRenderer3D -- modern GL (shader program, VAO/VBO), in
+    // the exact same legacy-compatibility-profile context OpenGLRenderer2D's fixed-function
+    // calls already run in (confirmed safe: Dear ImGui's own OpenGL3 backend already runs a
+    // real "#version 130" shader + VAO/VBO in this context every frame, see Window.cpp's
+    // ImGui_ImplOpenGL3_Init("#version 130") call -- this class matches that same GLSL version
+    // and attribute-location-by-query convention rather than assuming a newer one).
+    //
+    // Caller is responsible for binding whatever render target (e.g. an FBO) and glViewport it
+    // wants rendered into before calling BeginScene, same convention as OpenGLRenderer2D.
+    class OpenGLRenderer3D final : public IRenderer3D {
+    public:
+        void Init() override;
+        void Shutdown() override;
+
+        void BeginScene(Screen screen, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor) override;
+        void EndScene() override;
+
+        void DrawMesh(MeshPrimitive primitive, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
+
+        uint32_t LoadTexture(const std::string& path) override;
+        uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
+
+    private:
+        struct PrimitiveGpuMesh {
+            unsigned int Vao = 0;
+            unsigned int Vbo = 0;
+            int VertexCount = 0;
+        };
+
+        unsigned int m_ShaderProgram = 0;
+        int m_UniformViewProjection = -1;
+        int m_UniformModel = -1;
+        int m_UniformColor = -1;
+        int m_UniformTexture = -1;
+        int m_AttribPosition = -1;
+        int m_AttribTexCoord = -1;
+
+        // 1x1 white pixel bound when textureId == 0, so DrawMesh can always sample the texture
+        // uniformly in the shader instead of branching on whether one is bound.
+        unsigned int m_WhiteTexture = 0;
+
+        PrimitiveGpuMesh m_Meshes[3]; // indexed by static_cast<int>(MeshPrimitive)
+
+        // Recomputed once per BeginScene, reused by every DrawMesh call in that bracket.
+        glm::mat4 m_ViewProjection{ 1.0f };
+
+        std::unordered_map<std::string, uint32_t> m_TextureCache;
+        uint32_t m_DrawCallCount = 0;
+    };
+
+}

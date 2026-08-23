@@ -6,6 +6,8 @@
 
 #include <glm/glm.hpp>
 
+#include "DualityEngine/Renderer/MeshPrimitive.h"
+#include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
 
 namespace Duality {
@@ -25,7 +27,7 @@ namespace Duality {
     // construction needed, unlike Color4.
     struct AssetRef { std::string Guid; };
 
-    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef>;
+    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef, ProjectionType, MeshPrimitive>;
 
     // A named, type-erased accessor for one field of a component/script
     // instance. Reflection is only ever walked from the Properties panel
