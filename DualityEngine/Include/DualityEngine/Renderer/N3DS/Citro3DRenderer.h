@@ -25,10 +25,18 @@ namespace Duality {
         void Init() override;
         void Shutdown() override;
 
+        // Must be called once after both this renderer's and Citro2DRenderer's own Init() have
+        // run (see DualityPlayer::Main.cpp) -- this renderer draws into Citro2DRenderer's own
+        // C2D_CreateScreenTarget targets rather than creating its own, so that whichever
+        // pipeline a screen's CameraComponent::Projection currently selects, both always
+        // render into (and the 3DS actually displays) the SAME target for that physical
+        // screen. See Citro2DRenderer::GetTarget's own comment for the real bug this fixes.
+        void SetScreenTargets(C3D_RenderTarget* top, C3D_RenderTarget* bottom);
+
         void BeginScene(Screen screen, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor) override;
         void EndScene() override;
 
-        void DrawMesh(MeshPrimitive primitive, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
+        void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
 
         // `path` is expected to already be a citro3d-loadable ".t3x" path (romfs:/...), same
         // BuildPipeline::CookAssets/AssetDatabase::LoadManifest convention as Citro2DRenderer.
@@ -37,6 +45,12 @@ namespace Duality {
         // own texture cache (a minor missed-caching opportunity if the same asset is drawn by
         // both a 2D sprite and a 3D mesh, not a correctness issue).
         uint32_t LoadTexture(const std::string& path) override;
+
+        // `path` is expected to already be a romfs:/-resolved ".obj" path (BuildPipeline::
+        // CookAssets copies non-image assets into romfs as-is, see MeshLoader.h). Parsed via
+        // MeshLoader::Load (shared, cross-platform), then uploaded to a linearAlloc'd buffer
+        // the same way the 3 built-in primitives are at Init() time.
+        uint32_t LoadMesh(const std::string& path) override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
     private:
@@ -47,6 +61,8 @@ namespace Duality {
 
         C3D_RenderTarget* TargetFor(Screen screen) const;
 
+        // Non-owning -- set by SetScreenTargets, created/destroyed by Citro2DRenderer (see
+        // that method's own comment for why this renderer doesn't create its own).
         C3D_RenderTarget* m_TopTarget = nullptr;
         C3D_RenderTarget* m_BottomTarget = nullptr;
         uint32_t m_DrawCallCount = 0;
@@ -65,6 +81,13 @@ namespace Duality {
         // every other LoadTexture implementation's convention in this codebase.
         std::vector<C3D_Tex> m_Textures;
         std::unordered_map<std::string, uint32_t> m_TextureCache;
+
+        // Same 1-based-handle/0-reserved convention as m_Textures/m_TextureCache above, for
+        // LoadMesh-imported meshes (see MeshLoader.h) -- a separate array from m_Meshes since
+        // that one is fixed-size (indexed by MeshPrimitive), while this one grows per distinct
+        // imported file.
+        std::vector<PrimitiveGpuMesh> m_ImportedMeshes;
+        std::unordered_map<std::string, uint32_t> m_MeshCache;
     };
 
 }

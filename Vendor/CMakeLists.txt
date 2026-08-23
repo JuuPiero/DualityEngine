@@ -3,8 +3,11 @@
 # Vendor folder, which already has them at the versions/branch this project
 # needs) rather than fetched over the network on every clean configure --
 # no git clone, no CI-cache-cold slowness, and it works identically offline.
-# GLFW/GLEW come from the mingw-w64 package repo instead (prebuilt, with
-# CMake config files), so they don't need vendoring either.
+# Box2D is vendored the same way, just fetched once from its own upstream
+# repo instead of MyGameEngine's Vendor (that project still pulls it via
+# FetchContent) -- see its own comment below. GLFW/GLEW come from the
+# mingw-w64 package repo instead (prebuilt, with CMake config files), so
+# they don't need vendoring either.
 
 # --- EnTT (ECS) ------------------------------------------------------------
 add_library(EnTT INTERFACE)
@@ -32,17 +35,19 @@ add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
 # to have two incompatible implementations instead of one shared one.
 # Confirmed elsewhere (devkitPro's own physics/box2d example) that this
 # version builds and runs fine on real 3DS hardware.
-include(FetchContent)
-FetchContent_Declare(
-    box2d
-    GIT_REPOSITORY https://github.com/erincatto/box2d.git
-    GIT_TAG v2.4.1
-    GIT_SHALLOW TRUE
-)
+#
+# Vendored directly (its own CMakeLists.txt + include/ + src/ only -- no
+# unit-test/testbed/docs/extern, which its own CMakeLists.txt only
+# add_subdirectory()s when the BOX2D_BUILD_* options below are ON) instead of
+# FetchContent, same "copy it once instead of fetching over the network on
+# every clean configure" reasoning as EnTT/GLM/nlohmann-json/ImGui above --
+# FetchContent's git clone re-ran, and box2d fully rebuilt from a fresh
+# _deps/box2d-src, on every wiped build directory (build-3ds.bat always
+# wipes its build dir, see that script's own comment).
 set(BOX2D_BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(box2d)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/box2d)
 
 # --- Desktop-only editor dependencies -------------------------------------
 # Never pulled in for the 3DS configure (the Editor itself is desktop-only).

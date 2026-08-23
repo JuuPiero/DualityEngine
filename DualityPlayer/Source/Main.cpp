@@ -54,6 +54,11 @@ int main(int argc, char* argv[]) {
     renderer.Init();
     Citro3DRenderer renderer3D;
     renderer3D.Init();
+    // Both renderers must draw into the SAME physical-screen render targets -- see
+    // Citro2DRenderer::GetTarget's own comment for the real "wrong screen goes black" bug this
+    // fixes (two independently-created C3D_RenderTargets both registered for the same screen
+    // race for display output; only the one registered last actually gets shown).
+    renderer3D.SetScreenTargets(renderer.GetTarget(Screen::Top), renderer.GetTarget(Screen::Bottom));
     AudioEngine::Init();
 
     // Populates the guid->path index from the manifest BuildPipeline::CookAssets baked into

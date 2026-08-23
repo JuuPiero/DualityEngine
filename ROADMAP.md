@@ -8,15 +8,23 @@ this file whenever something below actually gets built, or a new deferred item c
 
 - [ ] Spritesheet/atlas-based animation (UV sub-rects), as an alternative to the
       fixed-frame-slot flipbook (`SpriteFlipbookComponent`).
-- [~] 3D renderer -- in progress, first pass scoped to: unlit only (no lighting/material
-      system), procedural primitives only (Cube/Sphere/Plane, no mesh import pipeline), no 3D
-      gizmo (Properties panel's existing generic vec3 fields cover Translation/Rotation/Scale
-      editing instead), and a per-screen *exclusive* 2D-or-3D switch (never both composited on
-      one screen in the same frame) -- see `IRenderer3D`/`OpenGLRenderer3D`/`Citro3DRenderer`.
-      A two-tier full/lite material system (arbitrary shader graph on desktop, a simplified
-      fixed-function/TEV-stage model for the 3DS's PICA200 GPU) remains the one idea worth
-      carrying over from the earlier Polyphase-Engine research, once real materials/lighting
-      are in scope.
+- [x] 3D renderer -- unlit only (no lighting yet), a per-screen *exclusive* 2D-or-3D switch
+      (`CameraComponent::Projection`, never both composited on one screen in the same frame) --
+      see `IRenderer3D`/`OpenGLRenderer3D`/`Citro3DRenderer`. Ended up covering more than the
+      original scoped-down pass: a `Material` asset (`Asset/Material.h`/`MaterialLoader` --
+      Color + Texture, `.material.json`, referenced by `MeshRendererComponent::Material` via
+      `AssetRef`, same graceful-fallback convention as every other asset reference) instead of
+      embedding Color/Texture directly, a Translate/Rotate/Scale 3D gizmo in the Scene view's 3D
+      pane (`ScenePanel.cpp`'s `DrawAndHitTestGizmo3D`, screen-space-projected axis handles --
+      Properties panel's generic vec3 fields still work too), Unity-style Scene view navigation
+      for the 3D pane (left = select/gizmo-drag, right-drag = orbit, middle-drag = pan, wheel =
+      zoom), and OBJ mesh import (`Asset/MeshLoader.h`, a small hand-rolled parser chosen over a
+      full FBX/glTF library specifically because it has zero external dependencies and is
+      guaranteed to compile for devkitARM -- `MeshRendererComponent::Mesh`, empty/unresolved
+      falls back to the procedural `Primitive`). A two-tier full/lite material system (arbitrary
+      shader graph on desktop, a simplified fixed-function/TEV-stage model for the 3DS's
+      PICA200 GPU) and real lighting remain open, carried over from the earlier
+      Polyphase-Engine research.
 - [x] Texture rendering on the actual 3DS build (`BuildPipeline::CookAssets`,
       `AssetDatabase::LoadManifest`, `Citro2DRenderer::LoadTexture`/`DrawQuad`) -- every PNG
       under a project's `Assets/` is converted to `.t3x` via `tex3ds` at "Build for 3DS" time
@@ -81,10 +89,9 @@ this file whenever something below actually gets built, or a new deferred item c
       `FindEntityInBottomScreen` via the `EngineServices` bridge (same ABI-safe pattern as
       `PlaySound`/`GetAxis` -- a script on a Top-screen entity can look up a Bottom-screen
       one by name and vice versa, since it's one shared `Scene` either way).
-- [ ] Perspective camera mode (`CameraComponent`) -- 3D-only, so deferred along with the
-      3D renderer itself above; Orthographic is effectively what `Zoom` already does. There
-      is currently zero 3D groundwork anywhere in the renderer (no depth buffer, no 3D
-      matrix/projection pipeline on either backend) to build this on.
+- [x] Perspective camera mode (`CameraComponent::Projection`) -- see the 3D renderer entry
+      above; `FovDegrees`/`NearPlane`/`FarPlane` are Perspective-only, `Zoom` stays
+      Orthographic-only.
 - [x] Async "Build for 3DS" (`DualityEditor/BuildPipeline.h`) -- runs on a detached
       background thread (`BuildFor3DSAsync`) instead of blocking the Editor's UI thread for
       up to a minute; the menu item grays out and shows "(building...)" while

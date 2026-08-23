@@ -55,8 +55,8 @@ namespace Duality {
 
         TypeRegistry::Register<MeshRendererComponent>("Mesh Renderer", false, {
             MakeField("Primitive", &MeshRendererComponent::Primitive),
-            MakeColorField("Color", &MeshRendererComponent::Color),
-            MakeField("Texture", &MeshRendererComponent::Texture),
+            MakeField("Material", &MeshRendererComponent::Material),
+            MakeField("Mesh", &MeshRendererComponent::Mesh),
         });
 
         TypeRegistry::Register<ScreenGroupComponent>("Screen Group", false, {

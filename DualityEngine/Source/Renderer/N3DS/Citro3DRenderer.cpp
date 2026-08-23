@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "DualityEngine/Asset/MeshLoader.h"
 #include "DualityEngine/Renderer/PrimitiveMeshes.h"
 
 // Embedded via dkp_add_embedded_binary_library (DualityEngine/CMakeLists.txt) from
@@ -13,20 +14,19 @@
 namespace Duality {
 
     namespace {
-        // Same flags every reference example uses for a standard RGBA8 render target ->
-        // RGB8 framebuffer transfer (References/devkitpro-3ds-templates/graphics/gpu/
-        // {simple_tri,textured_cube}'s own DISPLAY_TRANSFER_FLAGS).
-        constexpr u32 DisplayTransferFlags =
-            GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) |
-            GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) | GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) |
-            GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO);
-
-        // Raw RGBA8 packing, kept local so this file has no citro2d dependency at all --
-        // the user explicitly asked for this renderer to use citro3d directly, not layered
-        // through citro2d.
+        // Raw RGBA8 packing for C3D_RenderTargetClear's own clearColor parameter, kept local
+        // so this file has no citro2d dependency at all -- the user explicitly asked for this
+        // renderer to use citro3d directly, not layered through citro2d.
+        //
+        // (R<<24)|(G<<16)|(B<<8)|A -- NOT citro2d's own C2D_Color32(r,g,b,a) convention
+        // (r|(g<<8)|(b<<16)|(a<<24), R in the lowest byte), which is the opposite order and
+        // was a real, confirmed-on-device bug here before this fix (a dark maroon clearColor
+        // rendered as bright saturated red). Confirmed against every devkitPro gpu/ example's
+        // own `#define CLEAR_COLOR 0x68B0D8FF` -- 0x68/0xB0/0xD8 is a light sky blue only under
+        // this (R highest byte, A lowest byte) interpretation.
         u32 ToC3DColor(const glm::vec4& color) {
             auto toByte = [](float v) { return static_cast<u8>(v < 0.0f ? 0 : (v > 1.0f ? 255 : v * 255.0f + 0.5f)); };
-            return toByte(color.r) | (toByte(color.g) << 8) | (toByte(color.b) << 16) | (toByte(color.a) << 24);
+            return (toByte(color.r) << 24) | (toByte(color.g) << 16) | (toByte(color.b) << 8) | toByte(color.a);
         }
 
         // T * Rz * Ry * Rx * S, matching this engine's TransformComponent convention (scale
@@ -57,10 +57,7 @@ namespace Duality {
         m_UniformProjection = shaderInstanceGetUniformLocation(m_ShaderProgram.vertexShader, "projection");
         m_UniformModelView = shaderInstanceGetUniformLocation(m_ShaderProgram.vertexShader, "modelView");
 
-        m_TopTarget = C3D_RenderTargetCreate(240, 400, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
-        m_BottomTarget = C3D_RenderTargetCreate(240, 320, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
-        C3D_RenderTargetSetOutput(m_TopTarget, GFX_TOP, GFX_LEFT, DisplayTransferFlags);
-        C3D_RenderTargetSetOutput(m_BottomTarget, GFX_BOTTOM, GFX_LEFT, DisplayTransferFlags);
+        // No C3D_RenderTargetCreate/SetOutput here -- see SetScreenTargets's own comment.
 
         for (int i = 0; i < 3; i++) {
             MeshPrimitive primitive = static_cast<MeshPrimitive>(i);
@@ -77,6 +74,12 @@ namespace Duality {
             if (mesh.VertexBuffer)
                 linearFree(mesh.VertexBuffer);
         }
+        for (auto& mesh : m_ImportedMeshes) {
+            if (mesh.VertexBuffer)
+                linearFree(mesh.VertexBuffer);
+        }
+        m_ImportedMeshes.clear();
+        m_MeshCache.clear();
         for (C3D_Tex& tex : m_Textures)
             C3D_TexDelete(&tex);
         m_Textures.clear();
@@ -86,6 +89,11 @@ namespace Duality {
         DVLB_Free(m_ShaderDvlb);
         m_ShaderDvlb = nullptr;
         // C3D_Fini is the caller's responsibility, see Init()'s comment.
+    }
+
+    void Citro3DRenderer::SetScreenTargets(C3D_RenderTarget* top, C3D_RenderTarget* bottom) {
+        m_TopTarget = top;
+        m_BottomTarget = bottom;
     }
 
     C3D_RenderTarget* Citro3DRenderer::TargetFor(Screen screen) const {
@@ -119,7 +127,7 @@ namespace Duality {
         // EndScene (this bracket exists for a future batched implementation to flush from).
     }
 
-    void Citro3DRenderer::DrawMesh(MeshPrimitive primitive, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
+    void Citro3DRenderer::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
         m_DrawCallCount++;
 
         // Re-bind everything -- citro2d's own draws on the other screen this same frame will
@@ -134,7 +142,7 @@ namespace Duality {
         AttrInfo_AddFixed(attrInfo, 2);                // v2 = color (flat, not loaded from the buffer)
         C3D_FixedAttribSet(2, color.r, color.g, color.b, color.a);
 
-        const PrimitiveGpuMesh& mesh = m_Meshes[static_cast<int>(primitive)];
+        const PrimitiveGpuMesh& mesh = (meshHandle != 0) ? m_ImportedMeshes[meshHandle - 1] : m_Meshes[static_cast<int>(primitive)];
         C3D_BufInfo* bufInfo = C3D_GetBufInfo();
         BufInfo_Init(bufInfo);
         BufInfo_Add(bufInfo, mesh.VertexBuffer, sizeof(MeshVertex), 2, 0x10);
@@ -191,6 +199,25 @@ namespace Duality {
 
         m_TextureCache[path] = textureId; // cache failures too, matching every other LoadTexture in this codebase
         return textureId;
+    }
+
+    uint32_t Citro3DRenderer::LoadMesh(const std::string& path) {
+        auto it = m_MeshCache.find(path);
+        if (it != m_MeshCache.end())
+            return it->second;
+
+        uint32_t meshHandle = 0;
+        const MeshData& data = MeshLoader::Load(path);
+        if (!data.Vertices.empty()) {
+            size_t byteSize = data.Vertices.size() * sizeof(MeshVertex);
+            void* buffer = linearAlloc(byteSize);
+            memcpy(buffer, data.Vertices.data(), byteSize);
+            m_ImportedMeshes.push_back({ buffer, static_cast<int>(data.Vertices.size()) });
+            meshHandle = static_cast<uint32_t>(m_ImportedMeshes.size()); // 1-based, 0 reserved for "none"
+        }
+
+        m_MeshCache[path] = meshHandle; // cache failures too, matching LoadTexture above
+        return meshHandle;
     }
 
 }

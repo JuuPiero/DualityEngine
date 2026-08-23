@@ -5,6 +5,7 @@
 #include <GL/glew.h>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "DualityEngine/Asset/MeshLoader.h"
 #include "DualityEngine/Renderer/OpenGL/GLTextureLoader.h"
 #include "DualityEngine/Renderer/PrimitiveMeshes.h"
 
@@ -65,6 +66,25 @@ namespace Duality {
         }
     }
 
+    OpenGLRenderer3D::PrimitiveGpuMesh OpenGLRenderer3D::UploadGpuMesh(const std::vector<MeshVertex>& vertices) {
+        PrimitiveGpuMesh mesh;
+        mesh.VertexCount = static_cast<int>(vertices.size());
+        glGenVertexArrays(1, &mesh.Vao);
+        glGenBuffers(1, &mesh.Vbo);
+
+        glBindVertexArray(mesh.Vao);
+        glBindBuffer(GL_ARRAY_BUFFER, mesh.Vbo);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(MeshVertex), vertices.data(), GL_STATIC_DRAW);
+
+        glEnableVertexAttribArray(m_AttribPosition);
+        glVertexAttribPointer(m_AttribPosition, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, Position));
+        glEnableVertexAttribArray(m_AttribTexCoord);
+        glVertexAttribPointer(m_AttribTexCoord, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, TexCoord));
+
+        glBindVertexArray(0);
+        return mesh;
+    }
+
     void OpenGLRenderer3D::Init() {
         unsigned int vertexShader = CompileShader(GL_VERTEX_SHADER, VertexShaderSource);
         unsigned int fragmentShader = CompileShader(GL_FRAGMENT_SHADER, FragmentShaderSource);
@@ -93,25 +113,8 @@ namespace Duality {
         m_AttribTexCoord = glGetAttribLocation(m_ShaderProgram, "a_TexCoord");
 
         for (int i = 0; i < 3; i++) {
-            MeshPrimitive primitive = static_cast<MeshPrimitive>(i);
-            const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(primitive);
-
-            PrimitiveGpuMesh mesh;
-            mesh.VertexCount = static_cast<int>(vertices.size());
-            glGenVertexArrays(1, &mesh.Vao);
-            glGenBuffers(1, &mesh.Vbo);
-
-            glBindVertexArray(mesh.Vao);
-            glBindBuffer(GL_ARRAY_BUFFER, mesh.Vbo);
-            glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(MeshVertex), vertices.data(), GL_STATIC_DRAW);
-
-            glEnableVertexAttribArray(m_AttribPosition);
-            glVertexAttribPointer(m_AttribPosition, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, Position));
-            glEnableVertexAttribArray(m_AttribTexCoord);
-            glVertexAttribPointer(m_AttribTexCoord, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, TexCoord));
-
-            glBindVertexArray(0);
-            m_Meshes[i] = mesh;
+            const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(static_cast<MeshPrimitive>(i));
+            m_Meshes[i] = UploadGpuMesh(vertices);
         }
 
         unsigned char whitePixel[4] = { 255, 255, 255, 255 };
@@ -128,6 +131,12 @@ namespace Duality {
             glDeleteVertexArrays(1, &mesh.Vao);
             glDeleteBuffers(1, &mesh.Vbo);
         }
+        for (PrimitiveGpuMesh& mesh : m_ImportedMeshes) {
+            glDeleteVertexArrays(1, &mesh.Vao);
+            glDeleteBuffers(1, &mesh.Vbo);
+        }
+        m_ImportedMeshes.clear();
+        m_MeshCache.clear();
         glDeleteTextures(1, &m_WhiteTexture);
         for (auto& [path, textureId] : m_TextureCache) {
             unsigned int id = textureId;
@@ -170,7 +179,7 @@ namespace Duality {
         glUseProgram(0);
     }
 
-    void OpenGLRenderer3D::DrawMesh(MeshPrimitive primitive, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
+    void OpenGLRenderer3D::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
         m_DrawCallCount++;
 
         glUseProgram(m_ShaderProgram);
@@ -184,7 +193,7 @@ namespace Duality {
         glBindTexture(GL_TEXTURE_2D, textureId != 0 ? textureId : m_WhiteTexture);
         glUniform1i(m_UniformTexture, 0);
 
-        const PrimitiveGpuMesh& mesh = m_Meshes[static_cast<int>(primitive)];
+        const PrimitiveGpuMesh& mesh = (meshHandle != 0) ? m_ImportedMeshes[meshHandle - 1] : m_Meshes[static_cast<int>(primitive)];
         glBindVertexArray(mesh.Vao);
         glDrawArrays(GL_TRIANGLES, 0, mesh.VertexCount);
         glBindVertexArray(0);
@@ -200,6 +209,22 @@ namespace Duality {
         uint32_t texture = GLTextureLoader::LoadTextureFromFile(path);
         m_TextureCache[path] = texture;
         return texture;
+    }
+
+    uint32_t OpenGLRenderer3D::LoadMesh(const std::string& path) {
+        auto it = m_MeshCache.find(path);
+        if (it != m_MeshCache.end())
+            return it->second;
+
+        uint32_t meshHandle = 0;
+        const MeshData& data = MeshLoader::Load(path);
+        if (!data.Vertices.empty()) {
+            m_ImportedMeshes.push_back(UploadGpuMesh(data.Vertices));
+            meshHandle = static_cast<uint32_t>(m_ImportedMeshes.size()); // 1-based, 0 reserved for "none"
+        }
+
+        m_MeshCache[path] = meshHandle; // cache failures too, matching LoadTexture above
+        return meshHandle;
     }
 
 }

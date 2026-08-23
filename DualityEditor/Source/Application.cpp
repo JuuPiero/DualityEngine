@@ -1,5 +1,7 @@
 #include "DualityEditor/Application.h"
 
+#include <filesystem>
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -10,6 +12,8 @@
 #include "DualityEditor/FileDialogs.h"
 #include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/AssetMeta.h"
+#include "DualityEngine/Asset/MaterialLoader.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
@@ -86,14 +90,23 @@ namespace Duality {
         bottomCamera.GetComponent<TransformComponent>().Translation = { 0.0f, 60.0f, 200.0f };
         bottomCamera.GetComponent<TransformComponent>().Rotation = { -10.0f, 0.0f, 0.0f };
 
-        // TEMPORARY 3D pipeline smoke test entity (to be reverted once verified).
+        // TEMPORARY 3D pipeline smoke test entity + Material asset (to be reverted once
+        // verified) -- also exercises the full Material file/.meta/AssetDatabase pipeline
+        // end to end, not just a MeshRendererComponent field.
+        std::filesystem::path materialsDir = m_Project->GetAssetsDirectory() + "/Materials";
+        std::filesystem::create_directories(materialsDir);
+        std::filesystem::path materialPath = materialsDir / "TestOrange.material.json";
+        MaterialLoader::Save(materialPath.string(), Material{ { 0.9f, 0.5f, 0.2f, 1.0f }, AssetRef{} });
+        std::string materialGuid = AssetMeta::EnsureMetaFile(materialPath);
+        AssetDatabase::Register(materialGuid, materialPath.string());
+
         Entity testCube = m_Scene.CreateEntity("TestCube3D");
         testCube.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
         testCube.GetComponent<TransformComponent>().Rotation = { 20.0f, 35.0f, 0.0f };
         testCube.GetComponent<TransformComponent>().Scale = { 60.0f, 60.0f, 60.0f };
         auto& testCubeMesh = testCube.AddComponent<MeshRendererComponent>();
         testCubeMesh.Primitive = MeshPrimitive::Cube;
-        testCubeMesh.Color = { 0.9f, 0.5f, 0.2f, 1.0f };
+        testCubeMesh.Material.Guid = materialGuid;
 
         Entity topQuad = m_Scene.CreateEntity("TopQuad");
         topQuad.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f, 0.0f };

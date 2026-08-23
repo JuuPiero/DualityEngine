@@ -59,9 +59,15 @@ namespace Duality {
     // camera is ProjectionType::Perspective -- see CameraComponent. MeshPrimitive itself lives
     // in Renderer/MeshPrimitive.h, not here -- see that header's own comment for why.
     struct MeshRendererComponent {
+        // Used only when Mesh (below) is empty/unresolved.
         MeshPrimitive Primitive = MeshPrimitive::Cube;
-        glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
-        AssetRef Texture;
+        // Guid of a ".material.json" asset (see Asset/Material.h), resolved via MaterialLoader
+        // at render time -- an empty/unresolved guid falls back to a default white material,
+        // matching every other AssetRef's own graceful-degradation convention.
+        AssetRef Material;
+        // Guid of an imported ".obj" mesh (see Asset/MeshLoader.h) -- empty/unresolved falls
+        // back to the procedural Primitive above, same convention as Material/Texture.
+        AssetRef Mesh;
     };
 
     // Flipbook-style 2D animation: an ordered, fixed-size list of frame

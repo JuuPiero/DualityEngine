@@ -47,13 +47,22 @@ namespace Duality {
         // TransformComponent{Translation,Rotation,Scale} shape exactly. textureId (0 = none)
         // is a backend-specific handle from LoadTexture, same convention as
         // IRenderer2D::DrawQuad; `color` modulates a resolved texture or applies as a flat
-        // color when textureId is 0.
-        virtual void DrawMesh(MeshPrimitive primitive, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) = 0;
+        // color when textureId is 0. meshHandle (0 = none) is a backend-specific handle from
+        // LoadMesh -- when non-zero, the imported mesh it refers to is drawn INSTEAD of
+        // `primitive` (which is then ignored), matching MeshRendererComponent::Mesh's own
+        // "empty AssetRef falls back to the procedural Primitive" convention.
+        virtual void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) = 0;
 
         // Same guid->path->LoadTexture chain as IRenderer2D::LoadTexture (see
         // SceneRenderer.cpp's ResolveSpriteTexture) -- a mesh's Texture AssetRef resolves the
         // exact same way a sprite's does, just handed to this interface instead.
         virtual uint32_t LoadTexture(const std::string& path) = 0;
+
+        // Uploads an imported mesh (see Asset/MeshLoader.h) to a backend-specific GPU-resident
+        // buffer, returning an opaque handle for DrawMesh's meshHandle parameter (0 = load
+        // failed or the file didn't resolve to any vertices). Cached by path internally, same
+        // convention as LoadTexture.
+        virtual uint32_t LoadMesh(const std::string& path) = 0;
 
         // Unlike IRenderer2D (reset by BeginFrame, a whole-frame bracket), this interface has
         // no BeginFrame -- there's no cross-screen GPU frame concept exposed at this level

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DualityEngine/Asset/Material.h"
 #include "DualityEngine/Renderer/IRenderer2D.h"
 #include "DualityEngine/Renderer/IRenderer3D.h"
 #include "DualityEngine/Scene/Components.h"
@@ -57,6 +58,18 @@ namespace Duality {
     // IRenderer3D's own LoadTexture instead. Shared by RenderScreen3D and the
     // Editor's 3D Scene view.
     uint32_t ResolveMeshTexture(IRenderer3D& renderer, const AssetRef& textureRef);
+
+    // Guid->path->MaterialLoader::Load chain for a MeshRendererComponent::Material reference --
+    // returns a default (white, no texture) Material when the ref is empty or doesn't resolve
+    // to an existing file, same graceful-degradation convention as ResolveSpriteTexture/
+    // ResolveMeshTexture. Shared by RenderScreen3D and the Editor's 3D Scene view.
+    Material ResolveMeshMaterial(const AssetRef& materialRef);
+
+    // Guid->path->IRenderer3D::LoadMesh chain for a MeshRendererComponent::Mesh reference --
+    // returns 0 (meaning "fall back to the procedural MeshPrimitive") when the ref is empty or
+    // doesn't resolve to an existing/parsable file. Shared by RenderScreen3D and the Editor's
+    // 3D Scene view.
+    uint32_t ResolveMeshGeometry(IRenderer3D& renderer, const AssetRef& meshRef);
 
     // True "2 worlds" screen separation: an entity tagged (directly or via an
     // ancestor) with ScreenGroupComponent/CameraComponent for the OTHER screen is

@@ -37,6 +37,17 @@ namespace Duality {
         uint32_t LoadTexture(const std::string& path) override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
+        // Exposes this renderer's own C2D_CreateScreenTarget-made targets so Citro3DRenderer
+        // can draw into the exact SAME target for whichever screen goes Perspective this frame
+        // (see DualityPlayer::Main.cpp's Citro3DRenderer::SetScreenTargets call). A screen's
+        // CameraComponent::Projection can flip between Orthographic/Perspective at any time, so
+        // both pipelines must share one C3D_RenderTarget per physical screen -- two independent
+        // targets each calling C3D_RenderTargetSetOutput for the same screen would silently
+        // steal each other's display output (confirmed as a real bug: the non-3D screen went
+        // solid black because Citro3DRenderer's own never-cleared target had won that
+        // registration race, simply by being created after this renderer's).
+        C3D_RenderTarget* GetTarget(Screen screen) const { return TargetFor(screen); }
+
     private:
         C3D_RenderTarget* TargetFor(Screen screen) const;
 

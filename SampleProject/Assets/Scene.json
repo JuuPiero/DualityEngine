@@ -209,7 +209,7 @@
           80.0,
           80.0
         ],
-        "Texture": "9bbd8fe173b67ebb09b760989151b4b0"
+        "Texture": ""
       },
       "Tag": {
         "Tag": "Untagged"
@@ -233,8 +233,43 @@
       }
     },
     {
+      "Mesh Renderer": {
+        "Material": "f88066254862338300d1e7afc9357c8e",
+        "Mesh": "",
+        "Primitive": "Cube"
+      },
+      "Name": {
+        "Name": "TestCube3D"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          20.0,
+          35.0,
+          0.0
+        ],
+        "Scale": [
+          60.0,
+          60.0,
+          60.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
       "Camera": {
+        "Far Plane": 1000.0,
+        "Fov Degrees": 60.0,
+        "Near Plane": 0.10000000149011612,
         "Primary": true,
+        "Projection": "Perspective",
         "Screen": "Bottom",
         "Zoom": 1.0
       },
@@ -247,7 +282,7 @@
       },
       "Transform": {
         "Rotation": [
-          0.0,
+          -10.0,
           0.0,
           0.0
         ],
@@ -257,15 +292,19 @@
           1.0
         ],
         "Translation": [
-          160.0,
-          120.0,
-          0.0
+          0.0,
+          60.0,
+          200.0
         ]
       }
     },
     {
       "Camera": {
+        "Far Plane": 1000.0,
+        "Fov Degrees": 60.0,
+        "Near Plane": 0.10000000149011612,
         "Primary": true,
+        "Projection": "Orthographic",
         "Screen": "Top",
         "Zoom": 1.0
       },

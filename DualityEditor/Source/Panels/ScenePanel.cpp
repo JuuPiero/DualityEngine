@@ -10,6 +10,8 @@
 
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/SceneGizmo.h"
+#include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/MeshLoader.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Scene/Components.h"
 
@@ -73,6 +75,20 @@ namespace Duality {
             }
         }
 
+        // Same fallback convention as rendering (see SceneRenderer.cpp's ResolveMeshGeometry):
+        // an imported Mesh, when it resolves, replaces the procedural Primitive's own radius.
+        float MeshBoundingRadius(const MeshRendererComponent& mesh) {
+            if (!mesh.Mesh.Guid.empty()) {
+                std::string path = AssetDatabase::ResolvePath(mesh.Mesh.Guid);
+                if (!path.empty()) {
+                    float radius = MeshLoader::Load(path).BoundingRadius;
+                    if (radius > 0.0f)
+                        return radius;
+                }
+            }
+            return PrimitiveBoundingRadius(mesh.Primitive);
+        }
+
         // Projects world-space points into this pane's screen-space pixels, given the orbit
         // camera's own basis vectors -- the exact inverse of the pick-ray math in
         // DrawScenePane3D's click handler (same forward/right/up, fov, aspect). Shared by the
@@ -85,7 +101,10 @@ namespace Duality {
 
             bool Project(const glm::vec3& worldPos, ImVec2& outScreen) const {
                 glm::vec3 rel = worldPos - CameraPos;
-                float viewZ = -glm::dot(rel, Forward);
+                // Forward-facing depth: positive and growing for a point further in front of
+                // the camera (rel increasingly parallel to Forward) -- NOT negated, matching
+                // the pick-ray code's own dot(toSphere, rayDir) > 0 "in front" convention below.
+                float viewZ = glm::dot(rel, Forward);
                 if (viewZ <= 0.01f)
                     return false; // behind the camera
                 float tanHalfFov = std::tan(glm::radians(FovDegrees) * 0.5f);
@@ -236,8 +255,10 @@ namespace Duality {
                     continue;
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 auto& mesh = ctx.SceneRef.Registry().get<MeshRendererComponent>(handle);
-                uint32_t textureId = ResolveMeshTexture(renderer3D, mesh.Texture);
-                renderer3D.DrawMesh(mesh.Primitive, transform.Translation, transform.Rotation, transform.Scale, mesh.Color, textureId);
+                Material material = ResolveMeshMaterial(mesh.Material);
+                uint32_t textureId = ResolveMeshTexture(renderer3D, material.Texture);
+                uint32_t meshHandle = ResolveMeshGeometry(renderer3D, mesh.Mesh);
+                renderer3D.DrawMesh(mesh.Primitive, meshHandle, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
             }
             renderer3D.EndScene();
             framebuffer.Unbind();
@@ -301,7 +322,7 @@ namespace Duality {
                             TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
                             auto& mesh = candidate.GetComponent<MeshRendererComponent>();
                             float maxScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
-                            float radius = PrimitiveBoundingRadius(mesh.Primitive) * maxScale;
+                            float radius = MeshBoundingRadius(mesh) * maxScale;
 
                             glm::vec3 toSphere = transform.Translation - cameraPos;
                             float tClosest = glm::dot(toSphere, rayDir);

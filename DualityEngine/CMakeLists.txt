@@ -2,6 +2,8 @@ add_library(DualityEngine STATIC
     Source/Core/Log.cpp
     Source/Asset/AssetMeta.cpp
     Source/Asset/AssetDatabase.cpp
+    Source/Asset/MaterialLoader.cpp
+    Source/Asset/MeshLoader.cpp
     Source/Input/Input.cpp
     Source/Reflection/TypeRegistry.cpp
     Source/Reflection/Reflection.cpp

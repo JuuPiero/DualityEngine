@@ -1,6 +1,7 @@
 #include "DualityEngine/Renderer/SceneRenderer.h"
 
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/MaterialLoader.h"
 #include "DualityEngine/Scene/Components.h"
 
 namespace Duality {
@@ -31,6 +32,24 @@ namespace Duality {
         if (path.empty())
             return 0;
         return renderer.LoadTexture(path);
+    }
+
+    Material ResolveMeshMaterial(const AssetRef& materialRef) {
+        if (materialRef.Guid.empty())
+            return Material{};
+        std::string path = AssetDatabase::ResolvePath(materialRef.Guid);
+        if (path.empty())
+            return Material{};
+        return MaterialLoader::Load(path);
+    }
+
+    uint32_t ResolveMeshGeometry(IRenderer3D& renderer, const AssetRef& meshRef) {
+        if (meshRef.Guid.empty())
+            return 0;
+        std::string path = AssetDatabase::ResolvePath(meshRef.Guid);
+        if (path.empty())
+            return 0;
+        return renderer.LoadMesh(path);
     }
 
     bool ShouldRenderOnScreen(Scene& scene, entt::entity handle, Screen screen) {
@@ -113,9 +132,11 @@ namespace Duality {
                 continue;
             TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
             auto& mesh = view.get<MeshRendererComponent>(handle);
-            uint32_t textureId = ResolveMeshTexture(renderer, mesh.Texture);
+            Material material = ResolveMeshMaterial(mesh.Material);
+            uint32_t textureId = ResolveMeshTexture(renderer, material.Texture);
+            uint32_t meshHandle = ResolveMeshGeometry(renderer, mesh.Mesh);
 
-            renderer.DrawMesh(mesh.Primitive, transform.Translation, transform.Rotation, transform.Scale, mesh.Color, textureId);
+            renderer.DrawMesh(mesh.Primitive, meshHandle, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
         }
 
         renderer.EndScene();

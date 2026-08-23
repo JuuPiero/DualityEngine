@@ -14,7 +14,8 @@ namespace Duality {
         // calling C3D_Init before this Init(), same as it owns C3D_FrameBegin/FrameEnd now
         // too (see BeginFrame/EndFrame below).
         C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
-        C2D_Prepare();
+        // No C2D_Prepare() here -- called at the start of every BeginScene instead, since this
+        // isn't the sole GPU user (see BeginScene's own comment for why that matters).
 
         // Global tint state (citro2d has no per-draw mode parameter) -- TintMult (texture
         // color x tint color) matches DrawQuad's documented "a texture with color {1,1,1,1}
@@ -52,6 +53,15 @@ namespace Duality {
     }
 
     void Citro2DRenderer::BeginScene(Screen screen, const glm::vec4& clearColor) {
+        // C2D_Prepare's own doc comment: "This needs to be done only once in the program if
+        // citro2d is the sole user of the GPU." It isn't here -- Citro3DRenderer's draws on the
+        // other screen this same frame (or the previous frame; this GPU state persists across
+        // C3D_FrameBegin/End) rebind citro2d's own required shader/pipeline state out from under
+        // it, since citro2d itself only calls C2D_Prepare() once (this renderer's own Init()).
+        // Confirmed as a real bug on real hardware/Citra: the non-3D screen went solid black
+        // (citro2d silently drawing through the wrong, 3D-unlit shader) without this.
+        C2D_Prepare();
+
         C3D_RenderTarget* target = TargetFor(screen);
         C2D_TargetClear(target, ToC2DColor(clearColor));
         C2D_SceneBegin(target);
