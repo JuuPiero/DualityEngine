@@ -10,6 +10,10 @@ serialization) compiles for two targets from one source tree:
   (Homebrew Launcher / `3dslink`) and `.cia` (installable via FBI on real
   hardware/CFW).
 
+![Demo](Resource/Engine.png)
+![Demo](Resource/Build.png)
+
+
 New here? `GETTING_STARTED.md` is a hands-on walkthrough (build, tour the Editor,
 build a scene, write your first script) -- this file covers architecture, the full
 build system, and every feature's details instead. See `ROADMAP.md` for what's
