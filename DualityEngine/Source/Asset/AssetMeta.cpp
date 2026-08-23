@@ -23,18 +23,28 @@ namespace Duality {
         return std::string(buffer);
     }
 
-    void AssetMeta::EnsureMetaFile(const std::filesystem::path& assetPath) {
+    std::string AssetMeta::EnsureMetaFile(const std::filesystem::path& assetPath) {
         std::filesystem::path metaPath = assetPath;
         metaPath += ".meta";
 
-        if (std::filesystem::exists(metaPath))
-            return;
+        if (std::filesystem::exists(metaPath)) {
+            std::ifstream file(metaPath);
+            json root;
+            try {
+                file >> root;
+                return root.value("guid", std::string());
+            } catch (const json::parse_error&) {
+                // Fall through and regenerate a corrupt/empty .meta file.
+            }
+        }
 
+        std::string guid = GenerateGuid();
         json root;
-        root["guid"] = GenerateGuid();
+        root["guid"] = guid;
 
         std::ofstream file(metaPath);
         file << root.dump(4);
+        return guid;
     }
 
 }

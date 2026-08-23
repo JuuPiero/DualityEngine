@@ -45,8 +45,25 @@ namespace Duality {
         // implementation has a defined place to flush from.
     }
 
-    void Citro2DRenderer::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color) {
-        C2D_DrawRectSolid(position.x, position.y, 0.0f, size.x, size.y, ToC2DColor(color));
+    void Citro2DRenderer::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t /*textureId*/) {
+        if (rotationDegrees == 0.0f) {
+            C2D_DrawRectSolid(position.x, position.y, 0.0f, size.x, size.y, ToC2DColor(color));
+            return;
+        }
+
+        // No rotated-rect primitive in citro2d's public API -- rotate the
+        // model matrix around the quad's center instead, then draw the same
+        // rect centered on the local origin, matching OpenGLRenderer2D's
+        // rotate-around-center behavior exactly.
+        glm::vec2 center = position + size * 0.5f;
+        C2D_ViewTranslate(center.x, center.y);
+        C2D_ViewRotateDegrees(rotationDegrees);
+        C2D_DrawRectSolid(-size.x * 0.5f, -size.y * 0.5f, 0.0f, size.x, size.y, ToC2DColor(color));
+        C2D_ViewReset();
+    }
+
+    uint32_t Citro2DRenderer::LoadTexture(const std::string& /*path*/) {
+        return 0;
     }
 
 }

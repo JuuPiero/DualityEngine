@@ -16,6 +16,16 @@ namespace Duality {
 
         void OnImGuiRender();
 
+        // Re-roots the browser at a different Assets folder (e.g. after
+        // Open Project) and resets browsing back to that root.
+        void SetRootDirectory(const std::filesystem::path& rootDirectory);
+
+        // Copies `sourceFile` into whatever directory is currently being
+        // browsed (overwriting an existing file of the same name) -- the
+        // OS-file-drop-to-import path, driven by Application's Window
+        // drop callback.
+        void ImportFile(const std::filesystem::path& sourceFile);
+
     private:
         std::filesystem::path m_RootDirectory;
         std::filesystem::path m_CurrentDirectory;

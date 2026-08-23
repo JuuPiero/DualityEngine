@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_map>
+
 #include "DualityEngine/Renderer/IRenderer2D.h"
 
 namespace Duality {
@@ -27,7 +29,8 @@ namespace Duality {
         void BeginScene(Screen screen, const glm::vec4& clearColor) override;
         void EndScene() override;
 
-        void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color) override;
+        void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0) override;
+        uint32_t LoadTexture(const std::string& path) override;
 
         // Desktop-editor-only extra (not part of IRenderer2D -- there is no
         // device equivalent): an orthographic view centered on an arbitrary
@@ -38,6 +41,9 @@ namespace Duality {
         // exactly what a real CameraComponent+Screen would show (the Game
         // view).
         void BeginCustomView(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, const glm::vec4& clearColor);
+
+    private:
+        std::unordered_map<std::string, uint32_t> m_TextureCache;
     };
 
 }

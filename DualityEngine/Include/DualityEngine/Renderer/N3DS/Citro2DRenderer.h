@@ -22,7 +22,14 @@ namespace Duality {
         void BeginScene(Screen screen, const glm::vec4& clearColor) override;
         void EndScene() override;
 
-        void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color) override;
+        void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0) override;
+
+        // Always returns 0 -- citro2d has no PNG-loading path on real
+        // hardware (needs pre-converted .t3x via the tex3ds tool, a
+        // separate future asset-cooking pipeline). DrawQuad ignores
+        // textureId here since it's always 0 from this backend, falling
+        // back to its flat Color.
+        uint32_t LoadTexture(const std::string& path) override;
 
     private:
         C3D_RenderTarget* TargetFor(Screen screen) const;

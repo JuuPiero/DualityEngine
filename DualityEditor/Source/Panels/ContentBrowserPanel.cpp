@@ -5,7 +5,9 @@
 
 #include <imgui.h>
 
+#include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
+#include "DualityEngine/Core/Log.h"
 
 namespace Duality {
 
@@ -40,6 +42,24 @@ namespace Duality {
         : m_RootDirectory(rootDirectory), m_CurrentDirectory(rootDirectory) {
     }
 
+    void ContentBrowserPanel::SetRootDirectory(const std::filesystem::path& rootDirectory) {
+        m_RootDirectory = rootDirectory;
+        m_CurrentDirectory = rootDirectory;
+    }
+
+    void ContentBrowserPanel::ImportFile(const std::filesystem::path& sourceFile) {
+        if (m_CurrentDirectory.empty())
+            return;
+
+        std::filesystem::path destination = m_CurrentDirectory / sourceFile.filename();
+        std::error_code error;
+        std::filesystem::copy_file(sourceFile, destination, std::filesystem::copy_options::overwrite_existing, error);
+        if (error)
+            Log::Error("ContentBrowserPanel: failed to import '" + sourceFile.string() + "': " + error.message());
+        else
+            Log::Info("Imported asset: " + destination.string());
+    }
+
     void ContentBrowserPanel::OnImGuiRender() {
         ImGui::Begin("Content Browser");
 
@@ -72,8 +92,12 @@ namespace Duality {
             // views the same way.
             if (!isDirectory && path.extension() == ".meta")
                 continue;
-            if (!isDirectory)
-                AssetMeta::EnsureMetaFile(path);
+
+            std::string guid;
+            if (!isDirectory) {
+                guid = AssetMeta::EnsureMetaFile(path);
+                AssetDatabase::Register(guid, path.string());
+            }
 
             std::string name = path.filename().string();
 
@@ -84,6 +108,12 @@ namespace Duality {
             ImVec2 iconMax(iconMin.x + thumbnailSize, iconMin.y + thumbnailSize);
             ImGui::InvisibleButton("##thumb", ImVec2(thumbnailSize, thumbnailSize));
             bool doubleClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+
+            if (!isDirectory && !guid.empty() && ImGui::BeginDragDropSource()) {
+                ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
+                ImGui::Text("%s", name.c_str());
+                ImGui::EndDragDropSource();
+            }
 
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             uint32_t thumbnailTexture = 0;

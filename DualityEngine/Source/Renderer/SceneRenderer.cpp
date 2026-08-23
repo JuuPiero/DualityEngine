@@ -1,8 +1,28 @@
 #include "DualityEngine/Renderer/SceneRenderer.h"
 
+#include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Scene/Components.h"
 
 namespace Duality {
+
+    AssetRef GetActiveSpriteTexture(Scene& scene, entt::entity handle) {
+        if (scene.Registry().all_of<SpriteFlipbookComponent>(handle)) {
+            auto& flipbook = scene.Registry().get<SpriteFlipbookComponent>(handle);
+            AssetRef& frame = GetFlipbookFrame(flipbook, flipbook.CurrentFrame);
+            if (!frame.Guid.empty())
+                return frame;
+        }
+        return scene.Registry().get<SpriteRendererComponent>(handle).Texture;
+    }
+
+    uint32_t ResolveSpriteTexture(IRenderer2D& renderer, const AssetRef& textureRef) {
+        if (textureRef.Guid.empty())
+            return 0;
+        std::string path = AssetDatabase::ResolvePath(textureRef.Guid);
+        if (path.empty())
+            return 0;
+        return renderer.LoadTexture(path);
+    }
 
     static void ScreenExtents(Screen screen, float& outWidth, float& outHeight) {
         if (screen == Screen::Top) {
@@ -41,8 +61,9 @@ namespace Duality {
                     (transform.Translation.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f
                 };
                 glm::vec2 size = sprite.Size * cameraComponent.Zoom;
+                uint32_t textureId = ResolveSpriteTexture(renderer, GetActiveSpriteTexture(scene, handle));
 
-                renderer.DrawQuad({ screenCenter.x - size.x * 0.5f, screenCenter.y - size.y * 0.5f }, size, sprite.Color);
+                renderer.DrawQuad({ screenCenter.x - size.x * 0.5f, screenCenter.y - size.y * 0.5f }, size, sprite.Color, transform.Rotation.z, textureId);
             }
         }
 

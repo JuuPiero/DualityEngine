@@ -28,6 +28,8 @@ namespace Duality {
                 return json::array({ v.Value.x, v.Value.y, v.Value.z, v.Value.w });
             } else if constexpr (std::is_same_v<T, Screen>) {
                 return v == Screen::Top ? "Top" : "Bottom";
+            } else if constexpr (std::is_same_v<T, AssetRef>) {
+                return v.Guid;
             } else {
                 return v; // int, float, bool, std::string
             }
@@ -50,6 +52,8 @@ namespace Duality {
                 return Color4{ glm::vec4{ j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>() } };
             } else if constexpr (std::is_same_v<T, Screen>) {
                 return j.get<std::string>() == "Top" ? Screen::Top : Screen::Bottom;
+            } else if constexpr (std::is_same_v<T, AssetRef>) {
+                return AssetRef{ j.get<std::string>() };
             } else {
                 return j.get<T>(); // int, float, bool, std::string
             }

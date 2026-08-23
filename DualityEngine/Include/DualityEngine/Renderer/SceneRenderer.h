@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DualityEngine/Renderer/IRenderer2D.h"
+#include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Scene.h"
 
 namespace Duality {
@@ -18,5 +19,20 @@ namespace Duality {
     // Scene view (a free-roam editor-only camera, see OpenGLRenderer2D::
     // BeginCustomView) intentionally does not go through this function.
     void RenderScreen(IRenderer2D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor);
+
+    // Whichever AssetRef should currently be drawn for this entity's
+    // sprite: its SpriteFlipbookComponent's current frame if it has one
+    // assigned (non-empty Guid), else its SpriteRendererComponent::
+    // Texture directly. Shared between RenderScreen (above) and the
+    // Editor's Scene view, which draws sprites directly rather than
+    // through RenderScreen (no CameraComponent involved there).
+    AssetRef GetActiveSpriteTexture(Scene& scene, entt::entity handle);
+
+    // Resolves `textureRef` to a loaded GPU texture handle via
+    // AssetDatabase + IRenderer2D::LoadTexture, or 0 if the ref is empty or
+    // doesn't resolve to an existing file (falls back to DrawQuad's flat
+    // Color path either way). Shared by RenderScreen and the Editor's
+    // Scene view.
+    uint32_t ResolveSpriteTexture(IRenderer2D& renderer, const AssetRef& textureRef);
 
 }

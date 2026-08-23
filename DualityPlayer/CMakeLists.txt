@@ -1,5 +1,28 @@
 add_executable(DualityPlayer Source/Main.cpp)
-target_link_libraries(DualityPlayer PRIVATE DualityEngine GameScripts)
+
+# GameScripts's Behaviour subclasses only ever get referenced at runtime by
+# class-name string (ScriptRegistry::TryCreate), via a self-registering
+# static object per class (REGISTER_BEHAVIOUR). Nothing in DualityPlayer's
+# own code directly calls a symbol defined in BounceBehaviour.cpp.o /
+# ApiShowcaseBehaviour.cpp.o -- so the linker's normal "only extract archive
+# members that resolve a pending undefined symbol" behavior drops those
+# object files entirely from the final .elf, and their registration
+# constructors never run (confirmed empirically: `arm-none-eabi-nm` on a
+# built DualityPlayer.elf showed zero BounceBehaviour/ScriptRegistrar
+# symbols, despite them being present in libGameScripts.a itself). Every
+# BehaviourComponent on-device then silently fails to instantiate --
+# ScriptRegistry::TryCreate returns false, entities with a Behaviour attached
+# just sit there doing nothing, with no visible error (Log has nowhere to
+# print to on a real device). This is 3DS-only: on desktop, GameScripts is a
+# real DLL, which always contains all of its own code regardless of what the
+# loading process references, so this failure mode doesn't exist there.
+# --whole-archive forces every member object file to be linked in
+# unconditionally, matching what SHARED-library linking already does for
+# free.
+target_link_libraries(DualityPlayer PRIVATE
+    DualityEngine
+    -Wl,--whole-archive GameScripts -Wl,--no-whole-archive
+)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     # Produces DualityPlayer.3dsx next to the .elf, using devkitPro's own

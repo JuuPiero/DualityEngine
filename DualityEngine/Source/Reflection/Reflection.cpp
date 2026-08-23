@@ -26,6 +26,21 @@ namespace Duality {
         TypeRegistry::Register<SpriteRendererComponent>("Sprite Renderer", false, {
             MakeColorField("Color", &SpriteRendererComponent::Color),
             MakeField("Size", &SpriteRendererComponent::Size),
+            MakeField("Texture", &SpriteRendererComponent::Texture),
+        });
+
+        TypeRegistry::Register<SpriteFlipbookComponent>("Sprite Flipbook", false, {
+            MakeField("Frame 0", &SpriteFlipbookComponent::Frame0),
+            MakeField("Frame 1", &SpriteFlipbookComponent::Frame1),
+            MakeField("Frame 2", &SpriteFlipbookComponent::Frame2),
+            MakeField("Frame 3", &SpriteFlipbookComponent::Frame3),
+            MakeField("Frame 4", &SpriteFlipbookComponent::Frame4),
+            MakeField("Frame 5", &SpriteFlipbookComponent::Frame5),
+            MakeField("Frame 6", &SpriteFlipbookComponent::Frame6),
+            MakeField("Frame 7", &SpriteFlipbookComponent::Frame7),
+            MakeField("Frame Duration", &SpriteFlipbookComponent::FrameDuration),
+            MakeField("Loop", &SpriteFlipbookComponent::Loop),
+            MakeField("Playing", &SpriteFlipbookComponent::Playing),
         });
 
         TypeRegistry::Register<CameraComponent>("Camera", false, {

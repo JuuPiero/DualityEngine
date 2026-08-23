@@ -2,8 +2,12 @@
 
 #include <box2d/box2d.h>
 
+#include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Core/Log.h"
+#include "DualityEngine/Input/Input.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scripting/EngineServices.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
 
 namespace Duality {
@@ -20,6 +24,52 @@ namespace Duality {
     static constexpr int32 PositionIterations = 2;
 
     static b2World* PhysicsWorld(void* handle) { return static_cast<b2World*>(handle); }
+
+    // Frames are a contiguous prefix -- the first empty slot ends the
+    // sequence, matching how a user naturally fills Frame0, Frame1, ...
+    // in order rather than leaving gaps.
+    static int FlipbookFrameCount(SpriteFlipbookComponent& flipbook) {
+        for (int i = 0; i < 8; i++) {
+            if (GetFlipbookFrame(flipbook, i).Guid.empty())
+                return i;
+        }
+        return 8;
+    }
+
+    // Adapters from EngineServices' plain-C-type ABI signatures to
+    // Duality::Input's real ones -- these and Input itself are both
+    // compiled into this same DualityEngine library, so this is an
+    // ordinary same-binary call, not a boundary crossing. Handed to every
+    // Behaviour instance right after it's created (see OnRuntimeStart
+    // below) since a Behaviour may live inside a separately-compiled
+    // GameScripts.dll on desktop that can't call Duality::Input directly.
+    static bool EngineServices_GetKey(int keyCode) { return Input::GetKey(static_cast<KeyCode>(keyCode)); }
+    static bool EngineServices_GetKeyDown(int keyCode) { return Input::GetKeyDown(static_cast<KeyCode>(keyCode)); }
+    static bool EngineServices_GetKeyUp(int keyCode) { return Input::GetKeyUp(static_cast<KeyCode>(keyCode)); }
+    static float EngineServices_GetAxis(const char* axisName) { return Input::GetAxis(axisName); }
+    static bool EngineServices_GetPointerDown() { return Input::GetPointerDown(); }
+    static void EngineServices_GetPointerPosition(float* outX, float* outY) {
+        glm::vec2 position = Input::GetPointerPosition();
+        *outX = position.x;
+        *outY = position.y;
+    }
+    static void EngineServices_PlaySound(const char* assetGuid, bool loop) {
+        std::string path = AssetDatabase::ResolvePath(assetGuid);
+        if (!path.empty())
+            AudioEngine::Play(path, loop);
+    }
+    static void EngineServices_StopAllSounds() { AudioEngine::StopAll(); }
+
+    static const EngineServices s_EngineServices = {
+        &EngineServices_GetKey,
+        &EngineServices_GetKeyDown,
+        &EngineServices_GetKeyUp,
+        &EngineServices_GetAxis,
+        &EngineServices_GetPointerDown,
+        &EngineServices_GetPointerPosition,
+        &EngineServices_PlaySound,
+        &EngineServices_StopAllSounds,
+    };
 
     Entity Scene::CreateEntity(const std::string& name) {
         Entity entity(m_Registry.create(), this);
@@ -56,7 +106,10 @@ namespace Duality {
             b2BodyDef bodyDef;
             bodyDef.type = rb.IsStatic ? b2_staticBody : b2_dynamicBody;
             bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
-            bodyDef.angle = transform.Rotation.z;
+            // TransformComponent::Rotation is always in degrees (matching
+            // Unity and the Properties panel's plain drag-float) -- Box2D's
+            // own angle is radians, so the boundary conversion happens here.
+            bodyDef.angle = glm::radians(transform.Rotation.z);
             bodyDef.fixedRotation = rb.FixedRotation;
             b2Body* body = world->CreateBody(&bodyDef);
             rb.RuntimeBody = body;
@@ -95,6 +148,7 @@ namespace Duality {
 
             if (ScriptRegistry::TryCreate(bc.ClassName, &bc.Instance, &bc.Destroy)) {
                 bc.Instance->m_Entity = Entity(handle, this);
+                bc.Instance->SetEngineServices(&s_EngineServices);
                 bc.Instance->OnCreate();
             } else {
                 Log::Error("Behaviour: unknown script class '" + bc.ClassName + "'");
@@ -116,7 +170,33 @@ namespace Duality {
                 const b2Vec2& position = body->GetPosition();
                 transform.Translation.x = position.x;
                 transform.Translation.y = position.y;
-                transform.Rotation.z = body->GetAngle();
+                transform.Rotation.z = glm::degrees(body->GetAngle());
+            }
+        }
+
+        auto flipbookView = m_Registry.view<SpriteFlipbookComponent>();
+        for (auto handle : flipbookView) {
+            auto& flipbook = flipbookView.get<SpriteFlipbookComponent>(handle);
+            if (!flipbook.Playing)
+                continue;
+
+            int frameCount = FlipbookFrameCount(flipbook);
+            if (frameCount <= 1)
+                continue; // nothing to animate
+
+            flipbook.ElapsedTime += deltaTime;
+            while (flipbook.FrameDuration > 0.0f && flipbook.ElapsedTime >= flipbook.FrameDuration) {
+                flipbook.ElapsedTime -= flipbook.FrameDuration;
+                flipbook.CurrentFrame++;
+                if (flipbook.CurrentFrame >= frameCount) {
+                    if (flipbook.Loop) {
+                        flipbook.CurrentFrame = 0;
+                    } else {
+                        flipbook.CurrentFrame = frameCount - 1;
+                        flipbook.Playing = false;
+                        break;
+                    }
+                }
             }
         }
 

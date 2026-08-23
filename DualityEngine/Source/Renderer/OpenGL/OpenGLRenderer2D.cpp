@@ -1,6 +1,10 @@
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
 
+#include <cmath>
+
 #include <GL/glew.h>
+
+#include "DualityEngine/Renderer/OpenGL/GLTextureLoader.h"
 
 namespace Duality {
 
@@ -61,14 +65,48 @@ namespace Duality {
         glLoadIdentity();
     }
 
-    void OpenGLRenderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color) {
+    void OpenGLRenderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t textureId) {
+        glm::vec2 center = position + size * 0.5f;
+        glm::vec2 half = size * 0.5f;
+
+        // Unrotated corners are just the four combinations of +-half offset
+        // from center -- rotationDegrees==0 folds into this the same way a
+        // 0-radian rotation matrix would, so there's no separate fast path
+        // to keep in sync with the textured/UV logic below anymore.
+        float radians = glm::radians(rotationDegrees);
+        float c = std::cos(radians), s = std::sin(radians);
+        glm::vec2 localCorners[4] = { { -half.x, -half.y }, { half.x, -half.y }, { half.x, half.y }, { -half.x, half.y } };
+        glm::vec2 uvs[4] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
+
+        if (textureId != 0) {
+            glEnable(GL_TEXTURE_2D);
+            glBindTexture(GL_TEXTURE_2D, textureId);
+        }
         glColor4f(color.r, color.g, color.b, color.a);
+
         glBegin(GL_QUADS);
-        glVertex2f(position.x, position.y);
-        glVertex2f(position.x + size.x, position.y);
-        glVertex2f(position.x + size.x, position.y + size.y);
-        glVertex2f(position.x, position.y + size.y);
+        for (int i = 0; i < 4; i++) {
+            glm::vec2 rotated{ localCorners[i].x * c - localCorners[i].y * s, localCorners[i].x * s + localCorners[i].y * c };
+            if (textureId != 0)
+                glTexCoord2f(uvs[i].x, uvs[i].y);
+            glVertex2f(center.x + rotated.x, center.y + rotated.y);
+        }
         glEnd();
+
+        if (textureId != 0) {
+            glBindTexture(GL_TEXTURE_2D, 0);
+            glDisable(GL_TEXTURE_2D);
+        }
+    }
+
+    uint32_t OpenGLRenderer2D::LoadTexture(const std::string& path) {
+        auto it = m_TextureCache.find(path);
+        if (it != m_TextureCache.end())
+            return it->second;
+
+        uint32_t texture = GLTextureLoader::LoadTextureFromFile(path);
+        m_TextureCache[path] = texture;
+        return texture;
     }
 
 }

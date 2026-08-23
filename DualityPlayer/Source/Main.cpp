@@ -12,6 +12,8 @@
 
 #include <3ds.h>
 
+#include "DualityEngine/Audio/AudioEngine.h"
+#include "DualityEngine/Input/Input.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/N3DS/Citro2DRenderer.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
@@ -40,6 +42,7 @@ int main(int argc, char* argv[]) {
 
     Citro2DRenderer renderer;
     renderer.Init();
+    AudioEngine::Init();
 
     Scene scene;
     SceneSerializer(scene).Deserialize("romfs:/Scene.json");
@@ -49,8 +52,41 @@ int main(int argc, char* argv[]) {
 
     while (aptMainLoop()) {
         hidScanInput();
+        u32 heldKeys = hidKeysHeld();
         if (hidKeysDown() & KEY_START)
             break; // return to hbmenu
+
+        Input::BeginFrame();
+        Input::SetKeyState(KeyCode::GamepadA, heldKeys & KEY_A);
+        Input::SetKeyState(KeyCode::GamepadB, heldKeys & KEY_B);
+        Input::SetKeyState(KeyCode::GamepadX, heldKeys & KEY_X);
+        Input::SetKeyState(KeyCode::GamepadY, heldKeys & KEY_Y);
+        Input::SetKeyState(KeyCode::GamepadL, heldKeys & KEY_L);
+        Input::SetKeyState(KeyCode::GamepadR, heldKeys & KEY_R);
+        Input::SetKeyState(KeyCode::GamepadStart, heldKeys & KEY_START);
+        Input::SetKeyState(KeyCode::GamepadSelect, heldKeys & KEY_SELECT);
+        Input::SetKeyState(KeyCode::GamepadDPadUp, heldKeys & KEY_DUP);
+        Input::SetKeyState(KeyCode::GamepadDPadDown, heldKeys & KEY_DDOWN);
+        Input::SetKeyState(KeyCode::GamepadDPadLeft, heldKeys & KEY_DLEFT);
+        Input::SetKeyState(KeyCode::GamepadDPadRight, heldKeys & KEY_DRIGHT);
+
+        // Real analog values here (vs. digital +-1 on desktop) -- same
+        // script code, meaningfully different but sane behavior on each
+        // platform. libctru's circlePosition roughly spans +-156.
+        circlePosition circlePad;
+        hidCircleRead(&circlePad);
+        auto normalizeAxis = [](s16 value) {
+            float axis = static_cast<float>(value) / 156.0f;
+            return axis < -1.0f ? -1.0f : (axis > 1.0f ? 1.0f : axis);
+        };
+        Input::SetAxis("Horizontal", normalizeAxis(circlePad.dx));
+        Input::SetAxis("Vertical", -normalizeAxis(circlePad.dy)); // dy is up-positive; Vertical follows this project's Y-down convention
+
+        touchPosition touch;
+        hidTouchRead(&touch);
+        Input::SetPointer((heldKeys & KEY_TOUCH) != 0, { static_cast<float>(touch.px), static_cast<float>(touch.py) });
+
+        AudioEngine::Update();
 
         u64 now = svcGetSystemTick();
         float deltaTime = static_cast<float>(now - lastTick) / static_cast<float>(SYSCLOCK_ARM11);
@@ -65,6 +101,7 @@ int main(int argc, char* argv[]) {
     }
 
     scene.OnRuntimeStop();
+    AudioEngine::Shutdown();
     renderer.Shutdown();
     romfsExit();
     gfxExit();

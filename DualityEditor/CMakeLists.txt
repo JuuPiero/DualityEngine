@@ -1,10 +1,18 @@
 add_executable(DualityEditor
     Source/Main.cpp
+    Source/Application.cpp
+    Source/Window.cpp
+    Source/FileDialogs.cpp
     Source/Framebuffer.cpp
     Source/ThumbnailCache.cpp
     Source/ScriptEngine.cpp
     Source/BuildPipeline.cpp
     Source/SceneGizmo.cpp
+    Source/Panels/MenuBarPanel.cpp
+    Source/Panels/HierarchyPanel.cpp
+    Source/Panels/PropertiesPanel.cpp
+    Source/Panels/ScenePanel.cpp
+    Source/Panels/GamePanel.cpp
     Source/Panels/ContentBrowserPanel.cpp
     Source/Panels/ConsolePanel.cpp
 )
@@ -17,4 +25,4 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(GLEW REQUIRED)
 
 target_include_directories(DualityEditor PRIVATE Include)
-target_link_libraries(DualityEditor PRIVATE DualityEngine glfw GLEW::GLEW opengl32 ImGui stb)
+target_link_libraries(DualityEditor PRIVATE DualityEngine glfw GLEW::GLEW opengl32 comdlg32 ImGui stb)

@@ -4,6 +4,7 @@
 
 #include <glm/glm.hpp>
 
+#include "DualityEngine/Reflection/Field.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Behaviour.h"
 
@@ -32,12 +33,55 @@ namespace Duality {
         glm::vec3 Scale{ 1.0f, 1.0f, 1.0f };
     };
 
-    // No texture support yet (Phase 0) -- a flat-colored quad of Size pixels
-    // centered on the entity's TransformComponent::Translation.
+    // A quad of Size pixels centered on the entity's
+    // TransformComponent::Translation. Texture is an AssetRef (empty Guid =
+    // no texture assigned) -- when unresolved/absent, renders as a flat
+    // Color-filled rect; when it resolves to an image, Color still
+    // modulates it (white = unmodified). If the entity also has a
+    // SpriteFlipbookComponent, that component's current frame overrides
+    // this field entirely while it has a non-empty frame assigned.
     struct SpriteRendererComponent {
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec2 Size{ 32.0f, 32.0f };
+        AssetRef Texture;
     };
+
+    // Flipbook-style 2D animation: an ordered, fixed-size list of frame
+    // textures played back at a constant rate. A fixed 8 slots (not an
+    // unbounded list) since the reflection system (Field.h) only models
+    // scalar fields, one ImGui widget each -- a real variable-length list
+    // editor would need its own, larger extension to TypeRegistry/
+    // SceneSerializer/PropertiesPanel. Only advances during Play
+    // (Scene::OnRuntimeUpdate), same as Behaviour/physics -- no Edit-mode
+    // preview-scrubbing.
+    struct SpriteFlipbookComponent {
+        AssetRef Frame0, Frame1, Frame2, Frame3, Frame4, Frame5, Frame6, Frame7;
+        float FrameDuration = 0.1f;
+        bool Loop = true;
+        bool Playing = true;
+
+        // Runtime-only, like Rigidbody2DComponent::RuntimeBody -- not
+        // reflected/serialized (TypeRegistry only registers the fields
+        // above).
+        float ElapsedTime = 0.0f;
+        int CurrentFrame = 0;
+    };
+
+    // Frame0..Frame7 accessed by index -- shared by Scene.cpp (advancing
+    // CurrentFrame) and the renderer (picking which frame to draw), so the
+    // switch lives in exactly one place.
+    inline AssetRef& GetFlipbookFrame(SpriteFlipbookComponent& flipbook, int index) {
+        switch (index) {
+            case 0: return flipbook.Frame0;
+            case 1: return flipbook.Frame1;
+            case 2: return flipbook.Frame2;
+            case 3: return flipbook.Frame3;
+            case 4: return flipbook.Frame4;
+            case 5: return flipbook.Frame5;
+            case 6: return flipbook.Frame6;
+            default: return flipbook.Frame7;
+        }
+    }
 
     // Screen is which physical 3DS screen this camera renders to -- the
     // concrete mechanism behind "dual-screen aware from the start". The

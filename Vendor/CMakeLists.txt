@@ -77,6 +77,13 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     add_library(stb INTERFACE)
     target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb/include)
 
+    # miniaudio (single-header, public domain/MIT-0), desktop audio backend.
+    # Not in MyGameEngine's own Vendor/ (that project has no audio system),
+    # so fetched fresh from its official GitHub repo -- same "fetch once,
+    # keep it locally" precedent as Tools/makerom.exe and bannertool.exe.
+    add_library(miniaudio INTERFACE)
+    target_include_directories(miniaudio INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/miniaudio/include)
+
     # ImGuizmo is deferred until the phase that actually adds viewport gizmos
     # -- MyGameEngine's own vendored ImGuizmo is paired with its exact ImGui
     # commit; re-check compatibility against this project's ImGui copy when

@@ -20,11 +20,13 @@
 if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     add_library(GameScripts STATIC
         Source/BounceBehaviour.cpp
+        Source/ApiShowcaseBehaviour.cpp
         Source/ScriptModuleExports.cpp
     )
 else()
     add_library(GameScripts SHARED
         Source/BounceBehaviour.cpp
+        Source/ApiShowcaseBehaviour.cpp
         Source/ScriptModuleExports.cpp
     )
     set_target_properties(GameScripts PROPERTIES PREFIX "")
@@ -34,4 +36,10 @@ target_include_directories(GameScripts PRIVATE
     Include
     ${CMAKE_SOURCE_DIR}/DualityEngine/Include
 )
-target_link_libraries(GameScripts PRIVATE EnTT::EnTT glm::glm)
+# nlohmann_json is header-only (no compiled symbols/global state) --
+# ApiShowcaseBehaviour.cpp uses DualityEngine/IO/SaveSystem.h, which needs
+# it. Same "header-only is safe across the DLL boundary" reasoning as
+# Behaviour/Entity/Components already being usable here with no engine lib
+# linked -- this doesn't reintroduce the static-duplication problem
+# EnTT::EnTT/glm::glm's INTERFACE-only linking already avoids.
+target_link_libraries(GameScripts PRIVATE EnTT::EnTT glm::glm nlohmann_json::nlohmann_json)

@@ -17,7 +17,15 @@ namespace Duality {
     // serialization.
     struct Color4 { glm::vec4 Value; };
 
-    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen>;
+    // A reference to an asset by its stable `.meta` GUID (see
+    // DualityEngine/Asset/AssetMeta.h/AssetDatabase.h) rather than a raw
+    // path, so a field survives the asset being renamed/moved. Empty Guid
+    // means "no asset assigned". Usable directly with the generic
+    // MakeField<C,T>() template like any other field type -- no special
+    // construction needed, unlike Color4.
+    struct AssetRef { std::string Guid; };
+
+    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef>;
 
     // A named, type-erased accessor for one field of a component/script
     // instance. Reflection is only ever walked from the Properties panel
