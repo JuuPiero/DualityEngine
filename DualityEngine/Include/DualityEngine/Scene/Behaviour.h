@@ -63,6 +63,23 @@ namespace Duality {
         }
         void StopAllSounds() const { if (m_Services) m_Services->StopAllSounds(); }
 
+        // Cross-screen entity lookup by name -- e.g. a script on a Top-screen entity
+        // calling FindEntityInBottomScreen("Paddle") to reach an entity organized
+        // under that screen's ScreenGroupComponent (see Components.h). Both entities
+        // share the same Scene/Behaviour lifecycle either way -- "screen" here is
+        // purely an organizational lookup filter, not a hard boundary. Returns an
+        // empty Entity (falsy) if nothing matches or m_Services hasn't been set yet.
+        Entity FindEntityInScreen(Screen screen, const std::string& name) const {
+            if (!m_Services)
+                return Entity{};
+            unsigned int handle = 0;
+            if (!m_Services->FindEntityInScreen(m_Entity.GetScene(), static_cast<int>(screen), name.c_str(), &handle))
+                return Entity{};
+            return Entity(static_cast<entt::entity>(handle), m_Entity.GetScene());
+        }
+        Entity FindEntityInTopScreen(const std::string& name) const { return FindEntityInScreen(Screen::Top, name); }
+        Entity FindEntityInBottomScreen(const std::string& name) const { return FindEntityInScreen(Screen::Bottom, name); }
+
         // Called by Scene right after creating this instance -- not for
         // scripts to call themselves.
         void SetEngineServices(const EngineServices* services) { m_Services = services; }

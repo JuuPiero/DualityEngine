@@ -4,10 +4,30 @@
 #include <windows.h>
 
 #include <cstdlib>
+#include <thread>
 
 #include "DualityEngine/Core/Log.h"
 
 namespace Duality {
+
+    std::atomic<BuildStatus> BuildPipeline::s_Status{ BuildStatus::Idle };
+
+    void BuildPipeline::BuildFor3DSAsync(const std::string& repoRoot, const std::string& sceneJsonPath) {
+        if (s_Status == BuildStatus::Running) {
+            Log::Warn("BuildPipeline: a build is already in progress");
+            return;
+        }
+        s_Status = BuildStatus::Running;
+        // Detached, not joined -- MenuBarPanel polls GetStatus() instead of
+        // waiting on the thread. Closing the Editor mid-build leaves the
+        // build-3ds.bat child process tree to finish or get cleaned up on its
+        // own (no job-object-based process tracking here) -- an accepted, rare
+        // edge case, not a normal shutdown path.
+        std::thread([repoRoot, sceneJsonPath]() {
+            bool succeeded = BuildFor3DS(repoRoot, sceneJsonPath);
+            s_Status = succeeded ? BuildStatus::Succeeded : BuildStatus::Failed;
+        }).detach();
+    }
 
     bool BuildPipeline::BuildFor3DS(const std::string& repoRoot, const std::string& sceneJsonPath) {
         std::string sceneDest = repoRoot + "\\DualityPlayer\\romfs\\Scene.json";

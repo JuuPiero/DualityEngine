@@ -55,6 +55,15 @@ namespace Duality {
         // via the tex3ds tool, a separate future asset-cooking pipeline),
         // so DrawQuad there always falls back to its flat Color.
         virtual uint32_t LoadTexture(const std::string& path) = 0;
+
+        // Number of DrawQuad calls since the last BeginFrame -- both backends are
+        // unbatched (one DrawQuad = one real draw call), so this is an exact,
+        // meaningful count, not an estimate. Reset to 0 by BeginFrame, incremented
+        // by DrawQuad. Used by the Editor's Game panel stats overlay (FPS/draw
+        // calls) -- has no purpose on real 3DS hardware, but every backend
+        // implements it for interface symmetry, matching e.g. LoadTexture always
+        // returning 0 on Citro2DRenderer.
+        virtual uint32_t GetDrawCallCount() const = 0;
     };
 
 }

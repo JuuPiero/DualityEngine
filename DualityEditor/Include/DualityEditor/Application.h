@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -15,9 +16,11 @@
 #include "DualityEditor/Panels/PropertiesPanel.h"
 #include "DualityEditor/Panels/ScenePanel.h"
 #include "DualityEditor/SceneGizmo.h"
+#include "DualityEditor/SceneViewCamera.h"
 #include "DualityEditor/Window.h"
 #include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
+#include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Scene.h"
 
 namespace Duality {
@@ -51,7 +54,8 @@ namespace Duality {
 
         Framebuffer m_TopFramebuffer;
         Framebuffer m_BottomFramebuffer;
-        Framebuffer m_SceneFramebuffer;
+        Framebuffer m_TopSceneFramebuffer;
+        Framebuffer m_BottomSceneFramebuffer;
 
         std::string m_BuildDirectory;
         std::string m_RepoRoot;
@@ -63,10 +67,20 @@ namespace Duality {
         bool m_DockLayoutInitialized = false;
         bool m_RequestOpenProject = false;
 
-        glm::vec2 m_SceneCameraPos{ 0.0f, 0.0f };
-        float m_SceneZoom = 1.0f;
+        // Editor stats overlay (GamePanel) -- m_Fps is exponentially smoothed so
+        // it's readable frame-to-frame instead of jittering with raw 1/deltaTime.
+        // m_GameDrawCallCount is snapshotted right after the two real per-screen
+        // RenderScreen calls in Run(), before the Scene view's own (Editor-only)
+        // draws add to the same renderer's running total -- otherwise it would
+        // overstate what a real dual-screen render pass actually costs.
+        float m_Fps = 0.0f;
+        uint32_t m_GameDrawCallCount = 0;
+
+        SceneViewCamera m_TopSceneView;
+        SceneViewCamera m_BottomSceneView;
         GizmoMode m_ActiveGizmoMode = GizmoMode::Translate;
         GizmoAxis m_DraggingGizmoAxis = GizmoAxis::None;
+        Screen m_DraggingGizmoScreen = Screen::Top;
 
         MenuBarPanel m_MenuBarPanel;
         HierarchyPanel m_HierarchyPanel;

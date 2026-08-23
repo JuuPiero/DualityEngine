@@ -28,6 +28,15 @@ namespace Duality {
         // like the texture-resolve adapters in SceneRenderer.cpp.
         void (*PlaySound)(const char* assetGuid, bool loop);
         void (*StopAllSounds)();
+
+        // Entity lookup is inherently per-Scene (unlike Input/Audio, which are
+        // engine-wide singletons), so `scene` travels as a parameter each call
+        // rather than being baked into this one shared struct instance -- pass
+        // Behaviour::GetEntity().GetScene() (opaque here on purpose, same
+        // reasoning as everywhere else in this file: no engine type in the ABI).
+        // `screen` is a Duality::Screen cast to int (0=Top, 1=Bottom). Returns
+        // true and fills *outHandle (the raw entt::entity value) if found.
+        bool (*FindEntityInScreen)(void* scene, int screen, const char* name, unsigned int* outHandle);
     };
 
 }

@@ -1,5 +1,8 @@
 #include "DualityEngine/Scene/Scene.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <box2d/box2d.h>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
@@ -24,6 +27,80 @@ namespace Duality {
     static constexpr int32 PositionIterations = 2;
 
     static b2World* PhysicsWorld(void* handle) { return static_cast<b2World*>(handle); }
+
+    // 2D affine compose: rotates+scales `local` (already itself a
+    // TransformComponent-shaped translate/rotate.z/scale) by `parentWorld`, then
+    // offsets by parentWorld's own translation. Shared by GetWorldTransform (walking
+    // down from the root) and, via its inverse below, by SetParent's
+    // world-position-preserving reparent.
+    static TransformComponent ComposeWorld(const TransformComponent& local, const TransformComponent& parentWorld) {
+        float parentRad = glm::radians(parentWorld.Rotation.z);
+        float cosR = std::cos(parentRad), sinR = std::sin(parentRad);
+        glm::vec2 scaledLocal{ local.Translation.x * parentWorld.Scale.x, local.Translation.y * parentWorld.Scale.y };
+        glm::vec2 rotatedLocal{ scaledLocal.x * cosR - scaledLocal.y * sinR, scaledLocal.x * sinR + scaledLocal.y * cosR };
+
+        TransformComponent world;
+        world.Translation = {
+            parentWorld.Translation.x + rotatedLocal.x,
+            parentWorld.Translation.y + rotatedLocal.y,
+            parentWorld.Translation.z + local.Translation.z
+        };
+        world.Rotation = parentWorld.Rotation + local.Rotation;
+        world.Scale = parentWorld.Scale * local.Scale;
+        return world;
+    }
+
+    // Exact inverse of ComposeWorld -- given an entity's desired world transform and
+    // its (new) parent's world transform, returns the local transform that would
+    // compose back to it. Used only by SetParent's preserveWorldPosition path.
+    static TransformComponent DecomposeWorld(const TransformComponent& world, const TransformComponent& parentWorld) {
+        auto safeDiv = [](float a, float b) { return std::abs(b) > 1e-6f ? a / b : a; };
+
+        float parentRad = glm::radians(parentWorld.Rotation.z);
+        float cosR = std::cos(-parentRad), sinR = std::sin(-parentRad);
+        glm::vec2 offset{ world.Translation.x - parentWorld.Translation.x, world.Translation.y - parentWorld.Translation.y };
+        glm::vec2 unrotated{ offset.x * cosR - offset.y * sinR, offset.x * sinR + offset.y * cosR };
+
+        TransformComponent local;
+        local.Translation = {
+            safeDiv(unrotated.x, parentWorld.Scale.x),
+            safeDiv(unrotated.y, parentWorld.Scale.y),
+            world.Translation.z - parentWorld.Translation.z
+        };
+        local.Rotation = world.Rotation - parentWorld.Rotation;
+        local.Scale = {
+            safeDiv(world.Scale.x, parentWorld.Scale.x),
+            safeDiv(world.Scale.y, parentWorld.Scale.y),
+            safeDiv(world.Scale.z, parentWorld.Scale.z)
+        };
+        return local;
+    }
+
+    // Walks up from `entity` to the root, true if `ancestor` is somewhere in that
+    // chain -- used by SetParent to refuse a reparent that would create a cycle.
+    static bool IsDescendantOf(Entity entity, Entity ancestor) {
+        Entity current = entity;
+        while (current) {
+            if (current == ancestor)
+                return true;
+            current = current.GetComponent<HierarchyComponent>().Parent;
+        }
+        return false;
+    }
+
+    // Depth-first search of `root`'s own subtree (root included) for an entity named
+    // `name` -- used by FindEntityInScreen to search within a ScreenGroupComponent's
+    // group. Mirrors IsDescendantOf's style of walking HierarchyComponent by hand.
+    static Entity FindByNameInSubtree(Entity root, const std::string& name) {
+        if (root.GetComponent<NameComponent>().Name == name)
+            return root;
+        for (Entity child : root.GetComponent<HierarchyComponent>().Children) {
+            Entity found = FindByNameInSubtree(child, name);
+            if (found)
+                return found;
+        }
+        return Entity{};
+    }
 
     // Frames are a contiguous prefix -- the first empty slot ends the
     // sequence, matching how a user naturally fills Frame0, Frame1, ...
@@ -60,6 +137,17 @@ namespace Duality {
     }
     static void EngineServices_StopAllSounds() { AudioEngine::StopAll(); }
 
+    // `scenePtr` travels per-call (not baked into s_EngineServices below, which is one
+    // shared static instance) since, unlike Input/Audio, entity lookup is inherently
+    // per-Scene -- Behaviour supplies its own GetEntity().GetScene() each call.
+    static bool EngineServices_FindEntityInScreen(void* scenePtr, int screen, const char* name, unsigned int* outHandle) {
+        Entity found = static_cast<Scene*>(scenePtr)->FindEntityInScreen(static_cast<Screen>(screen), name);
+        if (!found)
+            return false;
+        *outHandle = static_cast<unsigned int>(found.Handle());
+        return true;
+    }
+
     static const EngineServices s_EngineServices = {
         &EngineServices_GetKey,
         &EngineServices_GetKeyDown,
@@ -69,6 +157,7 @@ namespace Duality {
         &EngineServices_GetPointerPosition,
         &EngineServices_PlaySound,
         &EngineServices_StopAllSounds,
+        &EngineServices_FindEntityInScreen,
     };
 
     Entity Scene::CreateEntity(const std::string& name) {
@@ -77,11 +166,111 @@ namespace Duality {
         auto& nameComponent = entity.AddComponent<NameComponent>();
         nameComponent.Name = name.empty() ? "Entity" : name;
         entity.AddComponent<TagComponent>();
+        entity.AddComponent<HierarchyComponent>();
+        m_RootEntities.push_back(entity);
         return entity;
     }
 
     void Scene::DestroyEntity(Entity entity) {
+        auto& hierarchy = entity.GetComponent<HierarchyComponent>();
+
+        // Copy Children before recursing -- destroying a child never mutates its
+        // siblings' list (only detaching from a *parent* does, below), but it's
+        // cheap insurance against iterating a vector while it's being torn down.
+        std::vector<Entity> children = hierarchy.Children;
+        for (Entity child : children)
+            DestroyEntity(child);
+
+        std::vector<Entity>& siblings = SiblingListFor(hierarchy.Parent);
+        siblings.erase(std::remove(siblings.begin(), siblings.end(), entity), siblings.end());
+
         m_Registry.destroy(entity.Handle());
+    }
+
+    std::vector<Entity>& Scene::SiblingListFor(Entity parent) {
+        if (!parent)
+            return m_RootEntities;
+        return parent.GetComponent<HierarchyComponent>().Children;
+    }
+
+    void Scene::SetParent(Entity child, Entity newParent, Entity insertAfter, bool preserveWorldPosition) {
+        if (!child || child == newParent)
+            return;
+        if (newParent && IsDescendantOf(newParent, child))
+            return; // would create a cycle
+
+        auto& childHierarchy = child.GetComponent<HierarchyComponent>();
+        Entity oldParent = childHierarchy.Parent;
+
+        // Captured before any mutation -- ComposeWorld/DecomposeWorld below need
+        // child's world transform under its *old* parent chain.
+        TransformComponent worldBefore = GetWorldTransform(child);
+
+        std::vector<Entity>& oldSiblings = SiblingListFor(oldParent);
+        oldSiblings.erase(std::remove(oldSiblings.begin(), oldSiblings.end(), child), oldSiblings.end());
+
+        std::vector<Entity>& newSiblings = SiblingListFor(newParent);
+        auto insertPos = newSiblings.end();
+        if (insertAfter) {
+            auto it = std::find(newSiblings.begin(), newSiblings.end(), insertAfter);
+            if (it != newSiblings.end())
+                insertPos = it + 1;
+        }
+        newSiblings.insert(insertPos, child);
+
+        childHierarchy.Parent = newParent;
+
+        if (preserveWorldPosition) {
+            TransformComponent parentWorld = newParent ? GetWorldTransform(newParent) : TransformComponent{};
+            child.GetComponent<TransformComponent>() = DecomposeWorld(worldBefore, parentWorld);
+        }
+    }
+
+    TransformComponent Scene::GetWorldTransform(Entity entity) {
+        TransformComponent local = entity.GetComponent<TransformComponent>();
+        Entity parent = entity.GetComponent<HierarchyComponent>().Parent;
+        if (!parent)
+            return local;
+        return ComposeWorld(local, GetWorldTransform(parent));
+    }
+
+    Entity Scene::FindEntityInScreen(Screen screen, const std::string& name) {
+        bool anyGroupForScreen = false;
+        for (auto handle : m_Registry.view<ScreenGroupComponent>()) {
+            auto& group = m_Registry.get<ScreenGroupComponent>(handle);
+            if (group.Screen != screen)
+                continue;
+            anyGroupForScreen = true;
+            Entity found = FindByNameInSubtree(Entity(handle, this), name);
+            if (found)
+                return found;
+        }
+        if (anyGroupForScreen)
+            return Entity{}; // groups exist for this screen, but `name` wasn't in any of them
+
+        // No ScreenGroupComponent adopted for this screen yet -- fall back to a
+        // scene-wide by-name search so the API isn't a no-op out of the box.
+        for (auto handle : m_Registry.view<NameComponent>()) {
+            if (m_Registry.get<NameComponent>(handle).Name == name)
+                return Entity(handle, this);
+        }
+        return Entity{};
+    }
+
+    bool Scene::TryResolveEntityScreen(Entity entity, Screen& outScreen) {
+        Entity current = entity;
+        while (current) {
+            if (current.HasComponent<ScreenGroupComponent>()) {
+                outScreen = current.GetComponent<ScreenGroupComponent>().Screen;
+                return true;
+            }
+            if (current.HasComponent<CameraComponent>()) {
+                outScreen = current.GetComponent<CameraComponent>().Screen;
+                return true;
+            }
+            current = current.GetComponent<HierarchyComponent>().Parent;
+        }
+        return false;
     }
 
     Entity Scene::GetPrimaryCamera(Screen screen) {
@@ -101,15 +290,24 @@ namespace Duality {
         auto bodyView = m_Registry.view<Rigidbody2DComponent, TransformComponent>();
         for (auto handle : bodyView) {
             auto& rb = bodyView.get<Rigidbody2DComponent>(handle);
-            auto& transform = bodyView.get<TransformComponent>(handle);
+
+            // Spawn at the entity's resolved WORLD transform (identity pass-through
+            // for a root entity) so a child starts in the right place -- but Box2D
+            // then simulates this body independently in world space afterward (see
+            // OnRuntimeUpdate's sync-back below). A Rigidbody2D on a child of a
+            // moving/rotating parent will NOT track that parent during simulation --
+            // the same real limitation Unity documents for non-kinematic parent/child
+            // Rigidbodies, not a gap unique to this engine. Keep physics entities as
+            // roots, or children of a parent that stays at identity.
+            TransformComponent worldTransform = GetWorldTransform(Entity(handle, this));
 
             b2BodyDef bodyDef;
             bodyDef.type = rb.IsStatic ? b2_staticBody : b2_dynamicBody;
-            bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
+            bodyDef.position.Set(worldTransform.Translation.x, worldTransform.Translation.y);
             // TransformComponent::Rotation is always in degrees (matching
             // Unity and the Properties panel's plain drag-float) -- Box2D's
             // own angle is radians, so the boundary conversion happens here.
-            bodyDef.angle = glm::radians(transform.Rotation.z);
+            bodyDef.angle = glm::radians(worldTransform.Rotation.z);
             bodyDef.fixedRotation = rb.FixedRotation;
             b2Body* body = world->CreateBody(&bodyDef);
             rb.RuntimeBody = body;
@@ -168,6 +366,10 @@ namespace Duality {
                     continue;
                 b2Body* body = static_cast<b2Body*>(rb.RuntimeBody);
                 const b2Vec2& position = body->GetPosition();
+                // Box2D always simulates in world space and this writes straight into
+                // the entity's own (local) TransformComponent -- correct only if this
+                // entity has no parent, or its parent stays at identity. See the
+                // matching comment at body-creation time in OnRuntimeStart.
                 transform.Translation.x = position.x;
                 transform.Translation.y = position.y;
                 transform.Rotation.z = glm::degrees(body->GetAngle());

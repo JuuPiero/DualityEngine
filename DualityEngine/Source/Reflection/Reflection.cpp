@@ -49,6 +49,10 @@ namespace Duality {
             MakeField("Zoom", &CameraComponent::Zoom),
         });
 
+        TypeRegistry::Register<ScreenGroupComponent>("Screen Group", false, {
+            MakeField("Screen", &ScreenGroupComponent::Screen),
+        });
+
         TypeRegistry::Register<Rigidbody2DComponent>("Rigidbody 2D", false, {
             MakeField("Is Static", &Rigidbody2DComponent::IsStatic),
             MakeField("Fixed Rotation", &Rigidbody2DComponent::FixedRotation),

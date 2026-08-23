@@ -1,6 +1,8 @@
 #include "DualityEngine/Scene/SceneSerializer.h"
 
 #include <fstream>
+#include <unordered_map>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -64,8 +66,22 @@ namespace Duality {
         json root;
         json entities = json::array();
 
-        for (auto handle : m_Scene.Registry().view<NameComponent>()) {
-            Entity entity(handle, &m_Scene);
+        // entt::entity handles don't survive save/load (Deserialize below creates
+        // fresh ones), so HierarchyComponent::Parent -- a live Entity -- can't be
+        // written directly. Instead, every entity's position in this same array is
+        // used as its stable id for this one file: `indexOf` resolves a parent
+        // Entity to that index, written as a plain "Parent" integer below. This is
+        // bespoke (not routed through FieldValueToJson/TypeRegistry), matching how
+        // HierarchyComponent itself is never TypeRegistry::Register'd.
+        std::vector<Entity> orderedEntities;
+        for (auto handle : m_Scene.Registry().view<NameComponent>())
+            orderedEntities.emplace_back(handle, &m_Scene);
+
+        std::unordered_map<entt::entity, int> indexOf;
+        for (size_t i = 0; i < orderedEntities.size(); i++)
+            indexOf[orderedEntities[i].Handle()] = static_cast<int>(i);
+
+        for (Entity entity : orderedEntities) {
             json entityJson;
 
             for (auto& type : TypeRegistry::All()) {
@@ -77,6 +93,9 @@ namespace Duality {
                     fieldsJson[field.Name] = FieldValueToJson(field.Get(component));
                 entityJson[type.DisplayName] = fieldsJson;
             }
+
+            Entity parent = entity.GetComponent<HierarchyComponent>().Parent;
+            entityJson["Parent"] = parent ? indexOf[parent.Handle()] : -1;
 
             entities.push_back(entityJson);
         }
@@ -111,10 +130,20 @@ namespace Duality {
         if (!root.contains("Entities"))
             return false;
 
+        // First pass: create every entity and hydrate its registered components, in
+        // file order -- `orderedEntities` ends up index-aligned with root["Entities"]
+        // itself, which the second pass below relies on to resolve "Parent" indices
+        // (entt::entity handles are freshly assigned by CreateEntity, so they can't
+        // be known ahead of time; this is exactly why Serialize wrote indices
+        // instead of handles).
+        std::vector<Entity> orderedEntities;
         for (auto& entityJson : root["Entities"]) {
             Entity entity = m_Scene.CreateEntity();
 
             for (auto& [typeName, fieldsJson] : entityJson.items()) {
+                if (typeName == "Parent")
+                    continue; // bespoke hierarchy field, wired up in the second pass below
+
                 auto* type = TypeRegistry::Find(typeName);
                 if (!type) {
                     Log::Warn("SceneSerializer: unknown component type '" + typeName + "', skipping");
@@ -130,6 +159,19 @@ namespace Duality {
                     }
                 }
             }
+
+            orderedEntities.push_back(entity);
+        }
+
+        // Second pass: every entity now exists, so "Parent" indices can be resolved.
+        // preserveWorldPosition=false since the Transform just loaded above is
+        // already the correct LOCAL value -- SetParent's default (true) is only for
+        // interactive drag-drop reparenting, where re-deriving local from a captured
+        // world transform is exactly what's wanted.
+        for (size_t i = 0; i < orderedEntities.size(); i++) {
+            int parentIndex = root["Entities"][i].value("Parent", -1);
+            if (parentIndex >= 0 && parentIndex < static_cast<int>(orderedEntities.size()))
+                m_Scene.SetParent(orderedEntities[i], orderedEntities[parentIndex], {}, /*preserveWorldPosition=*/false);
         }
 
         Log::Info("Scene loaded from '" + path + "'");

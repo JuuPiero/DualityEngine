@@ -37,7 +37,8 @@ namespace Duality {
         , m_Project(Project::New("SampleProject", "SampleProject"))
         , m_TopFramebuffer(TopScreenWidth, TopScreenHeight)
         , m_BottomFramebuffer(BottomScreenWidth, BottomScreenHeight)
-        , m_SceneFramebuffer(960, 540) // resized every frame to match the Scene panel -- see ScenePanel
+        , m_TopSceneFramebuffer(480, 540) // resized every frame to match its Scene view pane -- see ScenePanel
+        , m_BottomSceneFramebuffer(480, 540)
         , m_ContentBrowserPanel(m_Project->GetAssetsDirectory()) {
         m_Window.SetEventCallback([this](Event& e) { OnEvent(e); });
         // Dropped files (e.g. from Windows Explorer) always import into
@@ -60,7 +61,8 @@ namespace Duality {
         AudioEngine::Init();
 
         m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.json";
-        m_SceneCameraPos = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f };
+        // m_TopSceneView/m_BottomSceneView start unseeded -- ScenePanel seeds each
+        // from that screen's real primary CameraComponent on its first render.
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
 
         SetupDemoScene();
@@ -146,6 +148,8 @@ namespace Duality {
         m_Project = project;
         m_Scene = Scene(); // old Entity handles (including m_Selected) don't survive this
         m_Selected = Entity();
+        m_TopSceneView = SceneViewCamera();    // re-seed from the new scene's own cameras
+        m_BottomSceneView = SceneViewCamera(); // instead of keeping the old project's pan/zoom
         m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.json";
         m_ContentBrowserPanel.SetRootDirectory(m_Project->GetAssetsDirectory());
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
@@ -177,6 +181,13 @@ namespace Duality {
             float deltaTime = static_cast<float>(now - lastFrameTime);
             lastFrameTime = now;
 
+            // Exponential smoothing (light -- 0.1 blend) so the stats overlay
+            // reads as a steady number instead of jittering with raw 1/deltaTime.
+            if (deltaTime > 0.0f) {
+                float instantFps = 1.0f / deltaTime;
+                m_Fps = (m_Fps <= 0.0f) ? instantFps : glm::mix(m_Fps, instantFps, 0.1f);
+            }
+
             AudioEngine::Update();
 
             if (m_IsPlaying)
@@ -189,6 +200,10 @@ namespace Duality {
             m_BottomFramebuffer.Bind();
             RenderScreen(m_Renderer, m_Scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
             m_BottomFramebuffer.Unbind();
+            // Snapshotted here, before the Scene view's own (Editor-only) draws
+            // below add to the same renderer's running total -- this is what a
+            // real dual-screen render pass actually costs.
+            m_GameDrawCallCount = m_Renderer.GetDrawCallCount();
             m_Renderer.EndFrame();
 
             m_Window.BeginFrame();
@@ -241,8 +256,9 @@ namespace Duality {
 
             EditorContext ctx{
                 m_Scene, m_Selected, m_IsPlaying,
-                m_SceneCameraPos, m_SceneZoom, m_ActiveGizmoMode, m_DraggingGizmoAxis,
-                m_SceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer,
+                m_TopSceneView, m_BottomSceneView, m_ActiveGizmoMode, m_DraggingGizmoAxis, m_DraggingGizmoScreen,
+                m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer,
+                m_Fps, m_GameDrawCallCount,
                 m_ScenePath, m_BuildDirectory, m_RepoRoot,
                 m_RequestOpenProject
             };

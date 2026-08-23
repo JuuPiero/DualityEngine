@@ -29,6 +29,20 @@ this file whenever something below actually gets built, or a new deferred item c
 
 ## Editor
 
+- [x] Parent/child entity tree (`DualityEngine/Include/DualityEngine/Scene/Components.h`'s
+      `HierarchyComponent`, `Scene::SetParent`/`GetWorldTransform`) -- Unity/Cocos-style
+      Hierarchy panel with drag-and-drop reparenting (drop onto a node) and sibling
+      reordering (drop on the gap between rows), plus "Create Child Entity". Reparenting
+      preserves world position by default (Unity's default behavior), and every renderer/
+      gizmo/hit-test call site composes local transforms up the parent chain via
+      `Scene::GetWorldTransform`. Known limitation: a `Rigidbody2DComponent` does NOT track
+      a moving/rotating parent during simulation -- Box2D bodies spawn at their resolved
+      world transform but simulate independently afterward (the same real limitation Unity
+      documents for non-kinematic parent/child Rigidbodies). Keep physics entities as
+      roots, or children of a parent that stays at identity. Not built: a read-only
+      "Parent: X" row or "Unparent" button in the Properties panel, and inserting a dragged
+      entity as the very first sibling (only "insert after" is supported -- still fully
+      expressive, just requires moving the other item down instead in that one case).
 - [ ] Project Hub / recent-projects list, as its own separate window (or its own
       subfolder in this repo) -- explicitly deferred until "everything else" is more
       finished. Right now "Open Project" is a plain file-browse dialog only.
@@ -36,6 +50,45 @@ this file whenever something below actually gets built, or a new deferred item c
       currently just shows the resolved filename + a Clear button.
 - [ ] Undo/redo.
 - [ ] Multi-select (Hierarchy, Scene view).
+- [x] Split Scene view (`DualityEditor/Source/Panels/ScenePanel.cpp`) -- two side-by-side
+      panes, one per screen, each its own free-roam `SceneViewCamera` (pan/zoom) seeded
+      once from that screen's real primary `CameraComponent` so the initial view looks
+      WYSIWYG, but casual navigation never mutates the actual gameplay camera (matches
+      Unity's Scene-vs-Game separation). Selection and the active gizmo tool are shared
+      across both panes; a drag started in one pane keeps using that pane's camera math
+      even if the mouse strays into the other (`EditorContext::DraggingGizmoScreen`). Not
+      built: a resizable/draggable splitter between the two panes (fixed 50/50 split).
+- [x] Screen grouping (`ScreenGroupComponent`, `Scene/Components.h`) -- opt-in tag, add to
+      any entity (typically a root "TopGroup"/"BottomGroup") to associate its whole subtree
+      with a screen. Drives: the Hierarchy panel's Top Screen/Bottom Screen/Ungrouped
+      top-level split (root entities without a `ScreenGroupComponent` or `CameraComponent`
+      of their own land in "Ungrouped" rather than being hidden -- the split only reclassifies
+      ROOT entities, a subtree's own internal parent/child structure is unaffected), the
+      colored per-node marker in the tree, and `Scene::FindEntityInScreen` (searches a
+      screen's tagged subtrees, falling back to a scene-wide by-name search if that screen
+      has no tagged group yet). Exposed to scripts as `Behaviour::FindEntityInTopScreen`/
+      `FindEntityInBottomScreen` via the `EngineServices` bridge (same ABI-safe pattern as
+      `PlaySound`/`GetAxis` -- a script on a Top-screen entity can look up a Bottom-screen
+      one by name and vice versa, since it's one shared `Scene` either way).
+- [ ] Perspective camera mode (`CameraComponent`) -- 3D-only, so deferred along with the
+      3D renderer itself above; Orthographic is effectively what `Zoom` already does. There
+      is currently zero 3D groundwork anywhere in the renderer (no depth buffer, no 3D
+      matrix/projection pipeline on either backend) to build this on.
+- [x] Async "Build for 3DS" (`DualityEditor/BuildPipeline.h`) -- runs on a detached
+      background thread (`BuildFor3DSAsync`) instead of blocking the Editor's UI thread for
+      up to a minute; the menu item grays out and shows "(building...)" while
+      `BuildPipeline::GetStatus() == Running`, refusing to start a second concurrent build.
+      Required making `Log` (`DualityEngine/Core/Log.h`) mutex-guarded, since the build
+      thread logs progress/errors through it while ConsolePanel reads it every frame on the
+      main thread -- `GetEntries()` now returns a snapshot copy under the lock rather than a
+      live reference. Not handled: closing the Editor mid-build leaves the build-3ds.bat
+      child process tree to finish or get cleaned up on its own (no job-object-based process
+      tracking) -- an accepted, rare edge case.
+- [x] Renderer stats overlay (Game panel) -- `IRenderer2D::GetDrawCallCount()` (exact, not
+      estimated: both backends are unbatched, one `DrawQuad` == one real draw call), reset
+      each `BeginFrame`. FPS is exponentially smoothed in `Application::Run()`. The draw-call
+      count shown is snapshotted right after the real Top+Bottom `RenderScreen` passes,
+      before the Scene view's own editor-only draws would otherwise inflate it.
 
 ## Assets
 

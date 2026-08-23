@@ -1,13 +1,16 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include <glm/glm.hpp>
 
 #include "DualityEditor/Framebuffer.h"
 #include "DualityEditor/SceneGizmo.h"
+#include "DualityEditor/SceneViewCamera.h"
 #include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
+#include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Scene.h"
 
 namespace Duality {
@@ -24,15 +27,30 @@ namespace Duality {
         Entity& Selected;
         bool& IsPlaying;
 
-        glm::vec2& SceneCameraPos;
-        float& SceneZoom;
+        // Split Scene view: one free-roam edit camera per screen (see
+        // SceneViewCamera.h) -- replaces the old single SceneCameraPos/SceneZoom
+        // pair now that ScenePanel renders two side-by-side panes.
+        SceneViewCamera& TopSceneView;
+        SceneViewCamera& BottomSceneView;
         GizmoMode& ActiveGizmoMode;
         GizmoAxis& DraggingGizmoAxis;
+        // Which pane's camera math a drag-in-progress should keep using, set once
+        // when the drag starts -- so a fast mouse movement into the other pane
+        // mid-drag doesn't reinterpret the drag with the wrong pane's zoom/pan.
+        Screen& DraggingGizmoScreen;
 
-        Framebuffer& SceneFramebuffer;
+        Framebuffer& TopSceneFramebuffer;
+        Framebuffer& BottomSceneFramebuffer;
         Framebuffer& TopFramebuffer;
         Framebuffer& BottomFramebuffer;
         OpenGLRenderer2D& Renderer;
+
+        // Stats overlay (GamePanel): Fps is exponentially smoothed by Application;
+        // GameDrawCallCount is the real dual-screen render pass's draw call count
+        // for this frame, snapshotted before the Scene view's own (Editor-only)
+        // draws would otherwise inflate it -- see Application::Run().
+        const float& Fps;
+        const uint32_t& GameDrawCallCount;
 
         const std::string& ScenePath;
         const std::string& BuildDirectory;

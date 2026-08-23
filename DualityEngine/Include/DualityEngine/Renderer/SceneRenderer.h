@@ -35,4 +35,13 @@ namespace Duality {
     // Scene view.
     uint32_t ResolveSpriteTexture(IRenderer2D& renderer, const AssetRef& textureRef);
 
+    // True "2 worlds" screen separation: an entity tagged (directly or via an
+    // ancestor) with ScreenGroupComponent/CameraComponent for the OTHER screen is
+    // excluded entirely, regardless of where it sits relative to `screen`'s camera.
+    // An untagged (Ungrouped) entity is always a candidate -- its actual
+    // visibility still falls out of the existing position-relative-to-camera math,
+    // exactly as before this feature existed (legacy/opt-out content keeps
+    // working unchanged). Shared by RenderScreen and the Editor's split Scene view.
+    bool ShouldRenderOnScreen(Scene& scene, entt::entity handle, Screen screen);
+
 }

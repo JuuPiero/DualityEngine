@@ -24,6 +24,13 @@ namespace Duality {
         return renderer.LoadTexture(path);
     }
 
+    bool ShouldRenderOnScreen(Scene& scene, entt::entity handle, Screen screen) {
+        Screen entityScreen;
+        if (scene.TryResolveEntityScreen(Entity(handle, &scene), entityScreen))
+            return entityScreen == screen;
+        return true; // Ungrouped -- still a candidate, position-relative-to-camera decides
+    }
+
     static void ScreenExtents(Screen screen, float& outWidth, float& outHeight) {
         if (screen == Screen::Top) {
             outWidth = static_cast<float>(TopScreenWidth);
@@ -39,21 +46,25 @@ namespace Duality {
 
         Entity camera = scene.GetPrimaryCamera(screen);
         if (camera) {
-            auto& cameraTransform = camera.GetComponent<TransformComponent>();
+            TransformComponent cameraTransform = scene.GetWorldTransform(camera);
             auto& cameraComponent = camera.GetComponent<CameraComponent>();
             float screenWidth, screenHeight;
             ScreenExtents(screen, screenWidth, screenHeight);
 
-            // Every sprite in the scene is a candidate for this screen --
-            // whether it ends up visible depends purely on where it sits
-            // relative to this camera (a sprite far from every active
-            // camera just draws off the fixed 400x240/320x240 target,
-            // which is effectively culling by construction). This is real
-            // camera-relative composition, not "only the camera's own
-            // sprite" like the very first version of this function.
+            // Every untagged sprite in the scene is a candidate for this screen --
+            // whether it ends up visible depends purely on where it sits relative
+            // to this camera (a sprite far from every active camera just draws off
+            // the fixed 400x240/320x240 target, which is effectively culling by
+            // construction). This is real camera-relative composition, not "only
+            // the camera's own sprite" like the very first version of this
+            // function. A sprite tagged (directly or via an ancestor) for the
+            // OTHER screen is skipped outright -- true "2 worlds" separation, not
+            // just position-based culling.
             auto view = scene.Registry().view<TransformComponent, SpriteRendererComponent>();
             for (auto handle : view) {
-                auto& transform = view.get<TransformComponent>(handle);
+                if (!ShouldRenderOnScreen(scene, handle, screen))
+                    continue;
+                TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
                 auto& sprite = view.get<SpriteRendererComponent>(handle);
 
                 glm::vec2 screenCenter{

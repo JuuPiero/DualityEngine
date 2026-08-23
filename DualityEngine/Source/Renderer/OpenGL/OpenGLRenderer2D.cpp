@@ -25,6 +25,7 @@ namespace Duality {
     }
 
     void OpenGLRenderer2D::BeginFrame() {
+        m_DrawCallCount = 0;
     }
 
     void OpenGLRenderer2D::EndFrame() {
@@ -66,6 +67,8 @@ namespace Duality {
     }
 
     void OpenGLRenderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t textureId) {
+        m_DrawCallCount++; // one glBegin/glEnd pair below == one real draw call (no batching)
+
         glm::vec2 center = position + size * 0.5f;
         glm::vec2 half = size * 0.5f;
 

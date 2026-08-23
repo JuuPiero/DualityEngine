@@ -30,12 +30,14 @@ namespace Duality {
         // textureId here since it's always 0 from this backend, falling
         // back to its flat Color.
         uint32_t LoadTexture(const std::string& path) override;
+        uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
     private:
         C3D_RenderTarget* TargetFor(Screen screen) const;
 
         C3D_RenderTarget* m_TopTarget = nullptr;
         C3D_RenderTarget* m_BottomTarget = nullptr;
+        uint32_t m_DrawCallCount = 0;
     };
 
 }

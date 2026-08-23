@@ -1,9 +1,11 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <glm/glm.hpp>
 
+#include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Reflection/Field.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Behaviour.h"
@@ -133,6 +135,31 @@ namespace Duality {
         float Friction = 0.5f;
         float Restitution = 0.0f;
         void* RuntimeFixture = nullptr;
+    };
+
+    // Unity/Cocos-style parent/child tree. Not registered with TypeRegistry -- like
+    // Rigidbody2DComponent::RuntimeBody above, this is engine-managed bookkeeping, not an
+    // authored field, so it never appears in the Properties panel and the generic
+    // SceneSerializer field loop skips it entirely (SceneSerializer writes/reads the
+    // parent relationship itself, as an index, since raw entt::entity handles and Entity
+    // pointers don't survive save/load). Parent/Children should only ever be mutated
+    // through Scene::SetParent, never assigned directly -- SetParent is what keeps
+    // Scene::m_RootEntities and cycle-safety consistent.
+    struct HierarchyComponent {
+        Entity Parent;                 // null Entity{} = root
+        std::vector<Entity> Children;  // order = sibling display/serialization order
+    };
+
+    // Opt-in tag marking an entity as a screen's organizational root -- add this to
+    // a "TopGroup"/"BottomGroup" entity (or any entity) to associate its whole
+    // subtree with a screen for Scene::FindEntityInScreen and the Hierarchy panel's
+    // screen-color marker. Entities are never exclusively owned by a screen in this
+    // engine (a sprite renders wherever it sits relative to any active camera) --
+    // this is a pure organizational/lookup aid, not a hard partition. Reflected
+    // (shows up in the Properties panel/Add Component, serialized normally) since,
+    // unlike HierarchyComponent, this is meant to be user-authored.
+    struct ScreenGroupComponent {
+        Duality::Screen Screen = Duality::Screen::Top;
     };
 
 }

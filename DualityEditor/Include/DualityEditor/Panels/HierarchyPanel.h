@@ -4,8 +4,9 @@ namespace Duality {
 
     struct EditorContext;
 
-    // Entity list with selection, plus a "Create Entity" button -- Unity's
-    // Hierarchy "+"/right-click-Create-Empty equivalent.
+    // Parent/child entity tree with selection, drag-and-drop reparenting and
+    // sibling reordering, and "Create Entity"/"Create Child Entity" -- Unity/
+    // Cocos Creator's Hierarchy panel equivalent.
     class HierarchyPanel {
     public:
         void OnImGuiRender(EditorContext& ctx);

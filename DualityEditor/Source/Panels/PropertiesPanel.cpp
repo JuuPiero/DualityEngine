@@ -47,6 +47,14 @@ namespace Duality {
             }
 
             if (open && !removeRequested) {
+                // Distinct sub-scope from the CollapsingHeader above -- without it, a
+                // component whose DisplayName matches its own field's Name (e.g.
+                // NameComponent's "Name" field, TagComponent's "Tag" field) produces
+                // an identical ID for both widgets (same enclosing PushID, same
+                // label), which ImGui's debug ID-conflict detector flags and which
+                // can corrupt either widget's persistent state (a header's open/
+                // closed flag colliding with a text field's edit buffer).
+                ImGui::PushID("Fields");
                 for (auto& field : type.Fields) {
                     FieldValue value = field.Get(component);
                     bool changed = false;
@@ -113,6 +121,7 @@ namespace Duality {
                             field.Set(component, FieldValue(v));
                     }, value);
                 }
+                ImGui::PopID(); // matches PushID("Fields") above
             }
 
             ImGui::PopID();

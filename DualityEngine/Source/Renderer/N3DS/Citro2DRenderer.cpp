@@ -22,6 +22,7 @@ namespace Duality {
 
     void Citro2DRenderer::BeginFrame() {
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+        m_DrawCallCount = 0;
     }
 
     void Citro2DRenderer::EndFrame() {
@@ -46,6 +47,8 @@ namespace Duality {
     }
 
     void Citro2DRenderer::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t /*textureId*/) {
+        m_DrawCallCount++; // one C2D_DrawRectSolid call below == one real draw call
+
         if (rotationDegrees == 0.0f) {
             C2D_DrawRectSolid(position.x, position.y, 0.0f, size.x, size.y, ToC2DColor(color));
             return;
