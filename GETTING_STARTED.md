@@ -27,11 +27,14 @@ Chạy `run.bat`. Bạn sẽ thấy:
 - **Properties** (bên phải) -- mọi component của entity đang chọn, với các field
   có thể chỉnh sửa trực tiếp. **+ Add Component** ở dưới cùng thêm component mới;
   nút "..." trên các component không bắt buộc sẽ xóa chúng.
-- **Scene** / **Game** (ở giữa, dạng tab) -- **Scene** là camera editor tự do,
-  nhìn toàn bộ scene (kéo chuột giữa để pan, lăn con lăn để zoom, bấm vào sprite
-  để chọn, các nút Translate/Rotate/Scale chuyển chế độ gizmo). **Game** hiển thị
-  chính xác những gì camera trong scene thực render -- tức hình ảnh bạn thực sự
-  sẽ thấy trên máy console.
+- **Scene** / **Game** (ở giữa, dạng tab) -- **Scene** chia thành hai pane cạnh
+  nhau (màn Top/Bottom), mỗi pane là một camera editor tự do, độc lập với
+  camera thật trong scene. Mỗi pane có riêng nút **2D**/**3D** để chuyển cách
+  hiển thị/điều khiển (không đụng đến `CameraComponent::Projection` thật của
+  screen đó -- xem mục 4 bên dưới về pane 3D). Ở chế độ 2D: kéo chuột giữa để
+  pan, lăn con lăn để zoom, bấm vào sprite để chọn, các nút Translate/Rotate/
+  Scale chuyển chế độ gizmo. **Game** hiển thị chính xác những gì camera trong
+  scene thực render -- tức hình ảnh bạn thực sự sẽ thấy trên máy console.
 - **Console** / **Content Browser** (phía dưới, dạng tab) -- log output và trình
   duyệt thư mục `Assets/` của project hiện tại. Kéo asset vào field texture trong
   Properties để gán; kéo file từ Explorer vào để import.
@@ -64,7 +67,48 @@ Mọi field editor, mọi component và các menu Add/Remove Component đều ho
 generic (dựa trên reflection) -- khi thêm một loại component mới vào engine,
 không cần nối thêm logic riêng cho editor.
 
-## 4. Tạo (hoặc mở) project
+## 4. Scene 3D đầu tiên
+
+Pipeline 3D dựng trực tiếp trên devkitPro/citro3d (không qua citro2d) ở phía
+3DS và OpenGL hiện đại (VAO/VBO + shader) ở phía desktop -- unlit hoàn toàn
+(chưa có lighting/shadow, xem `ROADMAP.md`). Một screen (Top hoặc Bottom) chỉ
+render qua đúng một pipeline mỗi frame, 2D hoặc 3D, không bao giờ chồng cả hai.
+
+1. **Properties -> + Add Component -> Mesh Renderer.** Entity hiển thị một
+   khối lập phương trắng (mặc định `Primitive = Cube`; có thể đổi sang `Sphere`
+   hoặc `Plane`). Kích thước thật lấy từ `Transform -> Scale`, không có field
+   `Size` riêng như Sprite Renderer.
+2. **Tạo Material.** Hiện tại engine chưa có nút "Create Material" trong
+   Content Browser -- tạo thủ công một file `<tên>.material.json` trong
+   `Assets/` (ví dụ `Assets/Materials/Red.material.json`) với nội dung:
+   ```json
+   { "Color": { "r": 0.9, "g": 0.2, "b": 0.2, "a": 1.0 }, "Texture": "" }
+   ```
+   `Texture` là GUID của một ảnh (rỗng = màu phẳng theo `Color`). Sau khi lưu
+   file, mở lại Content Browser (hoặc đợi lần Refresh kế tiếp) để nó nhận GUID,
+   rồi kéo file này vào field **Material** của Mesh Renderer.
+3. **Import mesh riêng (tùy chọn).** Field **Mesh** của Mesh Renderer nhận một
+   file `.obj` (Wavefront) kéo từ Content Browser -- khi được gán, nó thay thế
+   hẳn `Primitive`. Parser tự viết, không phụ thuộc thư viện ngoài (để chắc
+   chắn build được cho devkitARM): chỉ đọc vị trí/texcoord/mặt (tam giác hoặc
+   đa giác lồi, tự động tam giác hóa), không đọc normal/material trong file,
+   không hỗ trợ chỉ số âm (relative index). FBX/glTF chưa được hỗ trợ (xem
+   `ROADMAP.md` để biết lý do chọn OBJ).
+4. **Camera 3D.** Chọn entity Camera của screen tương ứng, đổi
+   `Camera -> Projection` từ `Orthographic` sang `Perspective` -- lúc này panel
+   **Game** của đúng screen đó sẽ render qua pipeline 3D thật, dùng
+   `Fov Degrees`/`Near Plane`/`Far Plane` thay vì `Zoom`.
+5. **Xem/điều khiển ở Scene view.** Bấm nút **3D** trên pane tương ứng. Điều
+   khiển chuột theo phong cách Unity: **chuột trái** chọn mesh hoặc kéo tay
+   nắm gizmo, **chuột phải kéo** xoay camera quanh điểm nhìn (orbit), **chuột
+   giữa kéo** để pan, **lăn chuột** để zoom. Camera này độc lập với
+   `CameraComponent` thật -- pan/orbit/zoom ở đây không đụng đến gameplay.
+6. **Gizmo 3D.** Cùng ba nút Translate/Rotate/Scale ở trên dùng chung với pane
+   2D, chỉ khác là có thêm trục Z (xanh dương) bên cạnh X (đỏ)/Y (xanh lá).
+   Field Transform trong Properties luôn chỉnh được trực tiếp như một cách
+   thay thế.
+
+## 5. Tạo (hoặc mở) project
 
 Editor luôn có một project đang mở -- ở lần khởi chạy đầu tiên, nó tự động tạo
 `SampleProject/` cạnh file executable. **File -> Open Project...** mở trình duyệt
@@ -76,7 +120,7 @@ Hiện chưa có wizard "New Project" (xem `ROADMAP.md`) -- để tự tạo pro
 hãy copy cấu trúc thư mục của `SampleProject/` (`Assets/` + file `.dproj`) sang vị
 trí mới rồi mở file `.dproj` đó.
 
-## 5. Viết script đầu tiên
+## 6. Viết script đầu tiên
 
 Script nằm trong `GameScripts/` và kế thừa từ `Duality::Behaviour` -- C++ thuần,
 không dùng ngôn ngữ script nhúng, được build thành DLL có thể hot-reload cho chế
@@ -124,20 +168,31 @@ không dùng ngôn ngữ script nhúng, được build thành DLL có thể hot-
 
 `GameScripts/Source/ApiShowcaseBehaviour.cpp` là một ví dụ hoàn chỉnh có thể chạy,
 bao quát toàn bộ API bên dưới trong một script -- nên đọc từ đầu đến cuối một lần
-sau khi đã nắm được phần cơ bản. Script này được gắn vào entity "ApiShowcase"
-trong scene mẫu.
+sau khi đã nắm được phần cơ bản. Script này được gắn vào cả entity "ApiShowcase"
+(2D, sprite) lẫn "TestCube3D" (3D, mesh) trong scene mẫu -- cùng một class,
+tự phát hiện `GetEntity().HasComponent<T>()` để chạy đúng nhánh 2D hay 3D (di
+chuyển theo mặt phẳng X/Y hay X/Z, xoay quanh trục Z hay Y), minh họa cách một
+`Behaviour` không nên giả định trước hình dạng component của entity mình gắn vào.
 
-## 6. Scripting API
+## 7. Scripting API
 
 Tất cả API dưới đây đều được gọi bên trong `OnCreate`/`OnUpdate` (hoặc bất kỳ
 method nào) của một lớp con của `Behaviour`.
 
 **Entity và component** -- `GetComponent<T>()` (add/has/remove không được expose
 trực tiếp trên `Behaviour`; hãy truy cập `GetEntity()` để dùng các thao tác đó:
-`GetEntity().AddComponent<T>()` và các thao tác tương tự):
+`GetEntity().AddComponent<T>()`/`GetEntity().HasComponent<T>()` và các thao tác
+tương tự):
 ```cpp
 auto& transform = GetComponent<Duality::TransformComponent>();
 transform.Rotation.z += 90.0f * deltaTime; // độ, không phải radian
+
+// Cùng một script dùng được cho cả entity 2D lẫn 3D -- kiểm tra component trước
+// khi giả định hình dạng của entity (xem ApiShowcaseBehaviour.cpp để có ví dụ đầy đủ).
+if (GetEntity().HasComponent<Duality::MeshRendererComponent>())
+    transform.Rotation.y += 90.0f * deltaTime; // mesh: xoay quanh Y (yaw)
+else
+    transform.Rotation.z += 90.0f * deltaTime; // sprite: xoay quanh Z
 ```
 
 **Input** (phong cách Unity Input Manager cũ -- `Duality::KeyCode` hỗ trợ các phím
@@ -189,7 +244,7 @@ Duality::DateTime now = Duality::DateTime::Now(); // UTC
 **Chưa dùng được từ script** (xem `ROADMAP.md`): `Duality::Log` -- hiện chưa có
 tương đương `Debug.Log` để gửi log từ `GameScripts` đến panel Console.
 
-## 7. Chạy thử trên phần cứng thật
+## 8. Chạy thử trên phần cứng thật
 
 ```
 build-3ds.bat    REM clean configure+build -> build-3ds\DualityPlayer\DualityPlayer.3dsx / .cia

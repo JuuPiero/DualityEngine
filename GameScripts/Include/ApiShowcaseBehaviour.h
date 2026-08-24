@@ -7,6 +7,11 @@
 // AudioEngine (via PlaySound) -- living, runnable documentation rather than
 // a real gameplay script. See README.md's "Writing gameplay scripts"
 // section for what each call does and why.
+//
+// Entity-shape-agnostic: the exact same script class works whether it's attached to a 2D
+// sprite entity or a 3D mesh entity (GetEntity().HasComponent<T>() branches at runtime, see
+// OnCreate/OnUpdate) -- a Behaviour never assumes its entity's exact component makeup, matching
+// Unity's own "components are optional" convention.
 class ApiShowcaseBehaviour : public Duality::Behaviour {
 public:
     void OnCreate() override;

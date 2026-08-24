@@ -107,6 +107,10 @@ namespace Duality {
         auto& testCubeMesh = testCube.AddComponent<MeshRendererComponent>();
         testCubeMesh.Primitive = MeshPrimitive::Cube;
         testCubeMesh.Material.Guid = materialGuid;
+        // Same script class as the 2D ApiShowcase entity below -- demonstrates it adapting to a
+        // 3D mesh entity instead of a sprite (ground-plane movement, yaw spin) via
+        // GetEntity().HasComponent<T>(), see ApiShowcaseBehaviour.cpp.
+        testCube.AddComponent<BehaviourComponent>().ClassName = "ApiShowcaseBehaviour";
 
         Entity topQuad = m_Scene.CreateEntity("TopQuad");
         topQuad.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f, 0.0f };
