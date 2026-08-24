@@ -239,4 +239,22 @@ namespace Duality {
         return meshHandle;
     }
 
+    void Citro3DRenderer::UnloadAllTextures() {
+        for (C3D_Tex& tex : m_Textures)
+            C3D_TexDelete(&tex);
+        m_Textures.clear();
+        m_TextureCache.clear();
+    }
+
+    void Citro3DRenderer::UnloadAllMeshes() {
+        // m_Meshes[3] (the built-in procedural primitives) is untouched -- only
+        // m_ImportedMeshes (LoadMesh's own linearAlloc'd uploads) is ever freed here.
+        for (auto& mesh : m_ImportedMeshes) {
+            if (mesh.VertexBuffer)
+                linearFree(mesh.VertexBuffer);
+        }
+        m_ImportedMeshes.clear();
+        m_MeshCache.clear();
+    }
+
 }

@@ -64,6 +64,14 @@ namespace Duality {
         // so DrawQuad there always falls back to its flat Color.
         virtual uint32_t LoadTexture(const std::string& path) = 0;
 
+        // Frees every texture LoadTexture has cached and clears the cache -- meant to be
+        // called on a scene transition (see Duality::SceneManager), since the old scene's
+        // textures are otherwise never freed for the lifetime of the process (LoadTexture's
+        // cache only ever grows). Safe to call with an empty cache. Any textureId already
+        // baked into an in-flight draw call becomes invalid the instant this returns -- only
+        // call it between scenes, never mid-frame.
+        virtual void UnloadAllTextures() = 0;
+
         // Number of DrawQuad calls since the last BeginFrame -- both backends are
         // unbatched (one DrawQuad = one real draw call), so this is an exact,
         // meaningful count, not an estimate. Reset to 0 by BeginFrame, incremented

@@ -32,6 +32,13 @@ namespace Duality {
 
         auto view = scene.Registry().view<UIRectComponent, UIButtonComponent>();
         for (auto handle : view) {
+            // An inactive/hidden button shouldn't be clickable -- its IsHovered/IsPressed/
+            // WasClicked simply stop updating while inactive (a script reading them while
+            // it's disabled would see whatever they were last set to, same staleness a
+            // disabled-but-still-queried MonoBehaviour would show in Unity).
+            if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
+                continue;
+
             auto& rect = view.get<UIRectComponent>(handle);
             auto& button = view.get<UIButtonComponent>(handle);
 
@@ -56,6 +63,8 @@ namespace Duality {
         for (auto handle : view) {
             auto& rect = view.get<UIRectComponent>(handle);
             if (rect.Screen != screen)
+                continue;
+            if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
             auto& image = view.get<UIImageComponent>(handle);
 

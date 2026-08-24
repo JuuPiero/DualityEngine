@@ -71,6 +71,14 @@ namespace Duality {
         // screen -- untagged/legacy content keeps working exactly as before.
         bool TryResolveEntityScreen(Entity entity, Screen& outScreen);
 
+        // Unity's GameObject.activeInHierarchy -- true only if `entity`'s own
+        // ActiveComponent::Active is true AND every ancestor's is too (walks the Parent
+        // chain the same way GetWorldTransform does). A disabled parent implicitly
+        // disables the whole subtree even though each child's own Active flag is
+        // untouched -- re-enabling the parent later restores each child to whatever its
+        // own flag says, matching Unity exactly.
+        bool IsEffectivelyActive(Entity entity);
+
         // Runtime (Play mode) lifecycle -- instantiates/updates/destroys
         // every entity's BehaviourComponent, if any.
         void OnRuntimeStart();

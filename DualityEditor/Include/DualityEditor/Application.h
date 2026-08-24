@@ -45,6 +45,7 @@ namespace Duality {
         void OnEvent(Event& e);
         void SetupDemoScene();
         void OpenProjectFromDialog();
+        void SaveSceneAsFromDialog();
 
         // Declaration order matters here: m_Window must exist before any
         // GL-dependent member (m_Renderer, the Framebuffers) is
@@ -70,6 +71,10 @@ namespace Duality {
         bool m_Running = true;
         bool m_DockLayoutInitialized = false;
         bool m_RequestOpenProject = false;
+        // Set by MenuBarPanel's "Save Scene As...", same request-flag convention as
+        // m_RequestOpenProject above -- see SaveSceneAsFromDialog's own comment for why
+        // this does NOT change m_ScenePath (unlike Unity's own Save As).
+        bool m_RequestSaveSceneAs = false;
 
         // Editor stats overlay (GamePanel) -- m_Fps is exponentially smoothed so
         // it's readable frame-to-frame instead of jittering with raw 1/deltaTime.

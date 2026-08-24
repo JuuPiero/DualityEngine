@@ -79,6 +79,11 @@ namespace Duality {
         // heavier than a panel should do on its own, so it's a request
         // flag rather than a callback into Application's internals.
         bool& RequestOpenProject;
+
+        // Same request-flag convention as RequestOpenProject, for "Save Scene As..." --
+        // lets a project accumulate additional scene files (e.g. for
+        // Behaviour::LoadScene to target) without hand-copying JSON outside the Editor.
+        bool& RequestSaveSceneAs;
     };
 
 }

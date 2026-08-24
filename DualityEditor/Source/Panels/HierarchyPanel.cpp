@@ -1,13 +1,18 @@
 #include "DualityEditor/Panels/HierarchyPanel.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <filesystem>
 #include <vector>
 
 #include <imgui.h>
 
 #include "DualityEditor/EditorContext.h"
+#include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/PrefabSerializer.h"
 
 namespace Duality {
 
@@ -73,6 +78,58 @@ namespace Duality {
         // `insertAfter`'s own parent -- this is what "drag up/down to reorder"
         // means once a real tree exists (dropping ON a row instead makes the
         // dragged entity that row's *child*, handled directly in DrawEntityNode).
+        // Writes `entity` (+ its full descendant subtree) to a new
+        // "Assets/Prefabs/<EntityName>.prefab.json" file -- same 3-step
+        // Save -> AssetMeta::EnsureMetaFile -> AssetDatabase::Register sequence already
+        // established for creating any other custom asset type (see Application.cpp's
+        // TestOrange.material.json setup). ctx.ScenePath is "<AssetsDir>/Scene.json"
+        // (see Application.cpp), so its parent directory recovers AssetsDir without
+        // EditorContext needing its own dedicated field for it.
+        void CreatePrefabFromSelection(EditorContext& ctx, Entity entity) {
+            std::filesystem::path assetsDir = std::filesystem::path(ctx.ScenePath).parent_path();
+            std::filesystem::path prefabsDir = assetsDir / "Prefabs";
+            std::filesystem::create_directories(prefabsDir);
+
+            std::string entityName = entity.GetComponent<NameComponent>().Name;
+            std::filesystem::path prefabPath = prefabsDir / (entityName + ".prefab.json");
+
+            if (!PrefabSerializer::Save(entity, prefabPath.string()))
+                return;
+            std::string guid = AssetMeta::EnsureMetaFile(prefabPath);
+            AssetDatabase::Register(guid, prefabPath.string());
+        }
+
+        // Case-insensitive substring match, same small local-helper shape as the
+        // identical need in ConsolePanel.cpp -- not worth a shared utility for one line.
+        bool ContainsCaseInsensitive(const std::string& haystack, const std::string& needle) {
+            if (needle.empty())
+                return true;
+            auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+                [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
+            return it != haystack.end();
+        }
+
+        // A search box over a tree with drag-drop reparenting either has to hide/show
+        // whole subtrees (auto-expanding ancestors of any match) or fall back to a
+        // simpler flat list while searching -- this takes the flat-list route: while the
+        // search box has text, every matching entity in the WHOLE scene is listed (no
+        // tree structure, no drag-drop), still clickable to select. Empty search box
+        // shows the normal full tree UI, completely unchanged.
+        void DrawFilteredFlatList(EditorContext& ctx, const std::string& filter) {
+            for (auto handle : ctx.SceneRef.Registry().view<NameComponent>()) {
+                Entity entity(handle, &ctx.SceneRef);
+                const std::string& name = entity.GetComponent<NameComponent>().Name;
+                if (!ContainsCaseInsensitive(name, filter))
+                    continue;
+
+                ImGui::PushID(EntityId(entity));
+                bool selected = (entity == ctx.Selected);
+                if (ImGui::Selectable(name.c_str(), selected))
+                    ctx.Selected = entity;
+                ImGui::PopID();
+            }
+        }
+
         void DrawSiblingGap(EditorContext& ctx, Entity parent, Entity insertAfter) {
             ImGui::InvisibleButton("##Gap", ImVec2(-1.0f, 4.0f));
             if (ImGui::BeginDragDropTarget()) {
@@ -139,6 +196,9 @@ namespace Duality {
                     ctx.SceneRef.SetParent(child, entity);
                     ctx.Selected = child;
                 }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Create Prefab from Selection"))
+                    CreatePrefabFromSelection(ctx, entity);
                 ImGui::EndPopup();
             }
 
@@ -169,7 +229,18 @@ namespace Duality {
         if (ImGui::Button("Create Entity", ImVec2(-1, 0)))
             ctx.Selected = ctx.SceneRef.CreateEntity("Entity");
 
+        ImGui::InputTextWithHint("##HierarchySearch", "Search...", m_SearchBuffer, sizeof(m_SearchBuffer));
+
         ImGui::Separator();
+
+        // While searching, show a flat filtered list instead of the normal tree --
+        // see DrawFilteredFlatList's own comment for why (a tree with drag-drop
+        // reparenting doesn't have an obvious cheap way to hide/show whole subtrees).
+        if (m_SearchBuffer[0] != '\0') {
+            DrawFilteredFlatList(ctx, m_SearchBuffer);
+            ImGui::End();
+            return;
+        }
 
         // Copy, same reasoning as DrawEntityNode's own Children copy -- a drop
         // during this pass can reparent a root entity elsewhere mid-iteration.
@@ -236,6 +307,17 @@ namespace Duality {
         ImGui::InvisibleButton("##RootDropZone", dropZoneSize);
         if (ImGui::BeginDragDropTarget()) {
             AcceptSectionDrop(ctx, nullptr);
+            // A Prefab asset dropped here (not an existing HIERARCHY_ENTITY drag)
+            // instantiates a new copy at the scene root -- PrefabSerializer::Instantiate
+            // itself just logs an error and returns an empty Entity if the dropped
+            // asset isn't actually a valid prefab file, so no extension check needed
+            // here first.
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+                std::string guid = static_cast<const char*>(payload->Data);
+                std::string path = AssetDatabase::ResolvePath(guid);
+                if (!path.empty())
+                    ctx.Selected = PrefabSerializer::Instantiate(ctx.SceneRef, path);
+            }
             ImGui::EndDragDropTarget();
         }
 

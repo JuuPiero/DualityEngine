@@ -76,6 +76,16 @@ namespace Duality {
         // convention as LoadTexture.
         virtual uint32_t LoadMesh(const std::string& path) = 0;
 
+        // Same "free everything cached, meant for scene transitions" contract as
+        // IRenderer2D::UnloadAllTextures -- see that method's own comment. Separate from
+        // UnloadAllMeshes below since textures and meshes are independent caches here.
+        virtual void UnloadAllTextures() = 0;
+
+        // Frees every mesh LoadMesh has uploaded and clears the cache -- the 3 built-in
+        // procedural primitives (Cube/Sphere/Plane, MeshPrimitive) are NOT affected, only
+        // imported ones. Same scene-transition-only calling contract as UnloadAllTextures.
+        virtual void UnloadAllMeshes() = 0;
+
         // Unlike IRenderer2D (reset by BeginFrame, a whole-frame bracket), this interface has
         // no BeginFrame -- there's no cross-screen GPU frame concept exposed at this level
         // (owned by the app entry point instead, see Citro2DRenderer::Init's comment), so

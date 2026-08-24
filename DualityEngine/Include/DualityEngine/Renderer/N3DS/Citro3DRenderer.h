@@ -51,6 +51,8 @@ namespace Duality {
         // MeshLoader::Load (shared, cross-platform), then uploaded to a linearAlloc'd buffer
         // the same way the 3 built-in primitives are at Init() time.
         uint32_t LoadMesh(const std::string& path) override;
+        void UnloadAllTextures() override;
+        void UnloadAllMeshes() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
     private:

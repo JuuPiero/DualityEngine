@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ dev/main, main ]
+  pull_request:
+    branches: [ dev/main, main ]
+
+# Desktop build + the automated engine-logic test suite (Tests/) only, for now -- the
+# 3DS cross-compile needs a devkitARM/libctru/citro2d/citro3d toolchain (devkitPro
+# publishes official Docker images for this, e.g. devkitpro/devkitarm) but isn't wired up
+# here yet; that's the harder, still-manual-verification-only half of the "CI build
+# verification" ROADMAP item. This job mirrors build.bat's own toolchain requirements
+# exactly (see README.md's Prerequisites section) so a local `build.bat` + `run-tests.bat`
+# run reproduces this job precisely.
+jobs:
+  build-and-test:
+    name: Build (desktop) + run tests
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 (MinGW-w64 toolchain)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-glfw
+            mingw-w64-x86_64-glew
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Build (desktop)
+        run: ./build.bat
+
+      - name: Run automated tests
+        run: ./run-tests.bat

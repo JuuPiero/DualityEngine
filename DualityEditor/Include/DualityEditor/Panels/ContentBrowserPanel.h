@@ -9,7 +9,10 @@ namespace Duality {
     // Assets folder browser, grid-of-icons style (Unity/Unreal/Cocos
     // Creator-like): image assets show a real thumbnail, folders/other
     // files show a simple procedurally-drawn icon. Double-click a folder to
-    // navigate into it, "Up" to go back. No import/drag-drop yet.
+    // navigate into it, "Up" to go back. Files drag out as an "ASSET_GUID"
+    // payload (see PropertiesPanel's AssetRef fields / HierarchyPanel's Prefab
+    // drop target); dropping a file in from Windows Explorer imports it
+    // (ImportFile, wired through Window's own OS drop callback).
     class ContentBrowserPanel {
     public:
         explicit ContentBrowserPanel(const std::filesystem::path& rootDirectory);
@@ -30,6 +33,7 @@ namespace Duality {
         std::filesystem::path m_RootDirectory;
         std::filesystem::path m_CurrentDirectory;
         ThumbnailCache m_Thumbnails;
+        char m_SearchBuffer[128] = "";
     };
 
 }

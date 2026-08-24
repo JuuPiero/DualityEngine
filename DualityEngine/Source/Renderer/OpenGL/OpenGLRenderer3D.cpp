@@ -245,4 +245,25 @@ namespace Duality {
         return meshHandle;
     }
 
+    void OpenGLRenderer3D::UnloadAllTextures() {
+        for (auto& [path, textureId] : m_TextureCache) {
+            if (textureId != 0) {
+                GLuint id = textureId;
+                glDeleteTextures(1, &id);
+            }
+        }
+        m_TextureCache.clear();
+    }
+
+    void OpenGLRenderer3D::UnloadAllMeshes() {
+        // m_Meshes[3] (the built-in procedural primitives) is untouched -- only
+        // m_ImportedMeshes (LoadMesh's own uploads) is ever freed here.
+        for (auto& mesh : m_ImportedMeshes) {
+            if (mesh.Vbo) glDeleteBuffers(1, &mesh.Vbo);
+            if (mesh.Vao) glDeleteVertexArrays(1, &mesh.Vao);
+        }
+        m_ImportedMeshes.clear();
+        m_MeshCache.clear();
+    }
+
 }

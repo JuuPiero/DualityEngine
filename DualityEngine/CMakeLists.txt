@@ -10,6 +10,8 @@ add_library(DualityEngine STATIC
     Source/Scripting/ScriptRegistry.cpp
     Source/Scene/Scene.cpp
     Source/Scene/SceneSerializer.cpp
+    Source/Scene/EntitySerialization.cpp
+    Source/Scene/PrefabSerializer.cpp
     Source/Renderer/SceneRenderer.cpp
     Source/Renderer/UIRenderer.cpp
     Source/Renderer/PrimitiveMeshes.cpp

@@ -21,12 +21,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     add_library(GameScripts STATIC
         Source/BounceBehaviour.cpp
         Source/ApiShowcaseBehaviour.cpp
+        Source/CollisionLogBehaviour.cpp
         Source/ScriptModuleExports.cpp
     )
 else()
     add_library(GameScripts SHARED
         Source/BounceBehaviour.cpp
         Source/ApiShowcaseBehaviour.cpp
+        Source/CollisionLogBehaviour.cpp
         Source/ScriptModuleExports.cpp
     )
     set_target_properties(GameScripts PROPERTIES PREFIX "")

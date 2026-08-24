@@ -129,4 +129,13 @@ namespace Duality {
         return textureId;
     }
 
+    void Citro2DRenderer::UnloadAllTextures() {
+        for (C2D_SpriteSheet sheet : m_TextureSheets) {
+            if (sheet)
+                C2D_SpriteSheetFree(sheet);
+        }
+        m_TextureSheets.clear();
+        m_TextureCache.clear();
+    }
+
 }

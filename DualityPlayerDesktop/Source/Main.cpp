@@ -29,6 +29,7 @@
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Scene.h"
+#include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 #include "DualityEngine/Scripting/ScriptModule.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
@@ -212,6 +213,23 @@ int main() {
         lastTime = now;
 
         scene.OnRuntimeUpdate(deltaTime);
+
+        // A script-requested SceneManager.LoadScene is a deferred request (see
+        // SceneManager.h's own comment) -- safe to act on now, right after
+        // OnRuntimeUpdate returns and before this frame renders anything.
+        if (SceneManager::HasPendingLoad()) {
+            std::string pendingPath = SceneManager::ConsumePendingLoad();
+            scene.OnRuntimeStop();
+            // The old scene's textures/meshes are never referenced again once it's
+            // replaced -- freed here rather than left cached for the rest of the
+            // process's lifetime (see IRenderer2D::UnloadAllTextures's own comment).
+            renderer.UnloadAllTextures();
+            renderer3D.UnloadAllTextures();
+            renderer3D.UnloadAllMeshes();
+            scene = Scene();
+            SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/" + pendingPath);
+            scene.OnRuntimeStart();
+        }
 
         renderer.BeginFrame();
         ScreenViewport top = TopViewport(), bottom = BottomViewport();

@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <set>
+#include <utility>
+#include <vector>
 
 #include <box2d/box2d.h>
 #include <btBulletDynamicsCommon.h>
@@ -14,6 +17,8 @@
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Input/Input.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/PrefabSerializer.h"
+#include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scripting/EngineServices.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
 
@@ -30,7 +35,52 @@ namespace Duality {
     static constexpr int32 VelocityIterations = 6;
     static constexpr int32 PositionIterations = 2;
 
-    static b2World* PhysicsWorld(void* handle) { return static_cast<b2World*>(handle); }
+    // One event per touching-pair transition this frame, queued by whichever physics
+    // system detected it (Box2D's listener callback, or Bullet's manual manifold diff --
+    // see below) and drained by Scene::OnRuntimeUpdate right after both physics steps,
+    // before the Behaviour::OnUpdate loop. IsBegin true = Enter, false = Exit.
+    struct PhysicsContactEvent {
+        entt::entity A, B;
+        bool IsTrigger;
+        bool IsBegin;
+    };
+
+    // Box2D has a real listener API (unlike Bullet, see the manual manifold diff in
+    // OnRuntimeUpdate below) -- BeginContact/EndContact fire synchronously from inside
+    // b2World::Step, so `Events` just needs to point at OnRuntimeUpdate's own local
+    // event list for the duration of that one Step call (repointed every frame, not a
+    // persistent buffer -- see Physics2DWorld below).
+    class Box2DContactListener : public b2ContactListener {
+    public:
+        std::vector<PhysicsContactEvent>* Events = nullptr;
+
+        void BeginContact(b2Contact* contact) override { Record(contact, true); }
+        void EndContact(b2Contact* contact) override { Record(contact, false); }
+
+    private:
+        void Record(b2Contact* contact, bool begin) {
+            b2Fixture* fixtureA = contact->GetFixtureA();
+            b2Fixture* fixtureB = contact->GetFixtureB();
+            // uintptr_t -> uint32_t -> entt::entity, matching the same narrowing already
+            // used everywhere else this codebase crosses an opaque-handle boundary (e.g.
+            // EngineServices_FindEntityInScreen's own unsigned-int handle convention).
+            entt::entity a = static_cast<entt::entity>(static_cast<uint32_t>(fixtureA->GetBody()->GetUserData().pointer));
+            entt::entity b = static_cast<entt::entity>(static_cast<uint32_t>(fixtureB->GetBody()->GetUserData().pointer));
+            bool isTrigger = fixtureA->IsSensor() || fixtureB->IsSensor(); // Unity's own "either side" rule
+            if (Events)
+                Events->push_back({ a, b, isTrigger, begin });
+        }
+    };
+
+    // Box2D's own b2World owns/frees every body and fixture it creates (see
+    // OnRuntimeStop), but the *listener* is caller-owned and must outlive it -- bundled
+    // together the same way Physics3DWorld bundles Bullet's config/dispatcher/etc., so
+    // Scene::m_PhysicsWorld can stay one opaque void*.
+    struct Physics2DWorld {
+        b2World* World = nullptr;
+        Box2DContactListener* Listener = nullptr;
+    };
+    static Physics2DWorld* PhysicsWorld2D(void* handle) { return static_cast<Physics2DWorld*>(handle); }
 
     // Bullet-backed 3D physics. Same "no pixels-per-meter conversion, gravity
     // scaled up to match this project's pixel-sized world units, +Y is down"
@@ -49,6 +99,13 @@ namespace Duality {
         btBroadphaseInterface* Broadphase = nullptr;
         btSequentialImpulseConstraintSolver* Solver = nullptr;
         btDiscreteDynamicsWorld* World = nullptr;
+
+        // Bullet has no BeginContact/EndContact-style listener (unlike Box2D above) --
+        // just "who is touching right now" via the dispatcher's contact manifolds each
+        // frame. Enter/exit is detected by diffing that against last frame's set here,
+        // in Scene::OnRuntimeUpdate. Canonically ordered (lower entt::entity value first)
+        // so a pair only ever appears one way regardless of manifold body0/body1 order.
+        std::set<std::pair<entt::entity, entt::entity>> TouchingPairs;
     };
     static Physics3DWorld* PhysicsWorld3D(void* handle) { return static_cast<Physics3DWorld*>(handle); }
 
@@ -212,6 +269,25 @@ namespace Duality {
         return true;
     }
 
+    static void EngineServices_LogInfo(const char* message) { Log::Info(message); }
+    static void EngineServices_LogWarn(const char* message) { Log::Warn(message); }
+    static void EngineServices_LogError(const char* message) { Log::Error(message); }
+
+    static void EngineServices_RequestLoadScene(const char* assetsRelativePath) {
+        SceneManager::RequestLoadScene(assetsRelativePath);
+    }
+
+    static bool EngineServices_Instantiate(void* scenePtr, const char* prefabAssetGuid, unsigned int* outHandle) {
+        std::string path = AssetDatabase::ResolvePath(prefabAssetGuid);
+        if (path.empty())
+            return false;
+        Entity result = PrefabSerializer::Instantiate(*static_cast<Scene*>(scenePtr), path);
+        if (!result)
+            return false;
+        *outHandle = static_cast<unsigned int>(result.Handle());
+        return true;
+    }
+
     static const EngineServices s_EngineServices = {
         &EngineServices_GetKey,
         &EngineServices_GetKeyDown,
@@ -222,6 +298,11 @@ namespace Duality {
         &EngineServices_PlaySound,
         &EngineServices_StopAllSounds,
         &EngineServices_FindEntityInScreen,
+        &EngineServices_LogInfo,
+        &EngineServices_LogWarn,
+        &EngineServices_LogError,
+        &EngineServices_RequestLoadScene,
+        &EngineServices_Instantiate,
     };
 
     Entity Scene::CreateEntity(const std::string& name) {
@@ -230,6 +311,7 @@ namespace Duality {
         auto& nameComponent = entity.AddComponent<NameComponent>();
         nameComponent.Name = name.empty() ? "Entity" : name;
         entity.AddComponent<TagComponent>();
+        entity.AddComponent<ActiveComponent>();
         entity.AddComponent<HierarchyComponent>();
         m_RootEntities.push_back(entity);
         return entity;
@@ -298,6 +380,16 @@ namespace Duality {
         return ComposeWorld(local, GetWorldTransform(parent));
     }
 
+    bool Scene::IsEffectivelyActive(Entity entity) {
+        Entity current = entity;
+        while (current) {
+            if (!current.GetComponent<ActiveComponent>().Active)
+                return false;
+            current = current.GetComponent<HierarchyComponent>().Parent;
+        }
+        return true;
+    }
+
     Entity Scene::FindEntityInScreen(Screen screen, const std::string& name) {
         bool anyGroupForScreen = false;
         for (auto handle : m_Registry.view<ScreenGroupComponent>()) {
@@ -348,12 +440,23 @@ namespace Duality {
     }
 
     void Scene::OnRuntimeStart() {
-        b2World* world = new b2World(b2Vec2(0.0f, DefaultGravityY));
-        m_PhysicsWorld = world;
+        Physics2DWorld* world2D = new Physics2DWorld();
+        world2D->World = new b2World(b2Vec2(0.0f, DefaultGravityY));
+        world2D->Listener = new Box2DContactListener();
+        world2D->World->SetContactListener(world2D->Listener);
+        m_PhysicsWorld = world2D;
+        b2World* world = world2D->World; // local alias, keeps the body-creation loop below unchanged
 
         auto bodyView = m_Registry.view<Rigidbody2DComponent, TransformComponent>();
         for (auto handle : bodyView) {
             auto& rb = bodyView.get<Rigidbody2DComponent>(handle);
+
+            // An entity that isn't effectively active when Play starts gets no physics
+            // body at all (RuntimeBody stays nullptr, which every other body-consuming
+            // loop already null-checks) -- scope cut: toggling Active mid-Play does NOT
+            // dynamically add/remove the body, only whether it existed at Play start.
+            if (!IsEffectivelyActive(Entity(handle, this)))
+                continue;
 
             // Spawn at the entity's resolved WORLD transform (identity pass-through
             // for a root entity) so a child starts in the right place -- but Box2D
@@ -373,6 +476,10 @@ namespace Duality {
             // own angle is radians, so the boundary conversion happens here.
             bodyDef.angle = glm::radians(worldTransform.Rotation.z);
             bodyDef.fixedRotation = rb.FixedRotation;
+            // Lets Box2DContactListener map a touching fixture pair back to Entities --
+            // same static_cast<uintptr_t>(handle) convention already used for
+            // EngineServices_FindEntityInScreen's own entt::entity<->raw-handle boundary.
+            bodyDef.userData.pointer = static_cast<uintptr_t>(handle);
             b2Body* body = world->CreateBody(&bodyDef);
             rb.RuntimeBody = body;
 
@@ -385,6 +492,7 @@ namespace Duality {
                 fixtureDef.density = box.Density;
                 fixtureDef.friction = box.Friction;
                 fixtureDef.restitution = box.Restitution;
+                fixtureDef.isSensor = box.IsTrigger;
                 box.RuntimeFixture = body->CreateFixture(&fixtureDef);
             }
 
@@ -398,6 +506,7 @@ namespace Duality {
                 fixtureDef.density = circle.Density;
                 fixtureDef.friction = circle.Friction;
                 fixtureDef.restitution = circle.Restitution;
+                fixtureDef.isSensor = circle.IsTrigger;
                 circle.RuntimeFixture = body->CreateFixture(&fixtureDef);
             }
         }
@@ -415,6 +524,10 @@ namespace Duality {
         for (auto handle : body3DView) {
             auto& rb = body3DView.get<Rigidbody3DComponent>(handle);
 
+            // Same "no body at all if not active at Play start" rule as the 2D loop above.
+            if (!IsEffectivelyActive(Entity(handle, this)))
+                continue;
+
             // Same identity-parent-only limitation as the 2D loop above.
             TransformComponent worldTransform = GetWorldTransform(Entity(handle, this));
 
@@ -422,6 +535,7 @@ namespace Duality {
             glm::vec3 offset{ 0.0f, 0.0f, 0.0f };
             float density = 1.0f, friction = 0.5f, restitution = 0.0f;
             float volume = 0.0f; // 0 = no collider, handled below
+            bool isTrigger = false;
 
             if (m_Registry.all_of<BoxCollider3DComponent>(handle)) {
                 auto& box = m_Registry.get<BoxCollider3DComponent>(handle);
@@ -429,12 +543,14 @@ namespace Duality {
                 offset = box.Offset;
                 density = box.Density; friction = box.Friction; restitution = box.Restitution;
                 volume = (2.0f * box.Size.x) * (2.0f * box.Size.y) * (2.0f * box.Size.z);
+                isTrigger = box.IsTrigger;
             } else if (m_Registry.all_of<SphereCollider3DComponent>(handle)) {
                 auto& sphere = m_Registry.get<SphereCollider3DComponent>(handle);
                 baseShape = new btSphereShape(sphere.Radius);
                 offset = sphere.Offset;
                 density = sphere.Density; friction = sphere.Friction; restitution = sphere.Restitution;
                 volume = (4.0f / 3.0f) * glm::pi<float>() * sphere.Radius * sphere.Radius * sphere.Radius;
+                isTrigger = sphere.IsTrigger;
             } else {
                 // A Rigidbody3D with no collider still gets a real body (matching the
                 // 2D loop's own zero-fixture case above) -- btEmptyShape is Bullet's
@@ -469,6 +585,16 @@ namespace Duality {
             rbInfo.m_friction = friction;
             rbInfo.m_restitution = restitution;
             btRigidBody* body = new btRigidBody(rbInfo);
+            // Lets the manual manifold-diff in OnRuntimeUpdate map a touching body pair
+            // back to Entities -- same static_cast<uintptr_t>(handle) convention the 2D
+            // side uses via bodyDef.userData.pointer.
+            body->setUserPointer(reinterpret_cast<void*>(static_cast<uintptr_t>(handle)));
+            if (isTrigger) {
+                // Bullet has no native sensor flag -- CF_NO_CONTACT_RESPONSE suppresses the
+                // physical push-apart response while still generating contact manifolds, so
+                // the manifold-diff below still detects touching (true sensor semantics).
+                body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_NO_CONTACT_RESPONSE);
+            }
             world3D->World->addRigidBody(body);
             rb.RuntimeBody = body;
         }
@@ -490,8 +616,16 @@ namespace Duality {
     }
 
     void Scene::OnRuntimeUpdate(float deltaTime) {
+        // Filled by Box2DContactListener (repointed here for the duration of this one
+        // Step call) and/or the Bullet manifold-diff below, then dispatched to
+        // Behaviour::OnCollisionEnter/Exit/OnTriggerEnter/Exit right after both physics
+        // steps -- see PhysicsContactEvent's own comment.
+        std::vector<PhysicsContactEvent> contactEvents;
+
         if (m_PhysicsWorld) {
-            PhysicsWorld(m_PhysicsWorld)->Step(deltaTime, VelocityIterations, PositionIterations);
+            Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);
+            world2D->Listener->Events = &contactEvents;
+            world2D->World->Step(deltaTime, VelocityIterations, PositionIterations);
 
             auto bodyView = m_Registry.view<Rigidbody2DComponent, TransformComponent>();
             for (auto handle : bodyView) {
@@ -512,7 +646,8 @@ namespace Duality {
         }
 
         if (m_PhysicsWorld3D) {
-            PhysicsWorld3D(m_PhysicsWorld3D)->World->stepSimulation(deltaTime);
+            Physics3DWorld* world3D = PhysicsWorld3D(m_PhysicsWorld3D);
+            world3D->World->stepSimulation(deltaTime);
 
             auto body3DView = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
             for (auto handle : body3DView) {
@@ -530,6 +665,61 @@ namespace Duality {
                 transform.Translation.z = position.z();
                 transform.Rotation = BtQuaternionToEulerDegrees(worldTransform.getRotation());
             }
+
+            // No BeginContact/EndContact listener exists for Bullet (unlike Box2D above) --
+            // "who is touching right now" is diffed against last frame's set instead, built
+            // fresh from the dispatcher's own contact manifolds every step.
+            std::set<std::pair<entt::entity, entt::entity>> currentPairs;
+            btDispatcher* dispatcher = world3D->World->getDispatcher();
+            int numManifolds = dispatcher->getNumManifolds();
+            for (int i = 0; i < numManifolds; i++) {
+                btPersistentManifold* manifold = dispatcher->getManifoldByIndexInternal(i);
+                if (manifold->getNumContacts() == 0)
+                    continue;
+                entt::entity a = static_cast<entt::entity>(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(manifold->getBody0()->getUserPointer())));
+                entt::entity b = static_cast<entt::entity>(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(manifold->getBody1()->getUserPointer())));
+                currentPairs.insert(a < b ? std::make_pair(a, b) : std::make_pair(b, a));
+            }
+
+            auto is3DTrigger = [this](entt::entity handle) {
+                if (m_Registry.all_of<BoxCollider3DComponent>(handle))
+                    return m_Registry.get<BoxCollider3DComponent>(handle).IsTrigger;
+                if (m_Registry.all_of<SphereCollider3DComponent>(handle))
+                    return m_Registry.get<SphereCollider3DComponent>(handle).IsTrigger;
+                return false;
+            };
+            for (auto& pair : currentPairs) {
+                if (world3D->TouchingPairs.find(pair) == world3D->TouchingPairs.end())
+                    contactEvents.push_back({ pair.first, pair.second, is3DTrigger(pair.first) || is3DTrigger(pair.second), true });
+            }
+            for (auto& pair : world3D->TouchingPairs) {
+                if (currentPairs.find(pair) == currentPairs.end())
+                    contactEvents.push_back({ pair.first, pair.second, is3DTrigger(pair.first) || is3DTrigger(pair.second), false });
+            }
+            world3D->TouchingPairs = std::move(currentPairs);
+        }
+
+        // Dispatch collision/trigger events to both sides of each pair (Unity's own
+        // convention -- each side's script, if any, gets called with the OTHER entity).
+        // m_Registry.valid() guards against an entity destroyed by an earlier event's own
+        // handler this same frame.
+        for (auto& event : contactEvents) {
+            if (!m_Registry.valid(event.A) || !m_Registry.valid(event.B))
+                continue;
+            auto fire = [this](entt::entity self, Entity other, bool isTrigger, bool isBegin) {
+                if (!m_Registry.all_of<BehaviourComponent>(self))
+                    return;
+                auto& bc = m_Registry.get<BehaviourComponent>(self);
+                if (!bc.Instance)
+                    return;
+                if (isTrigger) {
+                    if (isBegin) bc.Instance->OnTriggerEnter(other); else bc.Instance->OnTriggerExit(other);
+                } else {
+                    if (isBegin) bc.Instance->OnCollisionEnter(other); else bc.Instance->OnCollisionExit(other);
+                }
+            };
+            fire(event.A, Entity(event.B, this), event.IsTrigger, event.IsBegin);
+            fire(event.B, Entity(event.A, this), event.IsTrigger, event.IsBegin);
         }
 
         auto flipbookView = m_Registry.view<SpriteFlipbookComponent>();
@@ -561,7 +751,18 @@ namespace Duality {
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
-            if (bc.Instance)
+            if (!bc.Instance)
+                continue;
+
+            bool active = IsEffectivelyActive(Entity(handle, this));
+            if (active != bc.WasActiveLastFrame) {
+                if (active)
+                    bc.Instance->OnEnable();
+                else
+                    bc.Instance->OnDisable();
+                bc.WasActiveLastFrame = active;
+            }
+            if (active)
                 bc.Instance->OnUpdate(deltaTime);
         }
     }
@@ -571,6 +772,8 @@ namespace Duality {
         for (auto handle : behaviourView) {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
             if (bc.Instance) {
+                if (bc.WasActiveLastFrame)
+                    bc.Instance->OnDisable();
                 bc.Instance->OnDestroy();
                 bc.Destroy(bc.Instance);
                 bc.Instance = nullptr;
@@ -578,7 +781,10 @@ namespace Duality {
         }
 
         if (m_PhysicsWorld) {
-            delete PhysicsWorld(m_PhysicsWorld); // also frees every body/fixture it owns
+            Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);
+            delete world2D->World; // also frees every body/fixture it owns
+            delete world2D->Listener; // caller-owned, per b2World::SetContactListener's own contract
+            delete world2D;
             m_PhysicsWorld = nullptr;
 
             auto bodyView = m_Registry.view<Rigidbody2DComponent>();

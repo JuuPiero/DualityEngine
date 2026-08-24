@@ -22,6 +22,7 @@
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Scene.h"
+#include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 #include "DualityEngine/Scripting/ScriptModule.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
@@ -123,6 +124,22 @@ int main(int argc, char* argv[]) {
         lastTick = now;
 
         scene.OnRuntimeUpdate(deltaTime);
+
+        // A script-requested SceneManager.LoadScene is a deferred request (see
+        // SceneManager.h's own comment) -- safe to act on now, right after
+        // OnRuntimeUpdate returns and before this frame renders anything. The
+        // requested path resolves against the SAME "romfs:/Assets/" root
+        // BuildPipeline::CookAssets already cooks every non-startup-scene file into.
+        if (SceneManager::HasPendingLoad()) {
+            std::string pendingPath = SceneManager::ConsumePendingLoad();
+            scene.OnRuntimeStop();
+            renderer.UnloadAllTextures();
+            renderer3D.UnloadAllTextures();
+            renderer3D.UnloadAllMeshes();
+            scene = Scene();
+            SceneSerializer(scene).Deserialize("romfs:/Assets/" + pendingPath);
+            scene.OnRuntimeStart();
+        }
 
         renderer.BeginFrame();
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);

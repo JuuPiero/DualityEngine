@@ -10,6 +10,9 @@ namespace Duality {
     class HierarchyPanel {
     public:
         void OnImGuiRender(EditorContext& ctx);
+
+    private:
+        char m_SearchBuffer[128] = "";
     };
 
 }

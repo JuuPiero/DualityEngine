@@ -31,6 +31,7 @@ namespace Duality {
 
         void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0) override;
         uint32_t LoadTexture(const std::string& path) override;
+        void UnloadAllTextures() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
         // Desktop-editor-only extra (not part of IRenderer2D -- there is no

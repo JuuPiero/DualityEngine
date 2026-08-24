@@ -17,6 +17,10 @@ namespace Duality {
             MakeField("Tag", &TagComponent::Tag),
         });
 
+        TypeRegistry::Register<ActiveComponent>("Active", true, {
+            MakeField("Active", &ActiveComponent::Active),
+        });
+
         TypeRegistry::Register<TransformComponent>("Transform", true, {
             MakeField("Translation", &TransformComponent::Translation),
             MakeField("Rotation", &TransformComponent::Rotation),
@@ -94,6 +98,7 @@ namespace Duality {
             MakeField("Density", &BoxCollider2DComponent::Density),
             MakeField("Friction", &BoxCollider2DComponent::Friction),
             MakeField("Restitution", &BoxCollider2DComponent::Restitution),
+            MakeField("Is Trigger", &BoxCollider2DComponent::IsTrigger),
         });
 
         TypeRegistry::Register<CircleCollider2DComponent>("Circle Collider 2D", false, {
@@ -102,6 +107,7 @@ namespace Duality {
             MakeField("Density", &CircleCollider2DComponent::Density),
             MakeField("Friction", &CircleCollider2DComponent::Friction),
             MakeField("Restitution", &CircleCollider2DComponent::Restitution),
+            MakeField("Is Trigger", &CircleCollider2DComponent::IsTrigger),
         });
 
         TypeRegistry::Register<Rigidbody3DComponent>("Rigidbody 3D", false, {
@@ -114,6 +120,7 @@ namespace Duality {
             MakeField("Density", &BoxCollider3DComponent::Density),
             MakeField("Friction", &BoxCollider3DComponent::Friction),
             MakeField("Restitution", &BoxCollider3DComponent::Restitution),
+            MakeField("Is Trigger", &BoxCollider3DComponent::IsTrigger),
         });
 
         TypeRegistry::Register<SphereCollider3DComponent>("Sphere Collider 3D", false, {
@@ -122,6 +129,7 @@ namespace Duality {
             MakeField("Density", &SphereCollider3DComponent::Density),
             MakeField("Friction", &SphereCollider3DComponent::Friction),
             MakeField("Restitution", &SphereCollider3DComponent::Restitution),
+            MakeField("Is Trigger", &SphereCollider3DComponent::IsTrigger),
         });
 
         // Per-script public fields (Inspector-editable, like Unity's

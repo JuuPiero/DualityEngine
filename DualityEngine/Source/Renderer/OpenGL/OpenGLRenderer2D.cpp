@@ -120,4 +120,14 @@ namespace Duality {
         return texture;
     }
 
+    void OpenGLRenderer2D::UnloadAllTextures() {
+        for (auto& [path, textureId] : m_TextureCache) {
+            if (textureId != 0) {
+                GLuint id = textureId;
+                glDeleteTextures(1, &id);
+            }
+        }
+        m_TextureCache.clear();
+    }
+
 }

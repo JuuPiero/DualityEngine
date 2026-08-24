@@ -61,6 +61,34 @@ this file whenever something below actually gets built, or a new deferred item c
       stability is still unverified on real hardware. Not built: `FixedRotation`-equivalent
       constraints, compound shapes beyond the single-offset-child case, capsule/mesh/convex-hull
       3D colliders, and any collision-event callback surface (matching 2D physics' own scope).
+- [x] Collision/trigger event callbacks (2D and 3D) -- `Behaviour::OnCollisionEnter/Exit`
+      and `OnTriggerEnter/Exit(Entity other)`, both sides of a touching pair get the
+      callback (Unity's own convention). 2D wires a real `Box2DContactListener`
+      (`b2World::SetContactListener`) bundled alongside `b2World` in a new
+      `Physics2DWorld` (`Scene.cpp`); 3D has no built-in enter/exit callback in Bullet, so
+      it's detected by diffing the dispatcher's own contact manifolds against last frame's
+      touching-pair set every `OnRuntimeUpdate` (`Physics3DWorld::TouchingPairs`). New
+      `IsTrigger` field on all 4 collider components -- 2D uses Box2D's native
+      `fixtureDef.isSensor`; 3D has no native sensor concept, so a trigger body instead
+      gets `btCollisionObject::CF_NO_CONTACT_RESPONSE` (contacts still generate, physical
+      push-apart is suppressed). A pair counts as a trigger callback if EITHER side is a
+      trigger, a collision callback only if NEITHER is. Enter+Exit only, no
+      OnCollisionStay/OnTriggerStay this pass (see below). Verified against a headless
+      test covering 2D/3D x collision/trigger x enter/exit (`Tests/CollisionTriggerTests.cpp`).
+      Also landed alongside this: the long-pending `Debug.Log`-from-scripts bridge
+      (`Behaviour::LogInfo/LogWarn/LogError`, same `EngineServices` pattern as
+      `PlaySound`/`GetAxis` -- see the Scripting section's own now-`[x]`'d entry) and a demo
+      script (`GameScripts/Source/CollisionLogBehaviour.cpp`).
+- [ ] OnCollisionStay/OnTriggerStay (fires every frame while still touching, not just on
+      the enter/exit edge) -- deferred from the pass above; the 3D side would mean not
+      re-running the full manifold diff, just also emitting for every pair still present in
+      both this frame's and last frame's touching set.
+- [ ] Raycast API exposed to scripts (a `Physics.Raycast`-equivalent through the same
+      `EngineServices` bridge `PlaySound`/`GetAxis` already use), for both 2D and 3D --
+      ground checks, line-of-sight, click-to-select-in-game all need this and nothing like it
+      exists yet.
+- [ ] Joints/constraints (hinge, spring, fixed) -- neither `b2World` nor the new
+      `btDiscreteDynamicsWorld` wires up any joint type yet, just free rigid bodies.
 
 ## UI
 
@@ -109,6 +137,20 @@ this file whenever something below actually gets built, or a new deferred item c
       currently just shows the resolved filename + a Clear button.
 - [ ] Undo/redo.
 - [ ] Multi-select (Hierarchy, Scene view).
+- [ ] Duplicate entity (Ctrl+D / Hierarchy context menu) -- no way to clone an entity and its
+      components yet, only create-new-empty or drag-reparent.
+- [ ] Grid/angle snapping for the Translate/Rotate gizmos, 2D and 3D (hold-a-modifier-key
+      convention, matching Unity's Ctrl-to-snap).
+- [x] Search/filter box for the Hierarchy panel, Content Browser, and Console panel.
+      Hierarchy: while the search box has text, shows a flat filtered list of every
+      matching entity scene-wide instead of the normal tree (a tree with drag-drop
+      reparenting has no cheap way to hide/show whole subtrees while preserving that,
+      so this deliberately doesn't try to filter-in-place -- empty search box shows the
+      unchanged original tree). Content Browser: filters files by name within the
+      current folder; folders themselves stay visible regardless so navigation still
+      works. Console: filters displayed log lines by substring, alongside the existing
+      per-level checkboxes. All three use the same small case-insensitive-substring
+      local helper, not a shared utility (one line of logic each).
 - [x] Split Scene view (`DualityEditor/Source/Panels/ScenePanel.cpp`) -- two side-by-side
       panes, one per screen, each its own free-roam `SceneViewCamera` (pan/zoom) seeded
       once from that screen's real primary `CameraComponent` so the initial view looks
@@ -168,19 +210,88 @@ this file whenever something below actually gets built, or a new deferred item c
 - [ ] Upfront recursive asset scan on project load -- `.meta` generation and the
       GUID->path index are currently populated lazily as the Content Browser is
       browsed into each folder, not scanned ahead of time.
-- [ ] Prefab system.
+- [x] Prefab system (`DualityEngine/Include/DualityEngine/Scene/PrefabSerializer.h`,
+      `Behaviour::Instantiate`) -- Unity's Prefab. A `.prefab.json` asset (same
+      GUID/`.meta`/`AssetDatabase` convention as any other custom asset type, e.g.
+      `.material.json`) holding one entity + its full descendant subtree, reusing
+      `SceneSerializer`'s own per-entity component (de)serialization logic (extracted
+      into `Source/Scene/EntitySerialization.{h,cpp}` specifically so the two don't
+      duplicate the same `FieldValueToJson`/`JsonToFieldValue` dispatch tables) rather
+      than a separate serializer from scratch. `PrefabSerializer::Save` collects the
+      subtree depth-first (same recursive-children-walk shape as
+      `Scene::DestroyEntity`'s own subtree traversal); `Instantiate` creates a brand new
+      copy and attaches its root under a caller-chosen live parent (`Entity{}` = scene
+      root) via the existing `Scene::SetParent`. Editor UX: Hierarchy panel's per-node
+      context menu gained "Create Prefab from Selection" (writes to
+      `<project>/Assets/Prefabs/<EntityName>.prefab.json`); dragging a Prefab asset onto
+      the Hierarchy panel's empty-space drop zone instantiates it at the scene root.
+      Script-facing `Behaviour::Instantiate(prefabAssetGuid) -> Entity`, same
+      `EngineServices` bridge shape as `FindEntityInScreen`. Verified against a headless
+      test covering single-entity round-trip, parent/child subtree preservation,
+      attaching under a caller-chosen live parent, and graceful failure on a missing
+      file (`Tests/PrefabTests.cpp`). A real bug this test suite caught immediately:
+      `Tests/Main.cpp` wasn't calling `RegisterBuiltinComponents()` at startup (every
+      real entry point does), so `TypeRegistry::All()` was silently empty and nothing
+      ever actually serialized -- fixed there, not worked around. Scope cut: no
+      prefab-instance link -- an instantiated copy is fully independent afterward, no
+      "apply changes back to the prefab" support.
+- [ ] Live asset watching / hot-reload for changed textures/materials while the Editor is
+      open -- only `GameScripts` hot-reloads today (`ScriptEngine`); editing a texture file
+      externally needs an Editor restart (or at least a manual Content Browser refresh) to
+      pick up the change.
 
 ## Scripting
 
-- [ ] A `Debug.Log`-equivalent callable from `GameScripts` into the Console panel.
-      Still blocked by `GameScripts` deliberately not linking `DualityEngine`'s compiled
-      lib on desktop (needed for the DLL hot-reload story) -- but the *mechanism* to fix
-      this now exists: `EngineServices` (`DualityEngine/Include/DualityEngine/Scripting/
-      EngineServices.h`), the exact bridge built for `Behaviour::GetKey`/`GetAxis`/etc.
-      to reach the real `Duality::Input` across that same DLL boundary. Adding a
-      `LogInfo`/`LogWarn`/`LogError` function pointer to that same struct (wired the same
-      way `Scene.cpp`'s `s_EngineServices` wires the Input adapters) is a small, mostly
-      mechanical follow-up now, not a new architecture problem to solve.
+- [ ] Per-script public/serialized fields shown in the Properties panel, like Unity's
+      `[SerializeField]` -- `BehaviourComponent` (`Reflection.cpp`) currently only exposes
+      which script class is attached, not that script's own tunable fields. Needs an
+      Overrides map so Edit-mode edits to those fields survive Play/Stop (flagged inline in
+      `Reflection.cpp`'s own comment already, just not tracked here until now).
+- [ ] Coroutines / a delayed-call helper (`Invoke`/`WaitForSeconds`-equivalent) -- right now
+      a script can only act every frame from `OnUpdate`, with no built-in way to schedule
+      "do X after N seconds" without hand-rolling a timer field.
+- [x] A `Debug.Log`-equivalent callable from `GameScripts` into the Console panel --
+      `Behaviour::LogInfo/LogWarn/LogError`, wired through `EngineServices` (a
+      `LogInfo`/`LogWarn`/`LogError` function pointer each, adapters in `Scene.cpp`
+      forwarding to the real `Duality::Log`) exactly the mechanical way this entry
+      originally described. Landed alongside the Physics section's collision/trigger
+      event work, since a demo script for those otherwise had no way to prove they fired.
+- [x] Active/Enable-Disable (`ActiveComponent`, `Scene::IsEffectivelyActive`,
+      `Behaviour::SetActive/IsActive/OnEnable/OnDisable`) -- Unity's GameObject.SetActive/
+      activeInHierarchy. `ActiveComponent` is mandatory (added by `Scene::CreateEntity`
+      alongside Name/Tag/Transform/Hierarchy, so an old scene file missing it entirely
+      still gets the default `true` on load); `IsEffectivelyActive` cascades up the
+      `HierarchyComponent::Parent` chain the same way `GetWorldTransform` does, so a
+      disabled parent implicitly disables its whole subtree without touching each
+      child's own flag. `OnEnable`/`OnDisable` fire exactly once per transition
+      (edge-detected via a new, unreflected `BehaviourComponent::WasActiveLastFrame`);
+      `OnUpdate` simply doesn't run while inactive; `OnCreate` still always runs once at
+      Play start regardless of starting Active state (Unity's Awake-always-runs rule).
+      Respected by the real render path (`SceneRenderer.cpp`'s sprite/mesh/UI passes,
+      `UIRenderer.cpp`'s click hit-testing) -- deliberately NOT by `ScenePanel.cpp`'s
+      Editor Scene-view panes, matching Unity's own Scene-view-shows-disabled-objects
+      convention. Scope cut: toggling Active during Play does NOT dynamically add/remove
+      a Rigidbody's physics body, only whether one existed at Play start.
+- [x] SceneManager (`DualityEngine/Include/DualityEngine/Scene/SceneManager.h`,
+      `Behaviour::LoadScene`) -- Unity's `SceneManager.LoadScene`. A pure request mailbox
+      (static pending-path flag) rather than an owner of the `Scene` itself, since a
+      script can't safely tear down the very `Scene` its own call stack is executing
+      inside of mid-`OnRuntimeUpdate` -- each real entry point (`DualityPlayer`,
+      `DualityPlayerDesktop`, the Editor's own Play-mode tick in `Application.cpp`) polls
+      `SceneManager::HasPendingLoad()` once per frame, right after `OnRuntimeUpdate`
+      returns, and does the actual Stop/swap/Deserialize/Start dance itself -- staying in
+      Play mode throughout (a scene-to-scene transition, not a Stop). The old scene's
+      cached textures/meshes are freed on the swap via new `IRenderer2D::
+      UnloadAllTextures`/`IRenderer3D::UnloadAllTextures`+`UnloadAllMeshes` (implemented
+      on all 4 backends), since those caches otherwise only ever grow for the process's
+      whole lifetime. `assetsRelativePath` resolves against the current project's Assets
+      root on either platform (no `BuildPipeline` changes needed -- any non-`.png` file
+      already rides its generic cook-and-manifest path into 3DS romfs); the Editor's File
+      menu gained a companion **"Save Scene As..."** (writes a snapshot to a new file,
+      does NOT change which scene "Save Scene"/"Load Scene" operate on) so a project can
+      actually accumulate a second scene file to target. No multi-scene *asset* system
+      (GUID-based scene references, additive loading) -- just path-based single-scene
+      swapping for now.
 - [x] Input system (`DualityEngine/Include/DualityEngine/Input/`), Unity-old-Input-
       Manager-style -- `GetKey`/`GetKeyDown`/`GetKeyUp`/`GetAxis("Horizontal"/"Vertical")`/
       pointer, callable from `Behaviour` scripts on both platforms via the
@@ -213,3 +324,34 @@ this file whenever something below actually gets built, or a new deferred item c
 - [ ] A future pass could extend `EngineServices`' `LogInfo`-follow-up idea (see
       Scripting above) to also cover Audio (`SetVolume`/`Pause`/handle-based control) if
       a real game ends up needing more than fire-and-forget playback.
+
+## Testing & Infra
+
+- [x] Automated test suite for engine-level logic (`Tests/`, a small hand-rolled
+      `TEST_CASE`/`CHECK`/`CHECK_SOFT` harness -- `TestFramework.h` -- rather than vendoring
+      Catch2/GoogleTest, matching this project's own "small dependency-free infra over a
+      new library" preference elsewhere, e.g. `MeshLoader`'s hand-rolled OBJ parser).
+      Desktop-only `DualityEngineTests` executable (`run-tests.bat`), linking straight
+      against `DualityEngine`'s real compiled code -- no mocks. Covers what this session's
+      own ad hoc throwaway headless verification programs already exercised (Active/
+      Enable-Disable cascading + lifecycle, 2D/3D collision and trigger events, Bullet
+      gravity/landing/offset-collider/rotation-round-trip), now a standing, permanent
+      suite instead of a one-off script -- plus SceneManager's request-mailbox contract
+      and Prefab's save/instantiate round-trip, added once those features existed.
+      Already caught one real bug on its own: `Tests/Main.cpp` initially never called
+      `RegisterBuiltinComponents()`, so `TypeRegistry::All()` was silently empty and
+      Prefab/scene serialization tests were round-tripping nothing -- exactly the kind
+      of regression this suite exists to catch, catching itself being unwired correctly.
+      Not covered yet: a whole-`Scene` `SceneSerializer` round-trip test (only
+      `PrefabSerializer`'s subtree save/load is tested so far, though they now share the
+      same underlying `EntitySerialization.cpp` logic) and reflection/`TypeRegistry`
+      itself in isolation. Orbit-camera quaternion math isn't included either -- it
+      lives in `ScenePanel.cpp`'s anonymous namespace (Editor-only, not linked into
+      `DualityEngine`), not a straightforward fit for this suite without a visibility
+      refactor.
+- [x] CI build verification (`.github/workflows/ci.yml`) -- desktop only for now: MSYS2
+      MinGW-w64 setup matching `README.md`'s own documented Prerequisites exactly, then the
+      existing `build.bat`/`run-tests.bat` unmodified (so a local run reproduces CI
+      precisely). The 3DS cross-compile isn't wired into CI yet -- devkitPro publishes an
+      official Docker image (`devkitpro/devkitarm`) that could host it, but that's a
+      heavier follow-up, still manual-verification-only for now.

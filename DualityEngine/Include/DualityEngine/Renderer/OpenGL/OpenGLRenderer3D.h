@@ -29,6 +29,8 @@ namespace Duality {
 
         uint32_t LoadTexture(const std::string& path) override;
         uint32_t LoadMesh(const std::string& path) override;
+        void UnloadAllTextures() override;
+        void UnloadAllMeshes() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
     private:

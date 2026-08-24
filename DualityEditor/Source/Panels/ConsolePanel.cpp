@@ -1,5 +1,7 @@
 #include "DualityEditor/Panels/ConsolePanel.h"
 
+#include <algorithm>
+#include <cctype>
 #include <string>
 
 #include <imgui.h>
@@ -7,6 +9,17 @@
 #include "DualityEngine/Core/Log.h"
 
 namespace Duality {
+
+    // Case-insensitive substring match -- shared shape with the same kind of
+    // filter added to HierarchyPanel/ContentBrowserPanel, kept as a small
+    // local helper here rather than a new shared utility for one line of logic.
+    static bool ContainsCaseInsensitive(const std::string& haystack, const std::string& needle) {
+        if (needle.empty())
+            return true;
+        auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+            [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
+        return it != haystack.end();
+    }
 
     static ImVec4 LevelColor(LogLevel level) {
         switch (level) {
@@ -43,6 +56,9 @@ namespace Duality {
         ImGui::Checkbox("Error", &m_ShowError);
         ImGui::SameLine();
         ImGui::Checkbox("Auto-scroll", &m_AutoScroll);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(200.0f);
+        ImGui::InputTextWithHint("##ConsoleSearch", "Search...", m_SearchBuffer, sizeof(m_SearchBuffer));
 
         ImGui::Separator();
 
@@ -53,6 +69,8 @@ namespace Duality {
                            (entry.Level == LogLevel::Warn && m_ShowWarn) ||
                            (entry.Level == LogLevel::Error && m_ShowError);
             if (!visible)
+                continue;
+            if (!ContainsCaseInsensitive(entry.Message, m_SearchBuffer))
                 continue;
 
             ImGui::PushStyleColor(ImGuiCol_Text, LevelColor(entry.Level));

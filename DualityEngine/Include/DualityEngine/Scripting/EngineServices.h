@@ -37,6 +37,26 @@ namespace Duality {
         // `screen` is a Duality::Screen cast to int (0=Top, 1=Bottom). Returns
         // true and fills *outHandle (the raw entt::entity value) if found.
         bool (*FindEntityInScreen)(void* scene, int screen, const char* name, unsigned int* outHandle);
+
+        // GameScripts can't call Duality::Log directly (same DLL-boundary reason it can't
+        // call Duality::Input/AudioEngine directly either) -- these route through it instead,
+        // showing up in the Editor's Console panel exactly like every other engine log line.
+        void (*LogInfo)(const char* message);
+        void (*LogWarn)(const char* message);
+        void (*LogError)(const char* message);
+
+        // Unity's SceneManager.LoadScene -- `assetsRelativePath` is resolved against
+        // whichever platform's own Assets root is currently running (see SceneManager.h's
+        // own comment for why this is a deferred request, not an immediate swap).
+        void (*RequestLoadScene)(const char* assetsRelativePath);
+
+        // Unity's Object.Instantiate -- `scene` is the calling Behaviour's own
+        // GetEntity().GetScene() (same per-call-not-baked-in reasoning as
+        // FindEntityInScreen above, since Instantiate needs the live Scene the SAME
+        // instant it's called, unlike LoadScene's deferred swap). `prefabAssetGuid` is
+        // an AssetRef's Guid (a ".prefab.json" asset). Returns true and fills
+        // *outHandle with the new root entity's raw handle on success.
+        bool (*Instantiate)(void* scene, const char* prefabAssetGuid, unsigned int* outHandle);
     };
 
 }

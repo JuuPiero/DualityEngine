@@ -40,6 +40,7 @@ namespace Duality {
         // needs to see a raw ".png" itself. Returns 0 (same "no texture" contract as the
         // desktop backend) if the file doesn't exist or isn't a valid ".t3x".
         uint32_t LoadTexture(const std::string& path) override;
+        void UnloadAllTextures() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
         // Exposes this renderer's own C2D_CreateScreenTarget-made targets so Citro3DRenderer

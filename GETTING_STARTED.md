@@ -21,23 +21,42 @@ trông đã cũ, vì vậy bạn luôn có thể chạy lại lệnh này sau kh
 
 Chạy `run.bat`. Bạn sẽ thấy:
 
-- **File menu** (phía trên) -- Open Project, Save/Load Scene, Build for 3DS.
+- **File menu** (phía trên) -- Open Project, Save/Load Scene, **Save Scene As...**
+  (lưu một *bản snapshot* của scene hiện tại ra file mới, không đổi scene mà
+  Save/Load Scene đang thao tác -- đây là cách để có file scene thứ hai cho
+  `SceneManager`/`Behaviour::LoadScene` nhắm tới, xem mục 8 và 10 bên dưới),
+  Build for 3DS.
 - **Hierarchy** (bên trái) -- mọi entity trong scene. Bấm vào một entity để chọn;
-  **Create Entity** tạo một entity trống mới.
+  **Create Entity** tạo một entity trống mới. Có ô tìm kiếm: gõ vào để lọc ra
+  danh sách phẳng mọi entity khớp tên trong toàn scene (cây/kéo-thả trở lại khi
+  xóa ô tìm kiếm). Chuột phải vào một entity để **Create Child Entity** hoặc
+  **Create Prefab from Selection** (ghi ra `Assets/Prefabs/<Tên>.prefab.json`);
+  kéo một Prefab asset từ Content Browser thả vào khoảng trống của panel này để
+  tạo bản sao (instantiate) vào scene.
 - **Properties** (bên phải) -- mọi component của entity đang chọn, với các field
-  có thể chỉnh sửa trực tiếp. **+ Add Component** ở dưới cùng thêm component mới;
-  nút "..." trên các component không bắt buộc sẽ xóa chúng.
+  có thể chỉnh sửa trực tiếp. Mọi entity đều có checkbox **Active** (tương đương
+  `GameObject.SetActive` của Unity) cạnh Transform/Name/Tag. **+ Add Component**
+  ở dưới cùng thêm component mới; nút "..." trên các component không bắt buộc sẽ
+  xóa chúng.
 - **Scene** / **Game** (ở giữa, dạng tab) -- **Scene** chia thành hai pane cạnh
   nhau (màn Top/Bottom), mỗi pane là một camera editor tự do, độc lập với
   camera thật trong scene. Mỗi pane có riêng nút **2D**/**3D** để chuyển cách
   hiển thị/điều khiển (không đụng đến `CameraComponent::Projection` thật của
   screen đó -- xem mục 4 bên dưới về pane 3D). Ở chế độ 2D: kéo chuột giữa để
   pan, lăn con lăn để zoom, bấm vào sprite để chọn, các nút Translate/Rotate/
-  Scale chuyển chế độ gizmo. **Game** hiển thị chính xác những gì camera trong
+  Scale chuyển chế độ gizmo. Camera entity vẽ hẳn khung nhìn thật (frustum --
+  mặt phẳng near/far, FOV) thay vì chỉ một điểm đánh dấu, nên bạn thấy chính
+  xác camera đang nhìn về đâu. **Game** hiển thị chính xác những gì camera trong
   scene thực render -- tức hình ảnh bạn thực sự sẽ thấy trên máy console.
-- **Console** / **Content Browser** (phía dưới, dạng tab) -- log output và trình
-  duyệt thư mục `Assets/` của project hiện tại. Kéo asset vào field texture trong
-  Properties để gán; kéo file từ Explorer vào để import.
+- **Console** (phía dưới, dạng tab) -- log output (`Duality::Log`, kể cả
+  `Behaviour::LogInfo/LogWarn/LogError` gọi từ script), có màu theo cấp độ
+  (Trace/Info/Warn/Error), checkbox lọc theo cấp độ, ô tìm kiếm theo nội dung,
+  và nút Clear.
+- **Content Browser** (phía dưới, dạng tab) -- trình duyệt thư mục `Assets/`
+  của project hiện tại, có ô tìm kiếm lọc file theo tên trong thư mục đang mở
+  (thư mục vẫn luôn hiện để còn điều hướng được). Kéo asset vào field
+  `AssetRef` trong Properties (texture, Material, Prefab, ...) để gán; kéo file
+  từ Explorer vào để import.
 
 Bấm **Play** (phía trên panel Game) để chạy scene trực tiếp -- physics và script
 bắt đầu hoạt động. **Stop** đưa scene về trạng thái edit (chính xác hơn là về
@@ -100,13 +119,22 @@ render qua đúng một pipeline mỗi frame, 2D hoặc 3D, không bao giờ ch�
    `Fov Degrees`/`Near Plane`/`Far Plane` thay vì `Zoom`.
 5. **Xem/điều khiển ở Scene view.** Bấm nút **3D** trên pane tương ứng. Điều
    khiển chuột theo phong cách Unity: **chuột trái** chọn mesh hoặc kéo tay
-   nắm gizmo, **chuột phải kéo** xoay camera quanh điểm nhìn (orbit), **chuột
-   giữa kéo** để pan, **lăn chuột** để zoom. Camera này độc lập với
-   `CameraComponent` thật -- pan/orbit/zoom ở đây không đụng đến gameplay.
+   nắm gizmo, **chuột phải kéo** xoay camera quanh điểm nhìn (orbit -- dùng
+   quaternion thật, không giới hạn ±89° kiểu gimbal lock, nên kéo liên tục sẽ
+   lật qua đỉnh/đáy mượt mà như Unity/Blender), **chuột giữa kéo** để pan,
+   **lăn chuột** để zoom. Camera này độc lập với `CameraComponent` thật --
+   pan/orbit/zoom ở đây không đụng đến gameplay.
 6. **Gizmo 3D.** Cùng ba nút Translate/Rotate/Scale ở trên dùng chung với pane
    2D, chỉ khác là có thêm trục Z (xanh dương) bên cạnh X (đỏ)/Y (xanh lá).
    Field Transform trong Properties luôn chỉnh được trực tiếp như một cách
    thay thế.
+7. **Vật lý 3D (tùy chọn).** Giống hệt bước physics ở mục 3 nhưng cho 3D:
+   **+ Add Component -> Rigidbody 3D** cùng với **Box Collider 3D** hoặc
+   **Sphere Collider 3D** biến mesh thành vật thể vật lý thật (dựng trên
+   Bullet Physics) -- bấm Play để xem nó rơi theo trọng lực và va chạm với
+   các mesh khác cũng có Rigidbody 3D. Bật **Is Trigger** trên collider nếu
+   chỉ muốn phát hiện chạm mà không cần phản ứng vật lý (dùng cho vùng nhặt
+   đồ, vùng kích hoạt -- xem `OnTriggerEnter` ở mục 7).
 
 ## 5. Tạo (hoặc mở) project
 
@@ -167,17 +195,37 @@ không dùng ngôn ngữ script nhúng, được build thành DLL có thể hot-
    `MyBehaviour.cpp` rồi bấm Reload Scripts là toàn bộ vòng lặp phát triển.
 
 `GameScripts/Source/ApiShowcaseBehaviour.cpp` là một ví dụ hoàn chỉnh có thể chạy,
-bao quát toàn bộ API bên dưới trong một script -- nên đọc từ đầu đến cuối một lần
-sau khi đã nắm được phần cơ bản. Script này được gắn vào cả entity "ApiShowcase"
-(2D, sprite) lẫn "TestCube3D" (3D, mesh) trong scene mẫu -- cùng một class,
-tự phát hiện `GetEntity().HasComponent<T>()` để chạy đúng nhánh 2D hay 3D (di
-chuyển theo mặt phẳng X/Y hay X/Z, xoay quanh trục Z hay Y), minh họa cách một
-`Behaviour` không nên giả định trước hình dạng component của entity mình gắn vào.
+bao quát các API Input/Audio/Save/DateTime trong một script -- nên đọc từ đầu
+đến cuối một lần sau khi đã nắm được phần cơ bản. Script này được gắn vào cả
+entity "ApiShowcase" (2D, sprite) lẫn "TestCube3D" (3D, mesh) trong scene mẫu --
+cùng một class, tự phát hiện `GetEntity().HasComponent<T>()` để chạy đúng nhánh
+2D hay 3D (di chuyển theo mặt phẳng X/Y hay X/Z, xoay quanh trục Z hay Y), minh
+họa cách một `Behaviour` không nên giả định trước hình dạng component của
+entity mình gắn vào. `GameScripts/Source/CollisionLogBehaviour.cpp` là ví dụ
+tương tự cho vòng đời va chạm/trigger (mục dưới) -- gắn vào một entity có
+Rigidbody + collider bất kỳ rồi xem panel Console khi nó chạm vào thứ khác.
 
-## 7. Scripting API
+## 7. Vòng đời (Lifecycle)
 
-Tất cả API dưới đây đều được gọi bên trong `OnCreate`/`OnUpdate` (hoặc bất kỳ
-method nào) của một lớp con của `Behaviour`.
+- `OnCreate()` -- chạy một lần khi Play bắt đầu (giống `Awake` của Unity, chạy
+  kể cả khi entity bắt đầu ở trạng thái inactive).
+- `OnEnable()` / `OnDisable()` -- chạy mỗi khi `Scene::IsEffectivelyActive` của
+  entity này đổi trạng thái (do chính nó gọi `SetActive`, hoặc do cha nó đổi) --
+  có thể chạy nhiều lần trong một lần Play. `OnUpdate` đơn giản là không được
+  gọi trong lúc inactive.
+- `OnUpdate(float deltaTime)` -- mỗi frame, khi đang active.
+- `OnCollisionEnter(Entity other)` / `OnCollisionExit(Entity other)` -- chạy
+  cho CẢ HAI phía của một cặp đang chạm nhau (quy ước của Unity) khi không bên
+  nào là trigger. Hoạt động y hệt dù `other` là entity 2D hay 3D.
+- `OnTriggerEnter(Entity other)` / `OnTriggerExit(Entity other)` -- giống trên,
+  nhưng cho cặp có ít nhất một bên bật `IsTrigger`.
+- `OnDestroy()` -- chạy một lần lúc Stop (một instance vẫn đang enable sẽ được
+  gọi thêm một `OnDisable()` cuối ngay trước đó).
+
+## 8. Scripting API
+
+Tất cả API dưới đây đều được gọi bên trong bất kỳ method vòng đời nào (mục 7)
+của một lớp con của `Behaviour`.
 
 **Entity và component** -- `GetComponent<T>()` (add/has/remove không được expose
 trực tiếp trên `Behaviour`; hãy truy cập `GetEntity()` để dùng các thao tác đó:
@@ -211,6 +259,38 @@ if (GetPointerDown()) {
 }
 ```
 
+**Trạng thái Active** -- tương đương `GameObject.SetActive`/`activeSelf` của Unity:
+```cpp
+SetActive(false); // tắt entity này -- OnDisable() sẽ chạy, OnUpdate() ngừng chạy
+bool active = IsActive();
+```
+Bật/tắt lúc đang Play KHÔNG tự thêm/xóa physics body của Rigidbody -- chỉ ảnh
+hưởng việc body có tồn tại hay không tại thời điểm Play bắt đầu.
+
+**Log** -- tương đương `Debug.Log` của Unity, hiện ra ngay trong panel Console
+của Editor:
+```cpp
+LogInfo("Player đã chạm đất");
+LogWarn("Hết đạn");
+LogError("Không tìm thấy save file");
+```
+
+**Chuyển scene** -- tương đương `SceneManager.LoadScene` của Unity:
+```cpp
+LoadScene("Scenes/Level2.json"); // đường dẫn tương đối so với Assets/ của project,
+                                  // tạo bằng File -> Save Scene As... (mục 2)
+```
+Đây là yêu cầu hoãn lại (deferred) -- việc đổi scene thật sự diễn ra giữa hai
+frame, không phải ngay khi hàm này return, vì một script không thể an toàn phá
+hủy chính cái Scene mà lời gọi của nó đang chạy bên trong.
+
+**Prefab** -- tương đương `Object.Instantiate` của Unity:
+```cpp
+Duality::Entity spawned = Instantiate("<prefab-asset-guid>");
+```
+Tạo một bản sao mới của asset `.prefab.json` (xem "Create Prefab from
+Selection" ở mục 2) làm entity gốc (root) mới trong scene của chính script này.
+
 **Âm thanh** -- phát asset WAV bằng GUID của Content Browser (kéo asset vào một
 field `AssetRef` trước để xem GUID được resolve, hoặc tham chiếu đến GUID của một
 field `AssetRef` hiện có):
@@ -241,10 +321,7 @@ Duality::DateTime now = Duality::DateTime::Now(); // UTC
 // now.Year, .Month, .Day, .Hour, .Minute, .Second, .DayOfWeek (0=Sunday)
 ```
 
-**Chưa dùng được từ script** (xem `ROADMAP.md`): `Duality::Log` -- hiện chưa có
-tương đương `Debug.Log` để gửi log từ `GameScripts` đến panel Console.
-
-## 8. Chạy thử trên phần cứng thật
+## 9. Chạy thử trên phần cứng thật
 
 ```
 build-3ds.bat    REM clean configure+build -> build-3ds\DualityPlayer\DualityPlayer.3dsx / .cia
@@ -259,9 +336,81 @@ báo CMake), chứ không tự tải chúng. Nếu cần output `.cia`, hãy t�
 release chính thức trên GitHub (`3DSGuy/Project_CTR` và
 `carstene1ns/3ds-bannertool`) rồi đặt vào `Tools/` một lần.
 
+## 10. Xây game hoàn chỉnh đầu tiên
+
+Phần này ghép các mảnh đã học ở trên (di chuyển, va chạm, Active, UI, chuyển
+scene) thành một vòng lặp gameplay thật, nhỏ nhưng đầy đủ: nhặt một đồng xu rồi
+chuyển sang màn "Thắng". Dùng luôn scene mẫu có sẵn (`SampleProject/Assets/
+Scene.json`) thay vì tạo asset mới -- entity "ApiShowcase" đã di chuyển được
+bằng WASD/Circle Pad (xem `ApiShowcaseBehaviour.cpp`), đó chính là "player" của
+chúng ta.
+
+1. **Tạo đồng xu.** Hierarchy -> Create Entity, đặt tên "Coin". + Add Component
+   -> Sprite Renderer (chỉnh `Color` sang màu vàng cho dễ nhận), + Add Component
+   -> Box Collider 2D, bật **Is Trigger**. Đặt `Transform -> Translation` gần
+   vị trí bắt đầu của "ApiShowcase" (ví dụ lệch sang phải khoảng 60-80 unit) để
+   dễ đi tới.
+
+2. **Viết script nhặt coin**, `GameScripts/Include/CollectCoinBehaviour.h`:
+   ```cpp
+   #pragma once
+   #include "DualityEngine/Scene/Behaviour.h"
+
+   class CollectCoinBehaviour : public Duality::Behaviour {
+   public:
+       void OnTriggerEnter(Duality::Entity other) override;
+   };
+   ```
+   và `GameScripts/Source/CollectCoinBehaviour.cpp`:
+   ```cpp
+   #include "CollectCoinBehaviour.h"
+   #include "ScriptRegistration.h"
+
+   void CollectCoinBehaviour::OnTriggerEnter(Duality::Entity other) {
+       LogInfo("Đã nhặt coin!");
+       SetActive(false);              // ẩn đồng xu đi
+       LoadScene("Scenes/Win.json");  // chuyển sang màn thắng (tạo ở bước 4)
+   }
+
+   REGISTER_BEHAVIOUR(CollectCoinBehaviour)
+   ```
+   Thêm cả hai file vào `GameScripts/CMakeLists.txt`, gán `CollectCoinBehaviour`
+   vào field **Class** của một `Behaviour` component trên entity "Coin", bấm
+   **Reload Scripts**.
+
+3. **Thử nhặt coin.** Bấm Play, dùng WASD/mũi tên di chuyển "ApiShowcase" (thực
+   ra `ApiShowcaseBehaviour` di chuyển theo input, và pointer nếu bạn giữ chuột/
+   chạm) vào vị trí đồng xu. Panel Console sẽ hiện dòng "Đã nhặt coin!" ngay khi
+   hai collider chạm nhau. Vì lúc này chưa có `Scenes/Win.json`, `LoadScene` vẫn
+   sẽ thực hiện việc chuyển scene (không crash) nhưng nạp vào một scene RỖNG
+   (Deserialize thất bại chỉ ghi lỗi vào Console, không phục hồi lại scene cũ) --
+   bấm Stop rồi **File -> Load Scene** để lấy lại scene gameplay ban đầu trước
+   khi làm tiếp bước 4.
+
+4. **Tạo màn "Thắng".** Bấm Stop. Xóa (hoặc tạm giấu) các entity gameplay không
+   cần cho màn thắng nếu muốn scene này đơn giản, thêm một entity Sprite Renderer
+   màu khác để biết rõ đang ở scene mới (ví dụ đặt tên "WinScreen"). **File ->
+   Save Scene As...**, lưu vào `SampleProject/Assets/Scenes/Win.json` (tạo thư
+   mục `Scenes` ngay trong hộp thoại nếu chưa có). Scene đang mở KHÔNG đổi sau
+   bước này -- **File -> Load Scene** để quay lại scene gameplay ban đầu trước
+   khi tiếp tục.
+
+5. **Chạy lại từ đầu.** Bấm Play, đi tới đồng xu -- lần này `LoadScene
+   ("Scenes/Win.json")` sẽ thật sự chuyển Editor sang màn "Thắng" ngay giữa lúc
+   đang Play (không cần bấm Stop), đúng như một scene transition thật trong
+   game. Cùng file `Scene.json`/`Win.json` này chạy y hệt trên `DualityPlayerDesktop`
+   (bấm `run-desktop-player.bat`) và trên 3DS thật (miễn `Scenes/Win.json` nằm
+   trong `Assets/` để được đóng gói vào romfs -- xem mục 9).
+
+Từ đây, những hướng mở rộng tự nhiên: nhiều đồng xu (đếm số lượng bằng một
+field tĩnh hoặc một entity "GameManager" riêng), một UI Text hiện điểm số (UI
+hiện chưa có widget Text, xem `ROADMAP.md`), hoặc dùng `OnCollisionEnter` thay
+vì `OnTriggerEnter` cho một cơ chế "va vào kẻ địch thì thua".
+
 ## Tiếp theo nên xem gì
 
 - `README.md` -- kiến trúc, cấu trúc repository và danh sách đầy đủ các giới hạn
-  đã biết.
-- `ROADMAP.md` -- mọi thứ đang được lên kế hoạch nhưng chưa xây dựng (UI system,
-  prefab, Project Hub và nhiều thứ khác).
+  đã biết, bao gồm cả `Tests/` (bộ test tự động cho logic engine) và CI.
+- `ROADMAP.md` -- mọi thứ đang được lên kế hoạch nhưng chưa xây dựng
+  (ScriptableObject, joints/raycast cho physics, OnCollisionStay/OnTriggerStay,
+  Project Hub và nhiều thứ khác).

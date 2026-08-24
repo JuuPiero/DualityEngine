@@ -39,4 +39,8 @@ else()
     # OpenGLRenderer2D/3D instead of Citro2D/3DRenderer, no ImGui/Editor UI at all), so a scene
     # built in the Editor can also run as a real .exe on desktop, not just on-device.
     add_subdirectory(DualityPlayerDesktop)
+    # Automated engine-logic test suite (ECS/Active, 2D/3D physics, collision/trigger
+    # events) -- desktop-only, same reasoning as the Editor itself, and what CI builds
+    # and runs (see .github/workflows/ci.yml).
+    add_subdirectory(Tests)
 endif()

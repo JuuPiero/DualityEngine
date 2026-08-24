@@ -1,6 +1,7 @@
 #include "DualityEditor/Panels/ContentBrowserPanel.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 
 #include <imgui.h>
@@ -10,6 +11,16 @@
 #include "DualityEngine/Core/Log.h"
 
 namespace Duality {
+
+    // Case-insensitive substring match, same small local-helper shape used by
+    // ConsolePanel.cpp/HierarchyPanel.cpp's own search boxes.
+    static bool ContainsCaseInsensitive(const std::string& haystack, const std::string& needle) {
+        if (needle.empty())
+            return true;
+        auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+            [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
+        return it != haystack.end();
+    }
 
     static void DrawFolderIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max) {
         const ImU32 color = IM_COL32(230, 190, 80, 255);
@@ -69,6 +80,9 @@ namespace Duality {
             ImGui::SameLine();
         }
         ImGui::TextDisabled("%s", m_CurrentDirectory.string().c_str());
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(200.0f);
+        ImGui::InputTextWithHint("##ContentBrowserSearch", "Search...", m_SearchBuffer, sizeof(m_SearchBuffer));
         ImGui::Separator();
 
         if (!std::filesystem::exists(m_CurrentDirectory)) {
@@ -91,6 +105,11 @@ namespace Duality {
             // their own right -- Unity/Unreal hide them from their asset
             // views the same way.
             if (!isDirectory && path.extension() == ".meta")
+                continue;
+
+            // Folders stay visible regardless of the search box so navigation always
+            // works -- only files are filtered by name.
+            if (!isDirectory && m_SearchBuffer[0] != '\0' && !ContainsCaseInsensitive(path.filename().string(), m_SearchBuffer))
                 continue;
 
             std::string guid;

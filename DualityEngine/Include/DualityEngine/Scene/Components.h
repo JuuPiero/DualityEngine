@@ -11,6 +11,7 @@
 #include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Renderer/UIAnchor.h"
+#include "DualityEngine/Scene/ActiveComponent.h"
 #include "DualityEngine/Scene/Behaviour.h"
 
 namespace Duality {
@@ -29,6 +30,10 @@ namespace Duality {
     struct TagComponent {
         std::string Tag = "Untagged";
     };
+
+    // ActiveComponent (Unity's GameObject.activeSelf, also mandatory -- added by
+    // Scene::CreateEntity right alongside Name/Tag/Transform/Hierarchy) lives in its own
+    // Scene/ActiveComponent.h, not here -- see that header's own comment for why.
 
     // Position/rotation/scale is kept as full 3D vectors even though only 2D
     // rendering exists so far -- the architecture is 2D-first, not 2D-only.
@@ -135,6 +140,16 @@ namespace Duality {
         std::string ClassName;
         Behaviour* Instance = nullptr;
         void (*Destroy)(Behaviour*) = nullptr;
+
+        // Runtime-only (like RuntimeBody below), not reflected -- lets Scene::OnRuntimeUpdate
+        // edge-detect an ActiveComponent transition to fire OnEnable/OnDisable exactly once per
+        // flip instead of every frame while active/inactive. Starts false (not matching
+        // ActiveComponent's own true default) so the very first OnRuntimeUpdate tick after
+        // OnCreate() correctly sees "became active" as a transition and fires one OnEnable,
+        // for an entity that starts active -- matching Unity's Awake-then-OnEnable ordering.
+        // An entity that starts inactive never transitions away from false, so it correctly
+        // never gets an OnEnable/OnDisable pair at all until something actually activates it.
+        bool WasActiveLastFrame = false;
     };
 
     // Box2D-backed 2D physics (classic v2.4 API, b2World owned by Scene).
@@ -155,6 +170,11 @@ namespace Duality {
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
+        // Box2D's own native sensor flag (fixtureDef.isSensor) -- a trigger still generates
+        // Begin/EndContact (so OnTriggerEnter/Exit fire) but never physically resolves the
+        // overlap. Unity's own rule: a contact fires as a TRIGGER callback if EITHER side is
+        // a trigger, and as a COLLISION callback only when NEITHER side is.
+        bool IsTrigger = false;
         void* RuntimeFixture = nullptr;
     };
 
@@ -164,6 +184,7 @@ namespace Duality {
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
+        bool IsTrigger = false; // see BoxCollider2DComponent::IsTrigger
         void* RuntimeFixture = nullptr;
     };
 
@@ -193,6 +214,12 @@ namespace Duality {
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
+        // Bullet has no native per-shape sensor concept the way Box2D does -- a trigger body
+        // gets btCollisionObject::CF_NO_CONTACT_RESPONSE set at creation instead (contact
+        // manifolds still generate, so the manual enter/exit diffing in Scene.cpp still
+        // detects it, but the physical push-apart response is suppressed). Same
+        // "either side is a trigger -> trigger callback" rule as the 2D colliders.
+        bool IsTrigger = false;
     };
 
     struct SphereCollider3DComponent {
@@ -201,6 +228,7 @@ namespace Duality {
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
+        bool IsTrigger = false; // see BoxCollider3DComponent::IsTrigger
     };
 
     // Unity/Cocos-style parent/child tree. Not registered with TypeRegistry -- like

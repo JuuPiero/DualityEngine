@@ -19,6 +19,7 @@
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 
 namespace Duality {
@@ -232,6 +233,21 @@ namespace Duality {
         SceneSerializer(m_Scene).Deserialize(m_ScenePath);
     }
 
+    // Writes the CURRENT scene's content to a new file the user picks (defaulting to the
+    // project's own Assets folder), WITHOUT changing m_ScenePath -- unlike Unity's own
+    // "Save Scene As...", the newly-written file does not become "the" active scene; this
+    // exists specifically so a project can accumulate additional scene files (e.g.
+    // "Level2.json") for Behaviour::LoadScene to target, while "Save Scene"/"Load Scene"
+    // keep operating on the original scene exactly as before. A snapshot/export, not a
+    // scene switch.
+    void Application::SaveSceneAsFromDialog() {
+        std::string assetsDir = m_Project->GetAssetsDirectory();
+        std::string path = FileDialogs::SaveFile(m_Window.GetNativeWindow(), "Duality Scene (*.json)\0*.json\0", assetsDir.c_str());
+        if (path.empty())
+            return;
+        SceneSerializer(m_Scene).Serialize(path);
+    }
+
     void Application::OnEvent(Event& e) {
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent&) {
@@ -270,6 +286,24 @@ namespace Duality {
                 // editing the Scene view.
                 UpdateUIInteractions(m_Scene);
                 m_Scene.OnRuntimeUpdate(deltaTime);
+
+                // A script-requested SceneManager.LoadScene is a deferred request (see
+                // SceneManager.h's own comment) -- safe to act on now, right after
+                // OnRuntimeUpdate returns. Stays in Play mode (m_IsPlaying untouched) --
+                // this is a scene-to-scene transition during Play, not a Stop. m_Selected
+                // is reset since the old Scene's entity handles don't survive the swap,
+                // same stale-handle precedent as OpenProjectFromDialog above.
+                if (SceneManager::HasPendingLoad()) {
+                    std::string pendingPath = SceneManager::ConsumePendingLoad();
+                    m_Scene.OnRuntimeStop();
+                    m_Renderer.UnloadAllTextures();
+                    m_Renderer3D.UnloadAllTextures();
+                    m_Renderer3D.UnloadAllMeshes();
+                    m_Scene = Scene();
+                    m_Selected = Entity();
+                    SceneSerializer(m_Scene).Deserialize(m_Project->GetAssetsDirectory() + "/" + pendingPath);
+                    m_Scene.OnRuntimeStart();
+                }
             }
 
             m_Renderer.BeginFrame();
@@ -340,7 +374,7 @@ namespace Duality {
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
                 m_Fps, m_GameDrawCallCount,
                 m_ScenePath, m_BuildDirectory, m_RepoRoot,
-                m_RequestOpenProject
+                m_RequestOpenProject, m_RequestSaveSceneAs
             };
 
             m_MenuBarPanel.OnImGuiRender(ctx);
@@ -354,6 +388,10 @@ namespace Duality {
             if (m_RequestOpenProject) {
                 m_RequestOpenProject = false;
                 OpenProjectFromDialog();
+            }
+            if (m_RequestSaveSceneAs) {
+                m_RequestSaveSceneAs = false;
+                SaveSceneAsFromDialog();
             }
 
             m_ScenePanel.OnImGuiRender(ctx);

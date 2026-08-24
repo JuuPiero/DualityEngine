@@ -18,6 +18,7 @@ namespace Duality {
         bool m_ShowWarn = true;
         bool m_ShowError = true;
         bool m_AutoScroll = true;
+        char m_SearchBuffer[128] = "";
     };
 
 }

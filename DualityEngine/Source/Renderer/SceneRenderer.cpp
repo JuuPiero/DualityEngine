@@ -104,6 +104,11 @@ namespace Duality {
             for (auto handle : view) {
                 if (!ShouldRenderOnScreen(scene, handle, screen))
                     continue;
+                // Only the real game/Game-panel/on-device render path respects Active --
+                // ScenePanel.cpp's own Editor Scene-view panes deliberately keep showing
+                // inactive entities unfiltered, matching Unity's Scene view vs. Game view.
+                if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
+                    continue;
                 TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
                 auto& sprite = view.get<SpriteRendererComponent>(handle);
 
@@ -147,6 +152,10 @@ namespace Duality {
         auto view = scene.Registry().view<TransformComponent, MeshRendererComponent>();
         for (auto handle : view) {
             if (!ShouldRenderOnScreen(scene, handle, screen))
+                continue;
+            // See RenderScreen's own sprite loop comment -- Active is only respected here,
+            // not in ScenePanel.cpp's Editor Scene-view panes.
+            if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
             TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
             auto& mesh = view.get<MeshRendererComponent>(handle);
