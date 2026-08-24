@@ -63,6 +63,26 @@ namespace Duality {
             MakeField("Screen", &ScreenGroupComponent::Screen),
         });
 
+        TypeRegistry::Register<UIRectComponent>("UI Rect", false, {
+            MakeField("Screen", &UIRectComponent::Screen),
+            MakeField("Anchor", &UIRectComponent::Anchor),
+            MakeField("Offset", &UIRectComponent::Offset),
+            MakeField("Size", &UIRectComponent::Size),
+        });
+
+        TypeRegistry::Register<UIImageComponent>("UI Image", false, {
+            MakeColorField("Color", &UIImageComponent::Color),
+            MakeField("Texture", &UIImageComponent::Texture),
+        });
+
+        // IsHovered/IsPressed/WasClicked deliberately not registered -- runtime-only state,
+        // same convention as SpriteFlipbookComponent::CurrentFrame not being an authored field.
+        TypeRegistry::Register<UIButtonComponent>("UI Button", false, {
+            MakeColorField("Normal Color", &UIButtonComponent::NormalColor),
+            MakeColorField("Hover Color", &UIButtonComponent::HoverColor),
+            MakeColorField("Pressed Color", &UIButtonComponent::PressedColor),
+        });
+
         TypeRegistry::Register<Rigidbody2DComponent>("Rigidbody 2D", false, {
             MakeField("Is Static", &Rigidbody2DComponent::IsStatic),
             MakeField("Fixed Rotation", &Rigidbody2DComponent::FixedRotation),
@@ -82,6 +102,26 @@ namespace Duality {
             MakeField("Density", &CircleCollider2DComponent::Density),
             MakeField("Friction", &CircleCollider2DComponent::Friction),
             MakeField("Restitution", &CircleCollider2DComponent::Restitution),
+        });
+
+        TypeRegistry::Register<Rigidbody3DComponent>("Rigidbody 3D", false, {
+            MakeField("Is Static", &Rigidbody3DComponent::IsStatic),
+        });
+
+        TypeRegistry::Register<BoxCollider3DComponent>("Box Collider 3D", false, {
+            MakeField("Offset", &BoxCollider3DComponent::Offset),
+            MakeField("Size", &BoxCollider3DComponent::Size),
+            MakeField("Density", &BoxCollider3DComponent::Density),
+            MakeField("Friction", &BoxCollider3DComponent::Friction),
+            MakeField("Restitution", &BoxCollider3DComponent::Restitution),
+        });
+
+        TypeRegistry::Register<SphereCollider3DComponent>("Sphere Collider 3D", false, {
+            MakeField("Offset", &SphereCollider3DComponent::Offset),
+            MakeField("Radius", &SphereCollider3DComponent::Radius),
+            MakeField("Density", &SphereCollider3DComponent::Density),
+            MakeField("Friction", &SphereCollider3DComponent::Friction),
+            MakeField("Restitution", &SphereCollider3DComponent::Restitution),
         });
 
         // Per-script public fields (Inspector-editable, like Unity's

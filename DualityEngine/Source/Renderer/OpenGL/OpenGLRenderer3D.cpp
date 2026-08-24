@@ -148,14 +148,32 @@ namespace Duality {
         m_ShaderProgram = 0;
     }
 
-    void OpenGLRenderer3D::BeginScene(Screen /*screen*/, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor) {
+    void OpenGLRenderer3D::BeginScene(Screen /*screen*/, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) {
         m_DrawCallCount = 0;
 
         glEnable(GL_DEPTH_TEST);
-        glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        // Color is only cleared when nothing else will (see IRenderer3D.h's own doc comment on
+        // this parameter) -- but the depth buffer always needs a fresh clear regardless, for
+        // this renderer's own meshes to depth-test correctly against each other;
+        // OpenGLRenderer2D's sprite pass never touches depth.
+        if (clear) {
+            glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        } else {
+            glClear(GL_DEPTH_BUFFER_BIT);
+        }
 
-        glm::mat4 projection = glm::perspective(glm::radians(fovDegrees), aspectRatio, nearPlane, farPlane);
+        glm::mat4 projectionMtx;
+        if (projection == ProjectionType::Perspective) {
+            projectionMtx = glm::perspective(glm::radians(fovDegrees), aspectRatio, nearPlane, farPlane);
+        } else {
+            // top/bottom swapped from the "normal" Y-up convention -- matches this engine's
+            // pixel-space Y-down convention (see OpenGLRenderer2D's own glOrtho top/bottom
+            // swap), so a mesh and a sprite at the same world Y land on the same screen row
+            // when composited together.
+            float halfWidth = orthoHalfHeight * aspectRatio;
+            projectionMtx = glm::ortho(-halfWidth, halfWidth, orthoHalfHeight, -orthoHalfHeight, nearPlane, farPlane);
+        }
 
         // View = inverse of the camera's own world transform (position + rotation, no scale)
         // -- built the exact same T*Rz*Ry*Rx*S order DrawMesh builds a mesh's model matrix
@@ -163,7 +181,7 @@ namespace Duality {
         glm::mat4 cameraWorld = ComposeWorldMtx(cameraPosition, cameraRotationDegrees, glm::vec3(1.0f));
         glm::mat4 view = glm::inverse(cameraWorld);
 
-        m_ViewProjection = projection * view;
+        m_ViewProjection = projectionMtx * view;
     }
 
     void OpenGLRenderer3D::EndScene() {

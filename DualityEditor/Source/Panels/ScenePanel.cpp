@@ -8,6 +8,8 @@
 
 #include <imgui.h>
 
+#include <glm/gtc/quaternion.hpp>
+
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/SceneGizmo.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
@@ -59,6 +61,34 @@ namespace Duality {
                 std::sin(pitch),
                 -std::cos(pitch) * std::cos(yaw)
             });
+        }
+
+        // Builds a quaternion matching the SAME composition order OrbitForward/ComposeWorldMtx
+        // use (M = T*Rz*Ry*Rx) -- used only to seed SceneViewCamera3D::Rotation from a
+        // CameraComponent's plain Euler Rotation (roll is always 0 for that seed, so this
+        // reduces to qy*qx, exactly reproducing OrbitForward(pitch, yaw)).
+        glm::quat EulerDegreesToQuat(const glm::vec3& rotationDegrees) {
+            glm::quat qx = glm::angleAxis(glm::radians(rotationDegrees.x), glm::vec3(1.0f, 0.0f, 0.0f));
+            glm::quat qy = glm::angleAxis(glm::radians(rotationDegrees.y), glm::vec3(0.0f, 1.0f, 0.0f));
+            glm::quat qz = glm::angleAxis(glm::radians(rotationDegrees.z), glm::vec3(0.0f, 0.0f, 1.0f));
+            return glm::normalize(qz * qy * qx);
+        }
+
+        // Inverse of EulerDegreesToQuat -- classic ZYX Tait-Bryan extraction, needed only to
+        // feed SceneViewCamera3D::Rotation into IRenderer3D::BeginScene's Euler-degrees
+        // parameter (that API stays Euler-based since it's shared with real CameraComponent
+        // rendering, authored via plain Euler fields in the Properties panel). Degenerates at
+        // pitch near +-90 the same way any Euler extraction does (Rotation.x/y/z can jump
+        // discontinuously right at a pole crossing even though the camera's actual orientation,
+        // and therefore the rendered view, stays perfectly smooth) -- this is exactly why the
+        // orbit camera itself is stored as a quaternion and never round-tripped through Euler
+        // except at this one renderer-API boundary.
+        glm::vec3 QuatToEulerDegrees(const glm::quat& q) {
+            glm::mat3 r = glm::mat3_cast(q);
+            float y = std::asin(std::clamp(-r[0][2], -1.0f, 1.0f));
+            float x = std::atan2(r[1][2], r[2][2]);
+            float z = std::atan2(r[0][1], r[0][0]);
+            return glm::degrees(glm::vec3(x, y, z));
         }
 
         // Bounding-sphere radius for a unit-sized primitive (see PrimitiveMeshes.cpp -- Cube
@@ -127,6 +157,49 @@ namespace Duality {
         constexpr float Gizmo3DHitBand = 8.0f;
         constexpr float Gizmo3DScaleHandleHalfSize = 5.0f;
         constexpr float Gizmo3DCenterRadius = 6.0f;
+
+        // Unity/Blender-style frustum wireframe for a camera entity, screen-space-projected via
+        // `proj` -- shows at a glance where it's looking and its Fov/Zoom, not just its
+        // position (the plain sphere marker alone). Visual only, not hit-tested (the sphere
+        // marker still handles picking). `camForward/Right/Up` are the CAMERA ENTITY's own
+        // basis (ignoring roll -- see caller's own comment), unrelated to the pane's own orbit
+        // camera basis vectors of the same name.
+        void DrawCameraFrustum(const Projector3D& proj, const glm::vec3& camPos, const glm::vec3& camForward, const glm::vec3& camRight, const glm::vec3& camUp, ProjectionType projectionType, float fovDegrees, float orthoHalfHeight, float aspect, float nearPlane, float farPlane, ImU32 color) {
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+            // FarPlane can be huge (hundreds/thousands of units) -- clamped to something that
+            // reads clearly at typical scene scale instead of drawing lines off into nothing.
+            float visDistance = std::min(farPlane, 300.0f);
+
+            auto cornerAt = [&](float distance, float sx, float sy) {
+                float halfH = (projectionType == ProjectionType::Perspective)
+                    ? distance * std::tan(glm::radians(fovDegrees) * 0.5f)
+                    : orthoHalfHeight;
+                float halfW = halfH * aspect;
+                return camPos + camForward * distance + camRight * (halfW * sx) + camUp * (halfH * sy);
+            };
+
+            glm::vec3 nearCorners[4] = { cornerAt(nearPlane, -1, -1), cornerAt(nearPlane, 1, -1), cornerAt(nearPlane, 1, 1), cornerAt(nearPlane, -1, 1) };
+            glm::vec3 farCorners[4] = { cornerAt(visDistance, -1, -1), cornerAt(visDistance, 1, -1), cornerAt(visDistance, 1, 1), cornerAt(visDistance, -1, 1) };
+
+            auto drawLine = [&](const glm::vec3& a, const glm::vec3& b) {
+                ImVec2 sa, sb;
+                if (proj.Project(a, sa) && proj.Project(b, sb))
+                    drawList->AddLine(sa, sb, color, 1.5f);
+            };
+
+            for (int i = 0; i < 4; i++) {
+                drawLine(nearCorners[i], nearCorners[(i + 1) % 4]);
+                drawLine(farCorners[i], farCorners[(i + 1) % 4]);
+                drawLine(nearCorners[i], farCorners[i]);
+            }
+            // Perspective only -- an orthographic frustum is a parallel box with no real apex
+            // to converge to (would misleadingly look like a pyramid otherwise).
+            if (projectionType == ProjectionType::Perspective) {
+                for (int i = 0; i < 4; i++)
+                    drawLine(camPos, nearCorners[i]);
+            }
+        }
 
         // 3D analog of DrawAndHitTestGizmo2D (SceneGizmo.cpp) -- lives here rather than there
         // since it needs this pane's own camera projection (Projector3D), which the 2D gizmo
@@ -224,14 +297,13 @@ namespace Duality {
                 Entity primaryCamera = ctx.SceneRef.GetPrimaryCamera(screen);
                 if (primaryCamera && primaryCamera.GetComponent<CameraComponent>().Projection == ProjectionType::Perspective) {
                     TransformComponent transform = ctx.SceneRef.GetWorldTransform(primaryCamera);
-                    camera3D.Pitch = transform.Rotation.x;
-                    camera3D.Yaw = transform.Rotation.y;
+                    camera3D.Rotation = EulerDegreesToQuat({ transform.Rotation.x, transform.Rotation.y, 0.0f });
                     camera3D.Distance = 300.0f;
                     // Places this orbit camera at the exact same position/orientation as the
                     // real camera: Target is a point straight ahead of it, so
-                    // Target - forward*Distance recovers transform.Translation exactly (see
-                    // OrbitForward's own comment for the composition this relies on).
-                    camera3D.Target = transform.Translation + OrbitForward(camera3D.Pitch, camera3D.Yaw) * camera3D.Distance;
+                    // Target - forward*Distance recovers transform.Translation exactly.
+                    glm::vec3 seedForward = camera3D.Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+                    camera3D.Target = transform.Translation + seedForward * camera3D.Distance;
                 }
                 camera3D.Seeded = true;
             }
@@ -241,15 +313,20 @@ namespace Duality {
             int viewportH = std::max(1, static_cast<int>(avail.y));
             framebuffer.Resize(static_cast<uint32_t>(viewportW), static_cast<uint32_t>(viewportH));
 
-            glm::vec3 forward = OrbitForward(camera3D.Pitch, camera3D.Yaw);
+            // Derived directly from the quaternion (never via cross(forward, worldUp)) so
+            // right/up stay well-defined at any orientation, including forward == worldUp --
+            // see SceneViewCamera3D.h's own comment on why this replaced Pitch/Yaw.
+            glm::vec3 forward = camera3D.Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+            glm::vec3 right = camera3D.Rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+            glm::vec3 up = camera3D.Rotation * glm::vec3(0.0f, 1.0f, 0.0f);
             glm::vec3 cameraPos = camera3D.Target - forward * camera3D.Distance;
-            glm::vec3 cameraRotation{ camera3D.Pitch, camera3D.Yaw, 0.0f };
+            glm::vec3 cameraRotation = QuatToEulerDegrees(camera3D.Rotation);
             float aspect = static_cast<float>(viewportW) / static_cast<float>(viewportH);
             constexpr float FovDegrees = 60.0f, NearPlane = 0.1f, FarPlane = 5000.0f;
 
             framebuffer.Bind();
             glm::vec4 clearColor = (screen == Screen::Top) ? glm::vec4{ 0.15f, 0.15f, 0.18f, 1.0f } : glm::vec4{ 0.18f, 0.15f, 0.15f, 1.0f };
-            renderer3D.BeginScene(screen, cameraPos, cameraRotation, FovDegrees, aspect, NearPlane, FarPlane, clearColor);
+            renderer3D.BeginScene(screen, ProjectionType::Perspective, cameraPos, cameraRotation, FovDegrees, 0.0f, aspect, NearPlane, FarPlane, clearColor, true);
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, MeshRendererComponent>()) {
                 if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                     continue;
@@ -260,6 +337,39 @@ namespace Duality {
                 uint32_t meshHandle = ResolveMeshGeometry(renderer3D, mesh.Mesh);
                 renderer3D.DrawMesh(mesh.Primitive, meshHandle, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
             }
+            // Sprites always visible here too now, drawn as flat upright quads (Plane rotated
+            // 90 degrees around X, so its XZ-facing surface faces the camera instead of lying
+            // flat) at Z=0 -- matches the real game's own "camera shows both 2D and 3D content"
+            // convention (see SceneRenderer.cpp's RenderScreen), just via a screen-space-quad
+            // stand-in since IRenderer3D has no dedicated 2D-quad-in-3D-space primitive. Real
+            // depth-testing against meshes falls out for free (both go through the same
+            // renderer/depth buffer here), unlike the fixed mesh-then-sprite draw order the
+            // real game and the 2D pane below have to use instead (two separate renderers,
+            // no shared depth buffer).
+            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
+                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                    continue;
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
+                auto& sprite = ctx.SceneRef.Registry().get<SpriteRendererComponent>(handle);
+                // Resolved via renderer3D's own texture cache, not ctx.Renderer's -- keeps this
+                // draw call self-contained to the renderer it's actually issued through (a
+                // harmless double-allocation if the same file is also drawn by a real sprite
+                // elsewhere, same tolerance as Citro3DRenderer/Citro2DRenderer's own separate
+                // texture caches).
+                uint32_t textureId = ResolveMeshTexture(renderer3D, GetActiveSpriteTexture(ctx.SceneRef, handle));
+                renderer3D.DrawMesh(MeshPrimitive::Plane, 0,
+                    { transform.Translation.x, transform.Translation.y, 0.0f },
+                    { 90.0f, 0.0f, transform.Rotation.z },
+                    { sprite.Size.x, 1.0f, sprite.Size.y },
+                    sprite.Color, textureId);
+            }
+            // Cameras have no mesh of their own -- shown via the frustum wireframe overlay
+            // below instead of a solid mesh marker here: this pane's own orbit camera is
+            // deliberately SEEDED to sit at a Perspective camera's exact position (WYSIWYG
+            // initial view, see camera3D.Seeded above), so a solid marker drawn at that same
+            // position would put the viewer inside it, filling the whole view with the
+            // marker's own color -- confirmed as a real bug before this fix. Wireframe lines
+            // don't have that problem (nothing to "be inside of").
             renderer3D.EndScene();
             framebuffer.Unbind();
 
@@ -267,15 +377,36 @@ namespace Duality {
             ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(framebuffer.GetColorAttachment())), avail, ImVec2(0, 1), ImVec2(1, 0));
             bool imageHovered = ImGui::IsItemHovered();
             ImGuiIO& io = ImGui::GetIO();
-            glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
-            glm::vec3 up = glm::cross(right, forward);
 
             Projector3D proj{ cameraPos, forward, right, up, FovDegrees, aspect, imagePos, viewportW, viewportH };
 
+            // Frustum wireframe for every camera entity, showing at a glance where it's
+            // looking and its Fov/Zoom -- same color-by-target-screen convention as the sphere
+            // marker/2D pane's own camera marker. Roll (Rotation.z) is ignored for this gizmo's
+            // own forward/right/up (same simplification OrbitForward already makes) -- it only
+            // rotates the frustum rectangle around its own view axis, not worth the extra
+            // precision for a purely visual aid.
+            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CameraComponent>()) {
+                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                    continue;
+                TransformComponent camTransform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
+                auto& cameraComponent = ctx.SceneRef.Registry().get<CameraComponent>(handle);
+                glm::vec3 camForward = OrbitForward(camTransform.Rotation.x, camTransform.Rotation.y);
+                glm::vec3 camRight = glm::normalize(glm::cross(camForward, glm::vec3(0.0f, 1.0f, 0.0f)));
+                glm::vec3 camUp = glm::cross(camRight, camForward);
+                float realScreenHeight = (screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
+                float camOrthoHalfHeight = (realScreenHeight * 0.5f) / cameraComponent.Zoom; // matches SceneRenderer.cpp's own Zoom convention
+                ImU32 frustumColor = (cameraComponent.Screen == Screen::Top) ? IM_COL32(80, 230, 230, 200) : IM_COL32(240, 150, 50, 200);
+                DrawCameraFrustum(proj, camTransform.Translation, camForward, camRight, camUp, cameraComponent.Projection, cameraComponent.FovDegrees, camOrthoHalfHeight, aspect, cameraComponent.NearPlane, cameraComponent.FarPlane, frustumColor);
+            }
+
             // Draw+hit-test the gizmo every frame (not just while hovered), matching the 2D
             // pane's own reasoning -- a drag already in progress keeps tracking even if the
-            // mouse drifts outside the image mid-drag.
-            bool hasGizmoTarget = ctx.Selected && ctx.Selected.HasComponent<TransformComponent>() && ctx.Selected.HasComponent<MeshRendererComponent>();
+            // mouse drifts outside the image mid-drag. Cameras get a gizmo too, same as any
+            // other 3D object (Unity's own convention) -- picking/moving a camera in the Scene
+            // view shouldn't need a different tool than picking/moving a mesh.
+            bool hasGizmoTarget = ctx.Selected && ctx.Selected.HasComponent<TransformComponent>() &&
+                (ctx.Selected.HasComponent<MeshRendererComponent>() || ctx.Selected.HasComponent<CameraComponent>());
             GizmoAxis hoveredGizmoAxis = GizmoAxis::None;
             ImVec2 gizmoOriginScreen{};
             if (hasGizmoTarget) {
@@ -297,10 +428,18 @@ namespace Duality {
 
                 // Right-drag orbits, matching Unity's Scene view convention (left is reserved
                 // for selection/gizmo-dragging, middle pans, wheel zooms -- all three mouse
-                // buttons doing something distinct, like Unity).
+                // buttons doing something distinct, like Unity). Yaw is applied as a world-space
+                // rotation (pre-multiplied) around the fixed world-up axis, so horizontal drag
+                // always swings the view around the same "up" regardless of current pitch --
+                // pitch is applied as a local-space rotation (post-multiplied) around the
+                // camera's own current right axis. No clamp: unlike the old pitch/yaw + world-up
+                // cross-product scheme, this quaternion composition has no singularity, so the
+                // camera flips smoothly through the poles like Unity/Blender's Scene view
+                // instead of stopping at +-89 degrees.
                 if (ImGui::IsMouseDragging(ImGuiMouseButton_Right, 0.0f)) {
-                    camera3D.Yaw += io.MouseDelta.x * 0.3f;
-                    camera3D.Pitch = std::clamp(camera3D.Pitch - io.MouseDelta.y * 0.3f, -89.0f, 89.0f);
+                    glm::quat yawRot = glm::angleAxis(glm::radians(io.MouseDelta.x * 0.3f), glm::vec3(0.0f, 1.0f, 0.0f));
+                    glm::quat pitchRot = glm::angleAxis(glm::radians(-io.MouseDelta.y * 0.3f), glm::vec3(1.0f, 0.0f, 0.0f));
+                    camera3D.Rotation = glm::normalize(yawRot * camera3D.Rotation * pitchRot);
                 }
 
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -315,6 +454,18 @@ namespace Duality {
 
                         Entity hit;
                         float closestT = std::numeric_limits<float>::max();
+                        auto testSphere = [&](Entity candidate, const glm::vec3& center, float radius) {
+                            glm::vec3 toSphere = center - cameraPos;
+                            float tClosest = glm::dot(toSphere, rayDir);
+                            if (tClosest < 0.0f)
+                                return; // behind the camera
+                            glm::vec3 closestPoint = cameraPos + rayDir * tClosest;
+                            if (glm::distance(closestPoint, center) <= radius && tClosest < closestT) {
+                                closestT = tClosest;
+                                hit = candidate;
+                            }
+                        };
+
                         for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, MeshRendererComponent>()) {
                             if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                                 continue;
@@ -322,17 +473,19 @@ namespace Duality {
                             TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
                             auto& mesh = candidate.GetComponent<MeshRendererComponent>();
                             float maxScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
-                            float radius = MeshBoundingRadius(mesh) * maxScale;
-
-                            glm::vec3 toSphere = transform.Translation - cameraPos;
-                            float tClosest = glm::dot(toSphere, rayDir);
-                            if (tClosest < 0.0f)
-                                continue; // behind the camera
-                            glm::vec3 closestPoint = cameraPos + rayDir * tClosest;
-                            if (glm::distance(closestPoint, transform.Translation) <= radius && tClosest < closestT) {
-                                closestT = tClosest;
-                                hit = candidate;
-                            }
+                            testSphere(candidate, transform.Translation, MeshBoundingRadius(mesh) * maxScale);
+                        }
+                        // Cameras are pickable in this pane too now (Unity's own convention --
+                        // any 3D object, camera included, is selectable/movable from the Scene
+                        // view), using a fixed marker radius since a camera has no mesh/bounds
+                        // of its own to measure.
+                        constexpr float CameraPickRadius = 20.0f;
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CameraComponent>()) {
+                            if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                                continue;
+                            Entity candidate(handle, &ctx.SceneRef);
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            testSphere(candidate, transform.Translation, CameraPickRadius);
                         }
                         if (hit)
                             ctx.Selected = hit;
@@ -436,7 +589,30 @@ namespace Duality {
             // transform) the more the camera pans or zooms from its default.
             framebuffer.Bind();
             glm::vec4 clearColor = (screen == Screen::Top) ? glm::vec4{ 0.15f, 0.15f, 0.18f, 1.0f } : glm::vec4{ 0.18f, 0.15f, 0.15f, 1.0f };
-            ctx.Renderer.BeginCustomView(camera.Position, camera.Zoom, static_cast<float>(viewportW), static_cast<float>(viewportH), clearColor);
+
+            // 3D mesh content always visible here too now, drawn first (and clearing the
+            // screen) via an Orthographic projection built from this SAME 2D camera's own
+            // Position/Zoom -- sprites draw on top of it afterward without re-clearing, matching
+            // the real game's own fixed "mesh behind, sprite in front" draw order (see
+            // SceneRenderer.cpp's RenderScreen) since these are two separate renderers with no
+            // shared depth buffer to sort against each other properly.
+            glm::vec3 orthoCameraPos{ camera.Position.x, camera.Position.y, 1000.0f };
+            float orthoHalfHeight = (static_cast<float>(viewportH) * 0.5f) / camera.Zoom;
+            float orthoAspect = static_cast<float>(viewportW) / static_cast<float>(viewportH);
+            ctx.Renderer3D.BeginScene(screen, ProjectionType::Orthographic, orthoCameraPos, glm::vec3(0.0f), 60.0f, orthoHalfHeight, orthoAspect, 0.1f, 5000.0f, clearColor, true);
+            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, MeshRendererComponent>()) {
+                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                    continue;
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
+                auto& mesh = ctx.SceneRef.Registry().get<MeshRendererComponent>(handle);
+                Material material = ResolveMeshMaterial(mesh.Material);
+                uint32_t textureId = ResolveMeshTexture(ctx.Renderer3D, material.Texture);
+                uint32_t meshHandle = ResolveMeshGeometry(ctx.Renderer3D, mesh.Mesh);
+                ctx.Renderer3D.DrawMesh(mesh.Primitive, meshHandle, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+            }
+            ctx.Renderer3D.EndScene();
+
+            ctx.Renderer.BeginCustomView(camera.Position, camera.Zoom, static_cast<float>(viewportW), static_cast<float>(viewportH), clearColor, false);
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
                 if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                     continue;

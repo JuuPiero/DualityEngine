@@ -92,6 +92,13 @@ namespace Duality {
         // Opaque (actually b2World*) so this header doesn't need to include
         // Box2D -- only non-null between OnRuntimeStart and OnRuntimeStop.
         void* m_PhysicsWorld = nullptr;
+
+        // Opaque (actually a small owning bundle of btDiscreteDynamicsWorld +
+        // its collision configuration/dispatcher/broadphase/solver, see
+        // Physics3DWorld in Scene.cpp) so this header doesn't need to include
+        // Bullet -- only non-null between OnRuntimeStart and OnRuntimeStop,
+        // same lifetime convention as m_PhysicsWorld above.
+        void* m_PhysicsWorld3D = nullptr;
     };
 
     // --- Entity template method definitions -------------------------------

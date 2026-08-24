@@ -31,12 +31,18 @@ namespace Duality {
     void OpenGLRenderer2D::EndFrame() {
     }
 
-    void OpenGLRenderer2D::BeginScene(Screen screen, const glm::vec4& clearColor) {
+    void OpenGLRenderer2D::BeginScene(Screen screen, const glm::vec4& clearColor, bool clear) {
         int width, height;
         ScreenExtents(screen, width, height);
 
-        glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-        glClear(GL_COLOR_BUFFER_BIT);
+        // `clear` is false when OpenGLRenderer3D's own BeginScene for this same screen this
+        // frame already cleared the color buffer (see IRenderer2D.h's own doc comment) --
+        // RenderScreen always draws a mesh pass and a sprite pass into the same screen every
+        // frame now, and exactly one of the two should actually clear.
+        if (clear) {
+            glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
 
         // Pixel-space orthographic projection, (0,0) at the top-left, matching
         // the same pixel-space convention Citro2DRenderer uses on device.
@@ -50,9 +56,11 @@ namespace Duality {
     void OpenGLRenderer2D::EndScene() {
     }
 
-    void OpenGLRenderer2D::BeginCustomView(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, const glm::vec4& clearColor) {
-        glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-        glClear(GL_COLOR_BUFFER_BIT);
+    void OpenGLRenderer2D::BeginCustomView(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, const glm::vec4& clearColor, bool clear) {
+        if (clear) {
+            glClearColor(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
 
         // Same top-left-origin, Y-down convention as BeginScene, just framed
         // around an arbitrary center/zoom instead of a fixed screen size.

@@ -52,10 +52,10 @@ namespace Duality {
         return screen == Screen::Top ? m_TopTarget : m_BottomTarget;
     }
 
-    void Citro2DRenderer::BeginScene(Screen screen, const glm::vec4& clearColor) {
+    void Citro2DRenderer::BeginScene(Screen screen, const glm::vec4& clearColor, bool clear) {
         // C2D_Prepare's own doc comment: "This needs to be done only once in the program if
         // citro2d is the sole user of the GPU." It isn't here -- Citro3DRenderer's draws on the
-        // other screen this same frame (or the previous frame; this GPU state persists across
+        // same screen this same frame (or the previous frame; this GPU state persists across
         // C3D_FrameBegin/End) rebind citro2d's own required shader/pipeline state out from under
         // it, since citro2d itself only calls C2D_Prepare() once (this renderer's own Init()).
         // Confirmed as a real bug on real hardware/Citra: the non-3D screen went solid black
@@ -63,7 +63,12 @@ namespace Duality {
         C2D_Prepare();
 
         C3D_RenderTarget* target = TargetFor(screen);
-        C2D_TargetClear(target, ToC2DColor(clearColor));
+        // `clear` is false when Citro3DRenderer's own BeginScene for this same screen this
+        // frame already cleared it -- RenderScreen always draws a mesh pass and a sprite pass
+        // into the same screen every frame now (see IRenderer3D.h's own comment), and exactly
+        // one of the two should actually clear.
+        if (clear)
+            C2D_TargetClear(target, ToC2DColor(clearColor));
         C2D_SceneBegin(target);
     }
 

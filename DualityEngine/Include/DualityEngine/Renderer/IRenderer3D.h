@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include "DualityEngine/Renderer/MeshPrimitive.h"
+#include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
 
 namespace Duality {
@@ -17,9 +18,11 @@ namespace Duality {
     //   - OpenGLRenderer3D  (desktop, DE_PLATFORM_DESKTOP)
     //   - Citro3DRenderer   (device,  DE_PLATFORM_3DS)
     //
-    // A screen renders through EITHER this interface OR IRenderer2D for a given frame, never
-    // both composited together -- see CameraComponent::Projection and SceneRenderer.cpp's
-    // dispatch. Unlit only: no lighting/material system yet (see ROADMAP.md).
+    // A screen always draws BOTH this interface's mesh content AND IRenderer2D's sprite content
+    // into the same target every frame (see SceneRenderer.cpp's RenderScreen) -- matching
+    // Unity's own convention that a camera's Projection is just a lens property, not a switch
+    // between mutually-exclusive renderers. Unlit only: no lighting/material system yet (see
+    // ROADMAP.md).
     class IRenderer3D {
     public:
         virtual ~IRenderer3D() = default;
@@ -29,8 +32,8 @@ namespace Duality {
 
         // Scene bracket: camera parameters, deliberately NOT a pre-composed view/projection
         // matrix -- each backend builds its own matrices using its native math library (GLM
-        // on desktop, citro3d's Mtx_PerspTilt + Mtx_Inverse of the camera's own composed world
-        // transform on 3DS). GLM is column-major;
+        // on desktop, citro3d's Mtx_PerspTilt/Mtx_OrthoTilt + Mtx_Inverse of the camera's own
+        // composed world transform on 3DS). GLM is column-major;
         // citro3d's C3D_Mtx is row-major with reversed-component FVecs ({w,z,y,x} in memory,
         // confirmed against the real installed header) -- converting a pre-composed matrix
         // between those two layouts byte-for-byte is exactly the kind of subtle, hard-to-
@@ -39,7 +42,16 @@ namespace Duality {
         // matrix is just the inverse of its own world transform) -- the caller
         // (SceneRenderer.cpp) reads these straight from Scene::GetWorldTransform, no matrix
         // math on the caller side either.
-        virtual void BeginScene(Screen screen, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor) = 0;
+        //
+        // `projection` picks Perspective (uses fovDegrees) or Orthographic (uses
+        // orthoHalfHeight, in world units -- the caller computes this from the camera's own
+        // Zoom the exact same way IRenderer2D::DrawQuad's own pixel-space math does,
+        // `screenHeightPixels * 0.5f / zoom`, so a mesh and a sprite at the same world X/Y
+        // land on the same screen pixel when Zoom == 1). `clear` is false when IRenderer2D's
+        // BeginScene for this same screen this frame already cleared it (RenderScreen always
+        // clears exactly once per screen, whichever pass runs first) -- true when nothing else
+        // will clear (e.g. no camera at all for this screen).
+        virtual void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear = true) = 0;
         virtual void EndScene() = 0;
 
         // translation/rotationDegrees/scale, not a pre-composed model matrix -- same

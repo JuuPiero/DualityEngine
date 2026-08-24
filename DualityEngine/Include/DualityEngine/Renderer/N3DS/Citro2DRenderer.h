@@ -23,7 +23,12 @@ namespace Duality {
         void BeginFrame() override;
         void EndFrame() override;
 
-        void BeginScene(Screen screen, const glm::vec4& clearColor) override;
+        // Not redeclaring `= true` here -- a virtual override's own default argument is
+        // resolved by the STATIC type at the call site, not virtual dispatch, so relying on it
+        // through an IRenderer2D& reference would silently use IRenderer2D's own default
+        // instead of this one if they ever diverged. Every real call site in this codebase
+        // passes `clear` explicitly regardless (see SceneRenderer.cpp's RenderScreen).
+        void BeginScene(Screen screen, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
         void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0) override;

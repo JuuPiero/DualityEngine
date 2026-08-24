@@ -33,9 +33,12 @@ namespace Duality {
         virtual void BeginFrame() = 0;
         virtual void EndFrame() = 0;
 
-        // Scene bracket: selects which physical screen subsequent DrawQuad
-        // calls target, and clears it to clearColor.
-        virtual void BeginScene(Screen screen, const glm::vec4& clearColor) = 0;
+        // Scene bracket: selects which physical screen subsequent DrawQuad calls target, and
+        // clears it to clearColor -- unless `clear` is false, meaning IRenderer3D's BeginScene
+        // for this same screen this frame already cleared it (RenderScreen always composites
+        // both a mesh pass and a sprite pass into the same screen, exactly one of which clears
+        // -- see IRenderer3D::BeginScene's own comment).
+        virtual void BeginScene(Screen screen, const glm::vec4& clearColor, bool clear = true) = 0;
         virtual void EndScene() = 0;
 
         // position/size are in the target screen's own pixel space

@@ -33,7 +33,7 @@ namespace Duality {
         // screen. See Citro2DRenderer::GetTarget's own comment for the real bug this fixes.
         void SetScreenTargets(C3D_RenderTarget* top, C3D_RenderTarget* bottom);
 
-        void BeginScene(Screen screen, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor) override;
+        void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
         void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;

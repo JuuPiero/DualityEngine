@@ -17,6 +17,7 @@
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
+#include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 
@@ -148,6 +149,32 @@ namespace Duality {
         ballCollider.Radius = 10.0f;
         ballCollider.Restitution = 0.4f;
 
+        // Same idea as the 2D physics demo above, but with Bullet: a sphere falls onto a
+        // static platform, visible in the Bottom screen's Perspective camera alongside
+        // TestCube3D (offset in X so it doesn't overlap it). Proves Scene's
+        // btDiscreteDynamicsWorld integration end to end -- body creation, gravity,
+        // collision response, and the physics-to-Transform sync-back every frame.
+        Entity physicsGround3D = m_Scene.CreateEntity("PhysicsGround3D");
+        physicsGround3D.GetComponent<TransformComponent>().Translation = { 0.0f, 150.0f, 0.0f };
+        physicsGround3D.GetComponent<TransformComponent>().Scale = { 200.0f, 20.0f, 200.0f };
+        auto& groundMesh3D = physicsGround3D.AddComponent<MeshRendererComponent>();
+        groundMesh3D.Primitive = MeshPrimitive::Cube;
+        groundMesh3D.Material.Guid = materialGuid; // reuses the TestOrange material above, just for a visible surface
+        auto& groundBody3D = physicsGround3D.AddComponent<Rigidbody3DComponent>();
+        groundBody3D.IsStatic = true;
+        auto& groundCollider3D = physicsGround3D.AddComponent<BoxCollider3DComponent>();
+        groundCollider3D.Size = { 100.0f, 10.0f, 100.0f };
+
+        Entity physicsBall3D = m_Scene.CreateEntity("PhysicsBall3D");
+        physicsBall3D.GetComponent<TransformComponent>().Translation = { 80.0f, -40.0f, 0.0f };
+        physicsBall3D.GetComponent<TransformComponent>().Scale = { 40.0f, 40.0f, 40.0f };
+        auto& ballMesh3D = physicsBall3D.AddComponent<MeshRendererComponent>();
+        ballMesh3D.Primitive = MeshPrimitive::Sphere;
+        physicsBall3D.AddComponent<Rigidbody3DComponent>();
+        auto& ballCollider3D = physicsBall3D.AddComponent<SphereCollider3DComponent>();
+        ballCollider3D.Radius = 20.0f;
+        ballCollider3D.Restitution = 0.4f;
+
         // Living documentation for the scripting API surface -- Input,
         // SaveSystem, DateTime, AudioEngine -- all exercised by
         // ApiShowcaseBehaviour (see GameScripts/Source/
@@ -160,6 +187,18 @@ namespace Duality {
         auto& showcaseSprite = apiShowcase.AddComponent<SpriteRendererComponent>();
         showcaseSprite.Size = { 32.0f, 32.0f };
         apiShowcase.AddComponent<BehaviourComponent>().ClassName = "ApiShowcaseBehaviour";
+
+        // Demo Button (UI system) in the Bottom screen's bottom-right corner -- its own
+        // Normal/Hover/Pressed color already shows interaction feedback with no script needed;
+        // try touching/clicking it.
+        Entity testButton = m_Scene.CreateEntity("TestButton");
+        auto& testButtonRect = testButton.AddComponent<UIRectComponent>();
+        testButtonRect.Screen = Screen::Bottom;
+        testButtonRect.Anchor = UIAnchor::BottomRight;
+        testButtonRect.Offset = { 10.0f, 10.0f };
+        testButtonRect.Size = { 80.0f, 32.0f };
+        testButton.AddComponent<UIImageComponent>();
+        testButton.AddComponent<UIButtonComponent>();
 
         m_Selected = topQuad;
     }
@@ -223,8 +262,15 @@ namespace Duality {
 
             AudioEngine::Update();
 
-            if (m_IsPlaying)
+            if (m_IsPlaying) {
+                // Before OnRuntimeUpdate, not after -- a script polling UIButtonComponent::
+                // WasClicked this frame needs this frame's value already computed. Gated on
+                // Play like OnRuntimeUpdate itself -- a button's click state is gameplay state,
+                // same as Unity's own UI only receiving click events at Play time, not while
+                // editing the Scene view.
+                UpdateUIInteractions(m_Scene);
                 m_Scene.OnRuntimeUpdate(deltaTime);
+            }
 
             m_Renderer.BeginFrame();
             m_TopFramebuffer.Bind();

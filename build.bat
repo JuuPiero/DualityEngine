@@ -58,8 +58,9 @@ cmake --build "%BUILD_DIR%"
 if errorlevel 1 goto :error
 
 echo.
-echo Build succeeded: %BUILD_DIR%\DualityEditor\DualityEditor.exe
-echo Run it via run.bat (sets PATH so glfw3.dll/glew32.dll resolve).
+echo Build succeeded:
+echo   %BUILD_DIR%\DualityEditor\DualityEditor.exe          -- run via run.bat
+echo   %BUILD_DIR%\DualityPlayerDesktop\DualityPlayerDesktop.exe -- run via run-desktop-player.bat
 exit /b 0
 
 :error

@@ -100,7 +100,7 @@ namespace Duality {
         return screen == Screen::Top ? m_TopTarget : m_BottomTarget;
     }
 
-    void Citro3DRenderer::BeginScene(Screen screen, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor) {
+    void Citro3DRenderer::BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) {
         // No IRenderer3D::BeginFrame -- there's no shared cross-screen GPU frame concept
         // exposed at this interface level (that's now the caller's job, see
         // Citro2DRenderer::Init's comment), so BeginScene/EndScene is the natural draw-call
@@ -108,10 +108,23 @@ namespace Duality {
         m_DrawCallCount = 0;
 
         C3D_RenderTarget* target = TargetFor(screen);
-        C3D_RenderTargetClear(target, C3D_CLEAR_ALL, ToC3DColor(clearColor), 0);
+        // Color is only cleared when nothing else will (see this method's own IRenderer3D.h
+        // doc comment) -- but the depth buffer always needs a fresh clear regardless, for this
+        // renderer's own meshes to depth-test correctly against each other; citro2d's sprite
+        // pass never touches depth.
+        C3D_RenderTargetClear(target, clear ? C3D_CLEAR_ALL : C3D_CLEAR_DEPTH, ToC3DColor(clearColor), 0);
         C3D_FrameDrawOn(target);
 
-        Mtx_PerspTilt(&m_Projection, C3D_AngleFromDegrees(fovDegrees), aspectRatio, nearPlane, farPlane, false);
+        if (projection == ProjectionType::Perspective) {
+            Mtx_PerspTilt(&m_Projection, C3D_AngleFromDegrees(fovDegrees), aspectRatio, nearPlane, farPlane, false);
+        } else {
+            // top/bottom swapped from the "normal" Y-up convention -- matches this engine's
+            // pixel-space Y-down convention (see Citro2DRenderer/OpenGLRenderer2D's own
+            // glOrtho-style top/bottom swap), so a mesh and a sprite at the same world Y land
+            // on the same screen row when composited together.
+            float halfWidth = orthoHalfHeight * aspectRatio;
+            Mtx_OrthoTilt(&m_Projection, -halfWidth, halfWidth, orthoHalfHeight, -orthoHalfHeight, nearPlane, farPlane, false);
+        }
 
         // View = inverse of the camera's own world transform (position + rotation, no
         // scale) -- built the exact same way DrawMesh builds a mesh's model matrix.
@@ -119,9 +132,15 @@ namespace Duality {
         ComposeWorldMtx(&cameraWorld, cameraPosition, cameraRotationDegrees, { 1.0f, 1.0f, 1.0f });
         Mtx_Inverse(&cameraWorld);
         m_View = cameraWorld;
+
+        // GPU_GREATER (not the OpenGL-typical GPU_LESS) -- PICA200's own reversed depth-range
+        // convention, confirmed against devkitPro's own composite_scene example. Disabled again
+        // in EndScene so citro2d's sprite pass (which never writes/tests depth) isn't affected.
+        C3D_DepthTest(true, GPU_GREATER, GPU_WRITE_ALL);
     }
 
     void Citro3DRenderer::EndScene() {
+        C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_ALL);
         // citro3d submits draw calls immediately against the target selected by the last
         // C3D_FrameDrawOn -- nothing to flush explicitly here, matching Citro2DRenderer's own
         // EndScene (this bracket exists for a future batched implementation to flush from).

@@ -10,6 +10,7 @@
 #include "DualityEngine/Renderer/MeshPrimitive.h"
 #include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
+#include "DualityEngine/Renderer/UIAnchor.h"
 #include "DualityEngine/Scene/Behaviour.h"
 
 namespace Duality {
@@ -166,6 +167,42 @@ namespace Duality {
         void* RuntimeFixture = nullptr;
     };
 
+    // Bullet-backed 3D physics (btDiscreteDynamicsWorld owned by Scene, see
+    // Physics3DWorld in Scene.cpp), same shape/lifetime convention as the
+    // Box2D components above: RuntimeBody is opaque (actually btRigidBody*)
+    // so this header doesn't need to include Bullet, only valid between
+    // Scene::OnRuntimeStart and OnRuntimeStop, never serialized.
+    //
+    // Unlike Box2D (whose b2World owns and frees every fixture it creates),
+    // Bullet does not take ownership of a body's btCollisionShape -- the
+    // caller must free it itself. RuntimeCollisionShape tracks exactly that
+    // one shape (the box/sphere itself, or -- when a collider's Offset is
+    // non-zero -- the btCompoundShape wrapping it) so Scene::OnRuntimeStop
+    // can delete it regardless of which collider component (if any) is
+    // present; the collider components below don't need their own runtime
+    // pointer at all as a result.
+    struct Rigidbody3DComponent {
+        bool IsStatic = false;
+        void* RuntimeBody = nullptr;
+        void* RuntimeCollisionShape = nullptr;
+    };
+
+    struct BoxCollider3DComponent {
+        glm::vec3 Offset{ 0.0f, 0.0f, 0.0f };
+        glm::vec3 Size{ 16.0f, 16.0f, 16.0f }; // half-extents, in the same world units as Transform
+        float Density = 1.0f;
+        float Friction = 0.5f;
+        float Restitution = 0.0f;
+    };
+
+    struct SphereCollider3DComponent {
+        glm::vec3 Offset{ 0.0f, 0.0f, 0.0f };
+        float Radius = 16.0f;
+        float Density = 1.0f;
+        float Friction = 0.5f;
+        float Restitution = 0.0f;
+    };
+
     // Unity/Cocos-style parent/child tree. Not registered with TypeRegistry -- like
     // Rigidbody2DComponent::RuntimeBody above, this is engine-managed bookkeeping, not an
     // authored field, so it never appears in the Properties panel and the generic
@@ -189,6 +226,55 @@ namespace Duality {
     // unlike HierarchyComponent, this is meant to be user-authored.
     struct ScreenGroupComponent {
         Duality::Screen Screen = Duality::Screen::Top;
+    };
+
+    // --- UI (screen-space overlay, drawn last/on top every frame -- see Renderer/UIRenderer.h)
+    // ---
+    //
+    // Deliberately separate from TransformComponent/world-space rendering: a UI element lives
+    // in a fixed physical screen's own pixel space, with no camera involved at all (no pan/zoom
+    // relative to gameplay), matching Unity's Canvas "Screen Space - Overlay" render mode --
+    // the only mode this engine supports (no "Screen Space - Camera"/"World Space" canvas modes
+    // yet). Every UI widget type follows the same two-component split as this first one
+    // (UIRectComponent for where/how big, a second component for what it looks like/does) --
+    // adding a new widget type later (e.g. a slider) means adding one new component + one loop
+    // in UIRenderer.cpp, without touching this positioning component at all.
+
+    // Where/how big a UI element is: Anchor + Offset (pixels from that anchor corner/edge) +
+    // Size (pixels) resolves to a rect in `Screen`'s own fixed pixel space (see
+    // Renderer/UIRenderer.h's ResolveUIRect) -- entirely independent of any CameraComponent.
+    struct UIRectComponent {
+        Duality::Screen Screen = Duality::Screen::Top;
+        UIAnchor Anchor = UIAnchor::TopLeft;
+        glm::vec2 Offset{ 0.0f, 0.0f };
+        glm::vec2 Size{ 100.0f, 40.0f };
+    };
+
+    // The visual half of a basic Panel/Image widget (pair with UIRectComponent). Same
+    // Color/Texture convention as SpriteRendererComponent (empty Texture Guid = flat Color).
+    // If the same entity also has a UIButtonComponent, that component's own
+    // Normal/Hover/Pressed color takes over instead of this Color -- see UIButtonComponent.
+    struct UIImageComponent {
+        glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+        AssetRef Texture;
+    };
+
+    // Makes a (UIRectComponent, UIImageComponent) pair clickable -- pair all three on one
+    // entity for a basic Button. IsHovered/IsPressed/WasClicked are updated once per frame by
+    // UIRenderer.cpp's UpdateUIInteractions (called once per frame by the app entry point,
+    // before Scene::OnRuntimeUpdate so scripts see this frame's state) and are meant to be
+    // polled from a script the same way GetKeyDown() is: `GetComponent<UIButtonComponent>().
+    // WasClicked`. Not reflected as authored-editable at Play time (IsHovered/IsPressed/
+    // WasClicked are runtime state, like SpriteFlipbookComponent::CurrentFrame) -- only the
+    // three colors are.
+    struct UIButtonComponent {
+        glm::vec4 NormalColor{ 0.85f, 0.85f, 0.85f, 1.0f };
+        glm::vec4 HoverColor{ 0.95f, 0.95f, 0.6f, 1.0f };
+        glm::vec4 PressedColor{ 0.7f, 0.7f, 0.4f, 1.0f };
+
+        bool IsHovered = false;
+        bool IsPressed = false;
+        bool WasClicked = false; // true for exactly one frame: pointer released while still over the button
     };
 
 }

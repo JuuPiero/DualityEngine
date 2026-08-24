@@ -13,12 +13,13 @@ namespace Duality {
     // the only difference between platforms is which IRenderer2D/IRenderer3D
     // backend is passed in.
     //
-    // Checks `screen`'s primary camera's Projection before doing anything
-    // else: Perspective dispatches to RenderScreen3D (below) and returns --
-    // Orthographic falls through to the original sprite-drawing body,
-    // unchanged. A screen renders through exactly one pipeline per frame,
-    // never both composited together (see IRenderer3D.h/CameraComponent::
-    // Projection).
+    // Always draws a mesh pass (RenderScreen3D below), a sprite pass, and a UI pass
+    // (Renderer/UIRenderer.h's RenderScreenUI) into the same screen, in that order (each on top
+    // of the last), regardless of the primary camera's Projection -- matching Unity's own
+    // convention that a camera's projection is a lens property (it only changes how the mesh
+    // pass projects), not a switch between mutually exclusive renderers (see IRenderer3D.h's
+    // own comment). The mesh pass runs first and clears the screen; sprites and UI draw on top
+    // of it. UI runs even with no camera at all -- see UIRenderer.h's own comment.
     //
     // Draws every (Transform, SpriteRenderer) entity in the scene, positioned
     // relative to `screen`'s primary CameraComponent entity (world position
@@ -29,15 +30,16 @@ namespace Duality {
     // BeginCustomView) intentionally does not go through this function.
     void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor);
 
-    // The Perspective half of RenderScreen's dispatch -- draws every
-    // (Transform, MeshRenderer) entity in the scene through `screen`'s
-    // primary camera (world position/rotation, Fov/Near/FarPlane), unlit.
-    // Exposed separately (not just a RenderScreen implementation detail) so
-    // the Editor's 3D Scene view pane can call it too, same convention as
-    // GetActiveSpriteTexture/ResolveSpriteTexture below being shared with
-    // the 2D Scene view. No-ops if `screen` has no primary camera, matching
-    // RenderScreen's own no-camera behavior.
-    void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor);
+    // The mesh half of RenderScreen's composited draw -- draws every (Transform, MeshRenderer)
+    // entity in the scene through `screen`'s primary camera (world position/rotation,
+    // Fov/Near/FarPlane for Perspective, Zoom for Orthographic), unlit. Exposed separately (not
+    // just a RenderScreen implementation detail) so the Editor's 3D Scene view pane can call it
+    // too, same convention as GetActiveSpriteTexture/ResolveSpriteTexture below being shared
+    // with the 2D Scene view. No-ops if `screen` has no primary camera, matching RenderScreen's
+    // own no-camera behavior. `clear` is false when the caller's own sprite pass for this same
+    // screen this frame already cleared it (or will clear it afterward) -- RenderScreen always
+    // passes true here since the mesh pass runs first.
+    void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear = true);
 
     // Whichever AssetRef should currently be drawn for this entity's
     // sprite: its SpriteFlipbookComponent's current frame if it has one

@@ -2,6 +2,7 @@
 
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
+#include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
 
 namespace Duality {
@@ -71,12 +72,18 @@ namespace Duality {
 
     void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor) {
         Entity camera = scene.GetPrimaryCamera(screen);
-        if (camera && camera.GetComponent<CameraComponent>().Projection == ProjectionType::Perspective) {
-            RenderScreen3D(renderer3D, scene, screen, clearColor);
-            return;
-        }
 
-        renderer2D.BeginScene(screen, clearColor);
+        // Both a mesh pass and a sprite pass always run for every screen now, regardless of
+        // the camera's own Projection -- matching Unity's own convention that a camera's
+        // projection is a lens property, not a switch between mutually exclusive renderers
+        // (see IRenderer3D.h's own comment). The mesh pass runs first and clears the screen;
+        // sprites draw on top of it without re-clearing. With no camera at all, only the (now
+        // a no-op) sprite pass runs, still clearing -- this function's original no-camera
+        // behavior.
+        if (camera)
+            RenderScreen3D(renderer3D, scene, screen, clearColor, true);
+
+        renderer2D.BeginScene(screen, clearColor, !camera);
 
         if (camera) {
             TransformComponent cameraTransform = scene.GetWorldTransform(camera);
@@ -111,10 +118,15 @@ namespace Duality {
             }
         }
 
+        // UI always draws last/on top, regardless of whether this screen even has a camera --
+        // it has no gameplay camera dependency at all (see Renderer/UIRenderer.h's own
+        // comment).
+        RenderScreenUI(renderer2D, scene, screen);
+
         renderer2D.EndScene();
     }
 
-    void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor) {
+    void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
         Entity camera = scene.GetPrimaryCamera(screen);
         if (!camera)
             return; // nothing to render without a camera, matching RenderScreen's own no-camera behavior
@@ -124,7 +136,13 @@ namespace Duality {
         float screenWidth, screenHeight;
         ScreenExtents(screen, screenWidth, screenHeight);
 
-        renderer.BeginScene(screen, cameraTransform.Translation, cameraTransform.Rotation, cameraComponent.FovDegrees, screenWidth / screenHeight, cameraComponent.NearPlane, cameraComponent.FarPlane, clearColor);
+        // Orthographic's world-units-visible derives from Zoom the exact same way
+        // IRenderer2D::DrawQuad's own pixel-space math does (screenHeight * zoom), so a mesh
+        // and a sprite at the same world position land on the same screen pixel -- see
+        // IRenderer3D.h's own comment.
+        float orthoHalfHeight = screenHeight * 0.5f / cameraComponent.Zoom;
+
+        renderer.BeginScene(screen, cameraComponent.Projection, cameraTransform.Translation, cameraTransform.Rotation, cameraComponent.FovDegrees, orthoHalfHeight, screenWidth / screenHeight, cameraComponent.NearPlane, cameraComponent.FarPlane, clearColor, clear);
 
         auto view = scene.Registry().view<TransformComponent, MeshRendererComponent>();
         for (auto handle : view) {

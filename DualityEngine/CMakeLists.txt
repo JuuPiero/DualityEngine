@@ -11,12 +11,21 @@ add_library(DualityEngine STATIC
     Source/Scene/Scene.cpp
     Source/Scene/SceneSerializer.cpp
     Source/Renderer/SceneRenderer.cpp
+    Source/Renderer/UIRenderer.cpp
     Source/Renderer/PrimitiveMeshes.cpp
     Source/Project/Project.cpp
 )
 
 target_include_directories(DualityEngine PUBLIC Include)
-target_link_libraries(DualityEngine PUBLIC EnTT::EnTT glm::glm nlohmann_json::nlohmann_json box2d)
+# Bullet's own per-module CMakeLists.txt links BulletDynamics -> BulletCollision
+# -> LinearMath via old-style (non-keyword) target_link_libraries calls, which
+# does NOT reliably resolve BulletDynamics's own internal references to
+# BulletCollision/LinearMath symbols for a static-archive link (GNU ld only
+# scans each archive once, left to right -- confirmed by hitting exactly this
+# as "undefined reference to btCollisionWorld::..." until these were listed
+# explicitly here, most-dependent first, same order Bullet's own exported
+# BULLET_LIBRARIES list implies).
+target_link_libraries(DualityEngine PUBLIC EnTT::EnTT glm::glm nlohmann_json::nlohmann_json box2d BulletDynamics BulletCollision LinearMath)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     target_sources(DualityEngine PRIVATE

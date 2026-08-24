@@ -81,7 +81,22 @@ namespace Duality {
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
         ImGui::StyleColorsDark();
-        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+        // Bigger UI across the board (text, row height, tabs, menu bar, padding, scrollbars,
+        // ...) -- no TTF is vendored, so this bumps ImGui's own built-in bitmap font's pixel
+        // size (13px default -> UiScale) rather than adding a font dependency; the bitmap
+        // reads a bit blockier at this size than a real TTF would, but stays sharp enough to
+        // be clearly worth it for readability. style.ScaleAllSizes() grows every other widget
+        // dimension (padding/spacing/rounding/scrollbar width/...) by the same factor so the
+        // whole UI feels proportionate, not just the text.
+        constexpr float UiScale = 1.5f;
+        ImGuiIO& io = ImGui::GetIO();
+        ImFontConfig fontConfig;
+        fontConfig.SizePixels = 13.0f * UiScale;
+        io.Fonts->AddFontDefault(&fontConfig);
+        ImGui::GetStyle().ScaleAllSizes(UiScale);
+
+        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         ImGui_ImplGlfw_InitForOpenGL(m_Handle, true);
         ImGui_ImplOpenGL3_Init("#version 130");
     }

@@ -26,7 +26,7 @@ namespace Duality {
         void BeginFrame() override;
         void EndFrame() override;
 
-        void BeginScene(Screen screen, const glm::vec4& clearColor) override;
+        void BeginScene(Screen screen, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
         void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0) override;
@@ -41,7 +41,7 @@ namespace Duality {
         // Unity's Scene view), as opposed to BeginScene which always renders
         // exactly what a real CameraComponent+Screen would show (the Game
         // view).
-        void BeginCustomView(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, const glm::vec4& clearColor);
+        void BeginCustomView(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, const glm::vec4& clearColor, bool clear = true);
 
     private:
         std::unordered_map<std::string, uint32_t> m_TextureCache;

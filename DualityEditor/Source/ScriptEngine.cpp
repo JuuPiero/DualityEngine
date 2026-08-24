@@ -37,8 +37,13 @@ namespace Duality {
         // DLL simply fails to be overwritten by the next build otherwise.
         Shutdown();
 
-        std::string dllPath = buildDirectory + "/GameScripts/GameScripts.dll";
-        std::string shadowPath = buildDirectory + "/GameScripts/GameScripts.loaded.dll";
+        // GameScripts.dll lands in <build>/lib, not <build>/GameScripts -- CMake's
+        // GNU/MinGW toolchain places shared-library (.dll) artifacts under a shared
+        // lib\ output folder by default (mirroring Unix .so placement), unlike an
+        // executable target which lands in its own target folder. Same fix as
+        // run-desktop-player.bat's own PATH setup for this exact DLL.
+        std::string dllPath = buildDirectory + "/lib/GameScripts.dll";
+        std::string shadowPath = buildDirectory + "/lib/GameScripts.loaded.dll";
         if (!CopyFileA(dllPath.c_str(), shadowPath.c_str(), FALSE)) {
             Log::Error("ScriptEngine: could not copy '" + dllPath + "'");
             return false;

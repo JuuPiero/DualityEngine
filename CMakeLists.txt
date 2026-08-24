@@ -35,4 +35,8 @@ else()
     # The Editor is a desktop-only tool (Dear ImGui + native window) and is
     # never cross-compiled for the device.
     add_subdirectory(DualityEditor)
+    # Standalone desktop player -- the desktop equivalent of DualityPlayer (real GLFW window +
+    # OpenGLRenderer2D/3D instead of Citro2D/3DRenderer, no ImGui/Editor UI at all), so a scene
+    # built in the Editor can also run as a real .exe on desktop, not just on-device.
+    add_subdirectory(DualityPlayerDesktop)
 endif()

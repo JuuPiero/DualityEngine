@@ -1,6 +1,73 @@
 {
   "Entities": [
     {
+      "Name": {
+        "Name": "TestButton"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "UI Button": {
+        "Hover Color": [
+          0.949999988079071,
+          0.949999988079071,
+          0.6000000238418579,
+          1.0
+        ],
+        "Normal Color": [
+          0.8500000238418579,
+          0.8500000238418579,
+          0.8500000238418579,
+          1.0
+        ],
+        "Pressed Color": [
+          0.699999988079071,
+          0.699999988079071,
+          0.4000000059604645,
+          1.0
+        ]
+      },
+      "UI Image": {
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Texture": ""
+      },
+      "UI Rect": {
+        "Anchor": "BottomRight",
+        "Offset": [
+          10.0,
+          10.0
+        ],
+        "Screen": "Bottom",
+        "Size": [
+          80.0,
+          32.0
+        ]
+      }
+    },
+    {
       "Behaviour": {
         "Class": "ApiShowcaseBehaviour"
       },
@@ -233,6 +300,9 @@
       }
     },
     {
+      "Behaviour": {
+        "Class": "ApiShowcaseBehaviour"
+      },
       "Mesh Renderer": {
         "Material": "f88066254862338300d1e7afc9357c8e",
         "Mesh": "",

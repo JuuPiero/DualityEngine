@@ -103,6 +103,13 @@ namespace Duality {
                                 v = static_cast<MeshPrimitive>(current);
                                 changed = true;
                             }
+                        } else if constexpr (std::is_same_v<T, UIAnchor>) {
+                            const char* items[] = { "Top Left", "Top Center", "Top Right", "Middle Left", "Middle Center", "Middle Right", "Bottom Left", "Bottom Center", "Bottom Right" };
+                            int current = static_cast<int>(v);
+                            if (ImGui::Combo(field.Name.c_str(), &current, items, 9)) {
+                                v = static_cast<UIAnchor>(current);
+                                changed = true;
+                            }
                         } else if constexpr (std::is_same_v<T, AssetRef>) {
                             // Drag-drop target only for this pass -- no
                             // inline thumbnail preview (would need

@@ -38,11 +38,51 @@ this file whenever something below actually gets built, or a new deferred item c
       layer to survive cmd's quote-stripping, confirmed empirically after the naive version
       silently corrupted the command and mis-reported tex3ds as failing with no useful error.
 
+## Physics
+
+- [x] 3D physics -- Bullet Physics 2.87 (`Vendor/bullet3/`, vendored the same way as Box2D:
+      just `CMakeLists.txt` + the `src/` modules devkitPro's own build actually compiles with
+      `BUILD_BULLET3=OFF`), mirroring the existing `Rigidbody2DComponent`/`BoxCollider2DComponent`/
+      `CircleCollider2DComponent` shape exactly: `Rigidbody3DComponent` (IsStatic + opaque
+      `RuntimeBody`/`RuntimeCollisionShape`), `BoxCollider3DComponent`, `SphereCollider3DComponent`
+      (Offset/Size-or-Radius/Density/Friction/Restitution). One `btDiscreteDynamicsWorld` per
+      Scene, stepped in `OnRuntimeUpdate` alongside the existing `b2World`, same +Y-is-down
+      gravity convention so a 3D Rigidbody falls the same visual direction as a 2D one. A
+      collider's `Offset` (when non-zero) wraps its shape in a one-child `btCompoundShape`,
+      since Bullet has no built-in local-offset support the way Box2D's fixtures do.
+      `TransformComponent::Rotation` round-trips through Bullet's `btQuaternion` via a hand-derived
+      ZYX Tait-Bryan conversion matching `OpenGLRenderer3D`/`Citro3DRenderer`'s own
+      `M = T*Rz*Ry*Rx` mesh composition order, verified against a headless test (gravity,
+      landing/no-tunneling, static-body immunity, offset/compound-shape cleanup, and exact
+      rotation-round-trip fidelity all pass). Confirmed compiling and linking for BOTH desktop
+      (MinGW) and devkitARM (3DS cross-compile) -- the latter was the real open risk going in,
+      since devkitPro ships `3ds-bulletphysics` as an official portlib but with no worked
+      example and no known shipped 3DS game using it, so actual ARM11 runtime performance/
+      stability is still unverified on real hardware. Not built: `FixedRotation`-equivalent
+      constraints, compound shapes beyond the single-offset-child case, capsule/mesh/convex-hull
+      3D colliders, and any collision-event callback surface (matching 2D physics' own scope).
+
 ## UI
 
-- [ ] In-game UI system. Original plan called for a declarative XML+CSS-like system
-      (Unity UI Toolkit-ish); a simpler Cocos-Creator-style Canvas/node hierarchy is an
-      acceptable, likely-easier first cut if it gets there faster.
+- [x] In-game UI system -- a basic first cut, not the originally-planned XML+CSS-like system
+      (that's still a possible future direction, not ruled out): `UIRectComponent` (Anchor +
+      Offset + Size, resolved against a physical Screen's own fixed pixel space, no camera
+      involved at all -- see `Renderer/UIRenderer.h`'s `ResolveUIRect`) pairs with a second
+      component per widget type, matching Unity's own component-per-concern split so a new
+      widget type is "add one component + one loop in UIRenderer.cpp", nothing else. Two widget
+      types so far: `UIImageComponent` (Panel/Image, same Color/Texture convention as
+      `SpriteRendererComponent`) and `UIButtonComponent` (adds click detection --
+      `IsHovered`/`IsPressed`/`WasClicked`, updated once/frame by `UpdateUIInteractions` and
+      meant to be polled from a script like `GetKeyDown()`; overrides the paired Image's Color
+      with its own Normal/Hover/Pressed color). Always drawn last/on top of the mesh+sprite
+      passes (`SceneRenderer.cpp`'s `RenderScreen`), on both platforms. No text/label widget yet
+      (needs real font rendering, not built -- see the 3D renderer entry's own "next" list for
+      the general shape of what's still open elsewhere), no 9-slice/border scaling, single
+      global pointer only (see `UpdateUIInteractions`'s own comment on why a button doesn't
+      distinguish which physical screen the pointer is actually over).
+- [ ] Text/label UI widget -- needs real font rendering on both backends (citro2d has one
+      built in; desktop has none, `OpenGLRenderer2D` is legacy fixed-function with no font atlas
+      at all yet). The natural next widget after Panel/Button above.
 - [ ] Visual UI Builder (drag-and-drop tool for the above) -- later still, after
       whichever UI system above lands.
 
@@ -107,6 +147,20 @@ this file whenever something below actually gets built, or a new deferred item c
       each `BeginFrame`. FPS is exponentially smoothed in `Application::Run()`. The draw-call
       count shown is snapshotted right after the real Top+Bottom `RenderScreen` passes,
       before the Scene view's own editor-only draws would otherwise inflate it.
+- [x] Standalone desktop player (`DualityPlayerDesktop/`) -- the desktop counterpart to
+      `DualityPlayer` (3DS): a real GLFW window + `OpenGLRenderer2D`/`3D`, no ImGui/Editor UI
+      at all, running the same `Scene`/`SceneSerializer`/`AssetDatabase`/`GameScripts`
+      pipeline. `GameScripts` links directly as a real DLL import (unlike `DualityPlayer`'s
+      `--whole-archive` workaround, which is 3DS-static-linking-only) -- `run-desktop-player.bat`
+      puts it on `PATH` next to glfw3.dll/glew32.dll so it resolves at launch. One real window
+      renders both physical screens stacked vertically (Top above Bottom, mirroring how a 3DS
+      is held) into their own `glViewport`+`glScissor`-restricted sub-rectangle of the same
+      default framebuffer -- scissoring (not just viewport) matters here specifically because
+      a screen's own clear would otherwise erase the other screen's already-drawn content;
+      the Editor avoids this entirely with two separate offscreen `Framebuffer`s instead, which
+      isn't available here since there's only one real window. Still hardcoded to always run
+      `SampleProject` (no project picker) and always 2x scale (no window resize handling) --
+      both reasonable first-pass cuts, not attempted yet.
 
 ## Assets
 

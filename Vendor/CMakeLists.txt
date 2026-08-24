@@ -49,6 +49,71 @@ set(BOX2D_BUILD_TESTBED OFF CACHE BOOL "" FORCE)
 set(BOX2D_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/box2d)
 
+# --- Bullet Physics (3D physics) ---------------------------------------------
+# Pinned to tag 2.87 exactly, matching devkitPro's own 3ds-bulletphysics
+# portlib version (confirmed via its real PKGBUILD -- same repo tier as
+# 3ds-box2d, built by devkitPro's own CI, though unlike box2d it ships no
+# worked 3DS example and no known shipped 3DS game uses it, so its runtime
+# behavior on real ARM11 hardware is unverified until this project's own
+# 3D physics lands and gets tested on-device).
+#
+# Vendored the same way as Box2D above: only the pieces devkitPro's own
+# build actually compiles with BUILD_BULLET3=OFF -- LinearMath, Bullet3Common,
+# BulletCollision, BulletDynamics, BulletSoftBody, BulletInverseDynamics --
+# not the CPU/OpenGL3/Bullet2 demos, unit tests, or pybullet bindings, which
+# its own CMakeLists.txt only add_subdirectory()s when the BUILD_* options
+# below are ON (and which aren't vendored here at all, so even an option
+# left ON can't reach a directory that doesn't exist).
+#
+# The flags below are devkitPro's own `-D...` PKGBUILD flags translated to
+# CACHE FORCE (same translation box2d's own BOX2D_BUILD_* lines above use).
+# Bullet's vendored CMakeLists.txt additionally has two IF(NOT NINTENDO_3DS)
+# guards applied directly to it (not a separate .patch file) around its
+# FIND_PACKAGE(OpenGL) and Python/pybullet-detection blocks -- both re-derived
+# from a direct read of the real 2.87 source rather than devkitPro's own
+# bulletphysics.patch (which an earlier pass here deliberately did not trust
+# blindly, since a WebFetch summary of it gave slightly different line
+# numbers than a direct read of the real file). NINTENDO_3DS itself needs no
+# extra wiring here -- devkitPro's own Platform/Nintendo3DS.cmake sets it
+# automatically for any configure that goes through this project's existing
+# 3DS toolchain file, the same mechanism CMAKE_SYSTEM_NAME checks elsewhere
+# in this file already rely on.
+set(BUILD_CPU_DEMOS OFF CACHE BOOL "" FORCE)
+set(BUILD_BULLET3 OFF CACHE BOOL "" FORCE)
+set(BUILD_OPENGL3_DEMOS OFF CACHE BOOL "" FORCE)
+set(BUILD_BULLET2_DEMOS OFF CACHE BOOL "" FORCE)
+set(BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
+set(BUILD_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_PYBULLET OFF CACHE BOOL "" FORCE)
+set(BUILD_ENET OFF CACHE BOOL "" FORCE)
+set(BUILD_CLSOCKET OFF CACHE BOOL "" FORCE)
+set(INSTALL_LIBS OFF CACHE BOOL "" FORCE)
+set(INSTALL_CMAKE_FILES OFF CACHE BOOL "" FORCE)
+set(USE_GRAPHICAL_BENCHMARK OFF CACHE BOOL "" FORCE)
+set(USE_DOUBLE_PRECISION OFF CACHE BOOL "" FORCE)
+
+# devkitPro's own PKGBUILD additionally compiles Bullet with
+# -fno-exceptions -fno-rtti on ARM (a size/perf tuning choice, not a
+# correctness requirement -- Bullet's public API doesn't throw or need
+# RTTI from the outside). Scoped to just this add_subdirectory call and
+# restored right after, so it doesn't change DualityEngine's own compile
+# flags or leak into ImGui/stb/miniaudio below.
+set(_bullet_saved_cxx_flags "${CMAKE_CXX_FLAGS}")
+if(NINTENDO_3DS)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti")
+endif()
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/bullet3)
+set(CMAKE_CXX_FLAGS "${_bullet_saved_cxx_flags}")
+unset(_bullet_saved_cxx_flags)
+
+# Bullet's own CMakeLists.txt uses old-style directory-scoped
+# INCLUDE_DIRECTORIES() rather than target_include_directories(), so unlike
+# box2d above (which does use target_include_directories(box2d PUBLIC ...)),
+# linking against BulletDynamics alone does not expose its headers to
+# consumers outside Vendor/bullet3/ -- added explicitly here instead of
+# patching every one of Bullet's own per-module CMakeLists.txt files.
+target_include_directories(BulletDynamics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/bullet3/src)
+
 # --- Desktop-only editor dependencies -------------------------------------
 # Never pulled in for the 3DS configure (the Editor itself is desktop-only).
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")

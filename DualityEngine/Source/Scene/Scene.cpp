@@ -4,6 +4,10 @@
 #include <cmath>
 
 #include <box2d/box2d.h>
+#include <btBulletDynamicsCommon.h>
+
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Audio/AudioEngine.h"
@@ -27,6 +31,66 @@ namespace Duality {
     static constexpr int32 PositionIterations = 2;
 
     static b2World* PhysicsWorld(void* handle) { return static_cast<b2World*>(handle); }
+
+    // Bullet-backed 3D physics. Same "no pixels-per-meter conversion, gravity
+    // scaled up to match this project's pixel-sized world units, +Y is down"
+    // convention as the 2D physics above -- a Rigidbody3D dropped in a 3D
+    // scene should fall the same visual direction as a Rigidbody2D would.
+    static constexpr float DefaultGravityY3D = 400.0f;
+
+    // Bullet, unlike Box2D, has no single "world" object -- it's a small
+    // bundle of a collision configuration/dispatcher/broadphase/solver that
+    // all must outlive the btDiscreteDynamicsWorld built from them and be
+    // torn down in reverse afterward. Heap-allocated as one unit so
+    // Scene::m_PhysicsWorld3D can stay an opaque void* like m_PhysicsWorld.
+    struct Physics3DWorld {
+        btDefaultCollisionConfiguration* CollisionConfig = nullptr;
+        btCollisionDispatcher* Dispatcher = nullptr;
+        btBroadphaseInterface* Broadphase = nullptr;
+        btSequentialImpulseConstraintSolver* Solver = nullptr;
+        btDiscreteDynamicsWorld* World = nullptr;
+    };
+    static Physics3DWorld* PhysicsWorld3D(void* handle) { return static_cast<Physics3DWorld*>(handle); }
+
+    // A BoxCollider3D/SphereCollider3D's Offset (mirroring Box2D fixtures'
+    // own Offset field) has no direct Bullet equivalent -- a plain
+    // btBoxShape/btSphereShape is always centered on the body origin, so a
+    // non-zero offset needs a one-child btCompoundShape wrapping the real
+    // shape at a local transform instead. Cleanup in Scene::OnRuntimeStop
+    // just checks btCollisionShape::isCompound() on Rigidbody3DComponent's
+    // own RuntimeCollisionShape and, if so, also deletes its one child --
+    // no separate bookkeeping struct needed since btCompoundShape itself
+    // already tracks its children.
+
+    // TransformComponent::Rotation is Euler degrees composed the same way
+    // OpenGLRenderer3D/Citro3DRenderer build a mesh's model matrix
+    // (ComposeWorldMtx: M = T * Rz(z) * Ry(y) * Rx(x)) -- these two
+    // functions are the exact quaternion equivalent of that composition (and
+    // its inverse), so a Rigidbody3D-driven mesh rotates identically to how
+    // it's rendered, and physics results read back into Rotation round-trip
+    // through the same convention 2D's glm::degrees(body->GetAngle()) does.
+    static btQuaternion EulerDegreesToBtQuaternion(const glm::vec3& rotationDegrees) {
+        btQuaternion qx(btVector3(1.0f, 0.0f, 0.0f), glm::radians(rotationDegrees.x));
+        btQuaternion qy(btVector3(0.0f, 1.0f, 0.0f), glm::radians(rotationDegrees.y));
+        btQuaternion qz(btVector3(0.0f, 0.0f, 1.0f), glm::radians(rotationDegrees.z));
+        return qz * qy * qx;
+    }
+
+    // Inverse of EulerDegreesToBtQuaternion -- classic ZYX Tait-Bryan
+    // extraction from a rotation matrix R = Rz*Ry*Rx, re-derived by hand
+    // from the same Rx/Ry/Rz definitions glm::rotate uses (not taken from
+    // GLM's own extractEulerAngleXYZ, which negates its input angles
+    // internally and would need its own careful sign-mapping to verify).
+    // Degenerates at pitch (y) near +-90 deg (gimbal lock) -- an accepted,
+    // standard limitation of any Euler-angle representation, same as the 2D
+    // path's own glm::degrees(body->GetAngle()) sync-back.
+    static glm::vec3 BtQuaternionToEulerDegrees(const btQuaternion& q) {
+        glm::mat3 r = glm::mat3_cast(glm::quat(q.w(), q.x(), q.y(), q.z()));
+        float y = std::asin(std::clamp(-r[0][2], -1.0f, 1.0f));
+        float x = std::atan2(r[1][2], r[2][2]);
+        float z = std::atan2(r[0][1], r[0][0]);
+        return glm::degrees(glm::vec3(x, y, z));
+    }
 
     // 2D affine compose: rotates+scales `local` (already itself a
     // TransformComponent-shaped translate/rotate.z/scale) by `parentWorld`, then
@@ -338,6 +402,77 @@ namespace Duality {
             }
         }
 
+        Physics3DWorld* world3D = new Physics3DWorld();
+        world3D->CollisionConfig = new btDefaultCollisionConfiguration();
+        world3D->Dispatcher = new btCollisionDispatcher(world3D->CollisionConfig);
+        world3D->Broadphase = new btDbvtBroadphase();
+        world3D->Solver = new btSequentialImpulseConstraintSolver();
+        world3D->World = new btDiscreteDynamicsWorld(world3D->Dispatcher, world3D->Broadphase, world3D->Solver, world3D->CollisionConfig);
+        world3D->World->setGravity(btVector3(0.0f, DefaultGravityY3D, 0.0f));
+        m_PhysicsWorld3D = world3D;
+
+        auto body3DView = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
+        for (auto handle : body3DView) {
+            auto& rb = body3DView.get<Rigidbody3DComponent>(handle);
+
+            // Same identity-parent-only limitation as the 2D loop above.
+            TransformComponent worldTransform = GetWorldTransform(Entity(handle, this));
+
+            btCollisionShape* baseShape = nullptr; // the box/sphere itself, before any offset wrapping
+            glm::vec3 offset{ 0.0f, 0.0f, 0.0f };
+            float density = 1.0f, friction = 0.5f, restitution = 0.0f;
+            float volume = 0.0f; // 0 = no collider, handled below
+
+            if (m_Registry.all_of<BoxCollider3DComponent>(handle)) {
+                auto& box = m_Registry.get<BoxCollider3DComponent>(handle);
+                baseShape = new btBoxShape(btVector3(box.Size.x, box.Size.y, box.Size.z));
+                offset = box.Offset;
+                density = box.Density; friction = box.Friction; restitution = box.Restitution;
+                volume = (2.0f * box.Size.x) * (2.0f * box.Size.y) * (2.0f * box.Size.z);
+            } else if (m_Registry.all_of<SphereCollider3DComponent>(handle)) {
+                auto& sphere = m_Registry.get<SphereCollider3DComponent>(handle);
+                baseShape = new btSphereShape(sphere.Radius);
+                offset = sphere.Offset;
+                density = sphere.Density; friction = sphere.Friction; restitution = sphere.Restitution;
+                volume = (4.0f / 3.0f) * glm::pi<float>() * sphere.Radius * sphere.Radius * sphere.Radius;
+            } else {
+                // A Rigidbody3D with no collider still gets a real body (matching the
+                // 2D loop's own zero-fixture case above) -- btEmptyShape is Bullet's
+                // supported "no collision volume" shape, used here purely so the body
+                // has a valid, deletable btCollisionShape to construct with.
+                baseShape = new btEmptyShape();
+            }
+
+            btCollisionShape* attachedShape = baseShape;
+            if (offset.x != 0.0f || offset.y != 0.0f || offset.z != 0.0f) {
+                btCompoundShape* compound = new btCompoundShape();
+                btTransform localTransform; localTransform.setIdentity();
+                localTransform.setOrigin(btVector3(offset.x, offset.y, offset.z));
+                compound->addChildShape(localTransform, baseShape);
+                attachedShape = compound;
+            }
+            rb.RuntimeCollisionShape = attachedShape;
+
+            constexpr float NoColliderMass = 1.0f;
+            btScalar mass = rb.IsStatic ? 0.0f : (volume > 0.0f ? density * volume : NoColliderMass);
+            btVector3 localInertia(0.0f, 0.0f, 0.0f);
+            if (mass > 0.0f)
+                attachedShape->calculateLocalInertia(mass, localInertia);
+
+            btTransform startTransform;
+            startTransform.setIdentity();
+            startTransform.setOrigin(btVector3(worldTransform.Translation.x, worldTransform.Translation.y, worldTransform.Translation.z));
+            startTransform.setRotation(EulerDegreesToBtQuaternion(worldTransform.Rotation));
+
+            btDefaultMotionState* motionState = new btDefaultMotionState(startTransform);
+            btRigidBody::btRigidBodyConstructionInfo rbInfo(mass, motionState, attachedShape, localInertia);
+            rbInfo.m_friction = friction;
+            rbInfo.m_restitution = restitution;
+            btRigidBody* body = new btRigidBody(rbInfo);
+            world3D->World->addRigidBody(body);
+            rb.RuntimeBody = body;
+        }
+
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
@@ -373,6 +508,27 @@ namespace Duality {
                 transform.Translation.x = position.x;
                 transform.Translation.y = position.y;
                 transform.Rotation.z = glm::degrees(body->GetAngle());
+            }
+        }
+
+        if (m_PhysicsWorld3D) {
+            PhysicsWorld3D(m_PhysicsWorld3D)->World->stepSimulation(deltaTime);
+
+            auto body3DView = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
+            for (auto handle : body3DView) {
+                auto& rb = body3DView.get<Rigidbody3DComponent>(handle);
+                auto& transform = body3DView.get<TransformComponent>(handle);
+                if (!rb.RuntimeBody)
+                    continue;
+                btRigidBody* body = static_cast<btRigidBody*>(rb.RuntimeBody);
+                btTransform worldTransform;
+                body->getMotionState()->getWorldTransform(worldTransform);
+                const btVector3& position = worldTransform.getOrigin();
+                // Same identity-parent-only limitation as the 2D sync-back above.
+                transform.Translation.x = position.x();
+                transform.Translation.y = position.y();
+                transform.Translation.z = position.z();
+                transform.Rotation = BtQuaternionToEulerDegrees(worldTransform.getRotation());
             }
         }
 
@@ -434,6 +590,46 @@ namespace Duality {
             auto circleView = m_Registry.view<CircleCollider2DComponent>();
             for (auto handle : circleView)
                 circleView.get<CircleCollider2DComponent>(handle).RuntimeFixture = nullptr;
+        }
+
+        if (m_PhysicsWorld3D) {
+            Physics3DWorld* world3D = PhysicsWorld3D(m_PhysicsWorld3D);
+
+            // Bodies (and their motion states/collision shapes) are owned by us, not
+            // the world -- removeRigidBody only unregisters, so each must be deleted
+            // explicitly, same "we allocated it, we free it" contract as Box2D's
+            // fixtures above (which the b2World itself frees, unlike here).
+            auto body3DView = m_Registry.view<Rigidbody3DComponent>();
+            for (auto handle : body3DView) {
+                auto& rb = body3DView.get<Rigidbody3DComponent>(handle);
+                if (rb.RuntimeBody) {
+                    btRigidBody* body = static_cast<btRigidBody*>(rb.RuntimeBody);
+                    world3D->World->removeRigidBody(body);
+                    delete body->getMotionState();
+                    delete body;
+                    rb.RuntimeBody = nullptr;
+                }
+                if (rb.RuntimeCollisionShape) {
+                    auto* shape = static_cast<btCollisionShape*>(rb.RuntimeCollisionShape);
+                    if (shape->isCompound()) {
+                        // Only ever one child -- see the Offset-wrapping comment in
+                        // OnRuntimeStart -- but loop for correctness regardless.
+                        btCompoundShape* compound = static_cast<btCompoundShape*>(shape);
+                        for (int i = 0; i < compound->getNumChildShapes(); i++)
+                            delete compound->getChildShape(i);
+                    }
+                    delete shape;
+                    rb.RuntimeCollisionShape = nullptr;
+                }
+            }
+
+            delete world3D->World;
+            delete world3D->Solver;
+            delete world3D->Broadphase;
+            delete world3D->Dispatcher;
+            delete world3D->CollisionConfig;
+            delete world3D;
+            m_PhysicsWorld3D = nullptr;
         }
     }
 
