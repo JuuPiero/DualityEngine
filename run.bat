@@ -1,8 +1,8 @@
 @echo off
 setlocal
 
-set MINGW_BIN=E:\App\devkitPro\msys2\mingw64\bin
-if exist "%MINGW_BIN%\glfw3.dll" set "PATH=%MINGW_BIN%;%PATH%"
+call "%~dp0devkitpro-path.bat"
+if defined DKP_WIN if exist "%DKP_WIN%\msys2\mingw64\bin\glfw3.dll" set "PATH=%DKP_WIN%\msys2\mingw64\bin;%PATH%"
 
 if not exist "build\DualityEditor\DualityEditor.exe" (
     echo DualityEditor.exe not found -- run build.bat first.

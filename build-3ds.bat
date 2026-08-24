@@ -8,17 +8,26 @@ cd /d "%~dp0"
 
 set BUILD_DIR=build-3ds
 
-REM devkitPro's install location. NOT derived from the DEVKITPRO
-REM environment variable: it can legitimately be an MSYS2-style POSIX path
-REM (e.g. "/opt/devkitpro", which some shells export it as, and which the
-REM MSYS-hosted cmake.exe below is fine with) -- but that same value is
-REM useless as a Windows PATH entry (no drive letter), and silently
-REM resolving to nothing there previously caused the wrong cmake.exe
-REM (a mingw64-flavored one, which can't even parse "/opt/..." paths) to
-REM get picked up instead. Hardcode the known-good Windows path here and
-REM derive the MSYS-notation form FROM it, rather than trying to detect and
-REM reuse whatever format the environment variable happens to be in.
-set DKP_WIN=E:\App\devkitPro
+REM devkitPro's install location, as a native Windows path. NOT taken
+REM directly from the DEVKITPRO environment variable: it can legitimately be
+REM an MSYS2-style POSIX path (e.g. "/opt/devkitpro", which some shells
+REM export it as, and which the MSYS-hosted cmake.exe below is fine with)
+REM -- but that same value is useless as a Windows PATH entry (no drive
+REM letter), and silently resolving to nothing there previously caused the
+REM wrong cmake.exe (a mingw64-flavored one, which can't even parse
+REM "/opt/..." paths) to get picked up instead. devkitpro-path.bat resolves
+REM the real Windows path (env var if usable, else the registry entry
+REM devkitProUpdater writes on install, else the documented default) so
+REM this doesn't depend on the install being at any one specific location;
+REM the MSYS-notation form is then derived FROM that, rather than trying to
+REM detect and reuse whatever format the environment variable happens to be in.
+call "%~dp0devkitpro-path.bat"
+if not defined DKP_WIN (
+    echo Could not locate a devkitPro install ^(checked DEVKITPRO and the registry^).
+    echo Install devkitPro from https://devkitpro.org/wiki/Getting_Started, or set
+    echo the DEVKITPRO environment variable to your install path.
+    exit /b 1
+)
 set "DKP_MSYS=%DKP_WIN:\=/%"
 set "DKP_MSYS=%DKP_MSYS::=%"
 set "DKP_MSYS=/%DKP_MSYS%"
@@ -74,6 +83,6 @@ exit /b 0
 
 :error
 echo.
-echo Build failed. Make sure devkitPro is installed at %DKP_WIN%
-echo (edit build-3ds.bat's DKP_WIN if yours is elsewhere).
+echo Build failed. Detected devkitPro at %DKP_WIN% -- if that's wrong, set the
+echo DEVKITPRO environment variable to your actual install path.
 exit /b 1

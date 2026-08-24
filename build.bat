@@ -2,20 +2,27 @@
 setlocal
 
 set BUILD_DIR=build
-set MINGW_BIN=E:\App\devkitPro\msys2\mingw64\bin
 
 REM Always prefer the devkitPro-bundled mingw64 toolchain (verified to work
 REM with this project's GLFW/GLEW/CMake) over whatever else might already be
-REM on PATH -- this machine has at least one other, unrelated MSYS2/ninja
-REM install (e.g. E:\App\msys64\ucrt64 + E:\App\ninja-win) that gets picked
-REM up first otherwise and mismatches with it, breaking CMake's compiler
-REM sanity check ("not able to compile a simple test program").
-if exist "%MINGW_BIN%\g++.exe" (
+REM on PATH -- a machine can easily have another, unrelated MSYS2/ninja
+REM install that gets picked up first otherwise and mismatches with it,
+REM breaking CMake's compiler sanity check ("not able to compile a simple
+REM test program"). devkitpro-path.bat locates the install itself (env var
+REM or registry) instead of hardcoding a path specific to one machine.
+set "MINGW_BIN="
+call "%~dp0devkitpro-path.bat"
+if defined DKP_WIN set "MINGW_BIN=%DKP_WIN%\msys2\mingw64\bin"
+
+set "GOT_MINGW="
+if defined MINGW_BIN if exist "%MINGW_BIN%\g++.exe" set "GOT_MINGW=1"
+
+if defined GOT_MINGW (
     set "PATH=%MINGW_BIN%;%PATH%"
 ) else (
     where g++ >nul 2>nul
     if not %ERRORLEVEL%==0 (
-        echo Could not find a C++ compiler on PATH, and no mingw64 toolchain found at %MINGW_BIN%.
+        echo Could not find a C++ compiler on PATH, and no mingw64 toolchain found under devkitPro.
         echo Install it from an MSYS2 shell with:
         echo   pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-glfw mingw-w64-x86_64-glew mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
         exit /b 1
