@@ -135,15 +135,12 @@ namespace Duality {
         Input::SetAxis("Horizontal", horizontal);
         Input::SetAxis("Vertical", vertical);
 
-        if (io.WantCaptureMouse) {
-            Input::SetPointer(false, Input::GetPointerPosition());
-        } else {
-            double mouseX, mouseY;
-            glfwGetCursorPos(m_Handle, &mouseX, &mouseY);
-            bool down = glfwGetMouseButton(m_Handle, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-            Input::SetPointer(down, { static_cast<float>(mouseX), static_cast<float>(mouseY) });
-        }
-
+        // Pointer state is NOT set here -- unlike keys/axes, resolving "which screen" (Top or
+        // Bottom) a raw window-space mouse position falls over needs GamePanel's own knowledge
+        // of where each screen's image is actually drawn this frame, which this class doesn't
+        // have. GamePanel::OnImGuiRender calls Input::SetPointer itself once it draws the two
+        // screen images, later in this same frame (Application::Run() renders it after
+        // Window::BeginFrame) -- see its own comment.
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();

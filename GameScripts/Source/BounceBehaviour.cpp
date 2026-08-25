@@ -11,7 +11,11 @@ void BounceBehaviour::OnCreate() {
 
 void BounceBehaviour::OnUpdate(float deltaTime) {
     m_Time += deltaTime;
-    GetComponent<Duality::TransformComponent>().Translation.y = m_BaseY + std::sin(m_Time * 8.0f) * 40.0f;
+    float baseY = m_BaseY;
+    Duality::Entity target = ResolveEntityRef(Target);
+    if (target)
+        baseY = target.GetComponent<Duality::TransformComponent>().Translation.y;
+    GetComponent<Duality::TransformComponent>().Translation.y = baseY + std::sin(m_Time * Speed) * Amplitude;
 }
 
 REGISTER_BEHAVIOUR(BounceBehaviour)

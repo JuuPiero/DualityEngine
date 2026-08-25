@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Build & Deploy — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="build-deploy">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">API Reference</div>
+                <h1>Build &amp; Deploy</h1>
+                <p class="lede">
+                    Ba con đường ra sản phẩm: build 3DS thật (<code>.3dsx</code>/<code>.cia</code>),
+                    build desktop độc lập, và chạy Play-in-Editor. Xem
+                    <a href="getting-started.html">Cài đặt &amp; Build</a> cho lệnh dòng lệnh cơ
+                    bản — trang này đi sâu vào cơ chế bên dưới.
+                </p>
+
+                <h2 style="border-top:none;margin-top:0">BuildPipeline (Editor)</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">static void</span> <span class="p-name">BuildFor3DSAsync</span>(<span class="p-arg">const std::string&amp; repoRoot, const std::string&amp; scenePath</span>)</div></div>
+                    <div class="api-body">
+                        <p>
+                            Chạy trên thread nền riêng (không block UI Editor lúc build tới gần 1
+                            phút) — copy scene hiện tại vào <code>DualityPlayer/romfs/Scene.scene</code>
+                            rồi tự chạy <code>build-3ds.bat</code>. Cook asset (texture...) qua
+                            <code>tex3ds</code>, đường dẫn <strong>không hardcode</strong> — tự
+                            tìm theo thứ tự: biến môi trường <code>DEVKITPRO</code> (chỉ nếu trỏ
+                            tới đường dẫn Windows thật) → registry key
+                            <code>devkitProUpdater</code> devkitPro cài lúc setup → mặc định
+                            <code>C:\devkitPro</code>. Không tìm được thì bỏ qua bước cook texture
+                            (log cảnh báo rõ), không fail cả build.
+                        </p>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">static void</span> <span class="p-name">BuildForPCAsync</span>(<span class="p-arg">const std::string&amp; buildDirectory</span>)</div></div>
+                    <div class="api-body">
+                        <p>
+                            Nhẹ hơn nhiều — chỉ rebuild incremental target
+                            <code>DualityPlayerDesktop</code> trong cây build desktop có sẵn.
+                            Không có bước cook romfs/asset nào, vì target này đọc thẳng
+                            <code>Assets/</code> từ đĩa mỗi lần khởi động. Dùng chung một cờ trạng
+                            thái với <code>BuildFor3DSAsync</code> — hai build không chạy đồng thời
+                            được (cùng đụng vào cây build Ninja).
+                        </p>
+                    </div>
+                </div>
+                <div class="callout">
+                    Cả hai gọi được từ Editor (menu <strong>File → Build for 3DS</strong>/<strong>Build
+                    for PC</strong>) hoặc dòng lệnh trực tiếp qua <code>build-3ds.bat</code>/
+                    <code>build.bat</code> — hai con đường dùng chung logic, không phân nhánh.
+                </div>
+
+                <h2>Cook asset lên romfs (3DS)</h2>
+                <p>Mọi file không phải <code>.png</code> trong <code>Assets/</code> được copy nguyên văn vào romfs kèm một manifest — không cần cấu hình gì thêm khi thêm asset type mới, kể cả một file scene thứ hai cho <code>SceneManager.LoadScene</code> nhắm tới.</p>
+                <table>
+                    <tr><th>Asset</th><th>Xử lý lúc cook</th></tr>
+                    <tr><td><code>.png</code>/<code>.jpg</code>/...</td><td>Convert sang <code>.t3x</code> qua <code>tex3ds</code> — Mipmap bake vào đây (cờ <code>-m box</code> nếu bật trong Import Settings); Filter/Wrap Mode <strong>không</strong> bake, áp dụng runtime.</td></tr>
+                    <tr><td>Mọi file khác (<code>.mat</code>/<code>.prefab</code>/<code>.asset</code>/<code>.scene</code>/<code>.wav</code>...)</td><td>Copy nguyên văn — cùng parser JSON generic desktop/3DS đều dùng.</td></tr>
+                    <tr><td><code>.meta</code> của mỗi asset đã cook</td><td>Một bản <code>.meta</code> "chỉ chứa Import Settings" (không có <code>"guid"</code>) được cook cạnh file — để code chạy trên máy gọi đúng <code>Load()</code> giống hệt desktop, không phân nhánh theo nền tảng.</td></tr>
+                </table>
+
+                <h2>Đóng gói .3dsx / .cia</h2>
+                <table>
+                    <tr><th>Định dạng</th><th>Dùng để</th><th>Yêu cầu</th></tr>
+                    <tr><td><code>.3dsx</code></td><td>Vòng lặp phát triển nhanh — Homebrew Launcher, hoặc <code>3dslink -s &lt;file&gt;</code> đẩy qua mạng tới máy thật/Citra.</td><td>Không cần gì thêm ngoài devkitPro.</td></tr>
+                    <tr><td><code>.cia</code></td><td>Cài qua FBI trên máy thật/CFW.</td><td><code>makerom.exe</code> + <code>bannertool.exe</code> trong <code>Tools/</code> (tải từ GitHub release của Project_CTR — không có trong repo devkitPro pacman) — thiếu thì build bỏ qua bước này, vẫn ra <code>.3dsx</code> bình thường.</td></tr>
+                </table>
+
+                <h2>Vòng lặp Play-in-Editor</h2>
+                <p>
+                    Không cần build lại executable để thử code gameplay: sửa
+                    <code>GameScripts/*.cpp</code>, bấm <strong>Reload Scripts</strong> (panel
+                    Game) — chỉ <code>GameScripts.dll</code> được rebuild + hot-reload vào Editor
+                    đang chạy. Trên desktop, <code>GameScripts</code> build dạng <code>SHARED</code>
+                    (DLL); trên 3DS, cùng bộ source build dạng <code>STATIC</code>, link thẳng vào
+                    <code>DualityPlayer</code> (không có dynamic loading trên phần cứng).
+                </p>
+
+                <h2>DualityPlayerDesktop</h2>
+                <p>
+                    Runtime desktop độc lập, không kèm Editor/ImGui — một cửa sổ GLFW thật, vẽ cả
+                    hai màn xếp chồng dọc (giống cách cầm máy 3DS thật) vào cùng một framebuffer
+                    mặc định qua <code>glViewport</code>/<code>glScissor</code> riêng cho mỗi màn.
+                    Chạy cùng pipeline <code>Scene</code>/<code>SceneSerializer</code>/
+                    <code>AssetDatabase</code>/<code>GameScripts</code> y hệt 3DS thật — chỉ khác
+                    backend renderer (OpenGL thay vì citro2d/citro3d). Hiện luôn chạy
+                    <code>SampleProject</code> cố định (chưa có project picker) và tỉ lệ 2x cố
+                    định.
+                </p>
+
+                <h2>Testing</h2>
+                <pre><code>run-tests.bat</code></pre>
+                <p>
+                    Test suite headless cho logic engine cốt lõi (không cần GUI/thiết bị) — link
+                    trực tiếp compiled code thật của <code>DualityEngine</code>, không mock. Bộ
+                    <code>TEST_CASE</code>/<code>CHECK</code> tự viết nhỏ gọn (<code>Tests/TestFramework.h</code>)
+                    thay vì vendor Catch2/GoogleTest. <code>.github/workflows/ci.yml</code> chạy
+                    <code>build.bat</code> + <code>run-tests.bat</code> trên mỗi push/PR (chỉ
+                    desktop — cross-compile 3DS chưa nối vào CI).
+                </p>
+
+                <div class="page-nav">
+                    <a class="prev" href="editor.html"><span class="dir">← Trước</span>Editor Panels</a>
+                    <a class="next" href="../index.html"><span class="dir">Xong</span>Về Tổng quan</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

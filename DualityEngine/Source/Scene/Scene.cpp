@@ -10,6 +10,7 @@
 #include <btBulletDynamicsCommon.h>
 
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
@@ -297,6 +298,130 @@ namespace Duality {
         return ScriptableObjectLoader::Load(path).Instance;
     }
 
+    // Rigidbody velocity/force API (Unity's Rigidbody2D/Rigidbody) -- routed through
+    // EngineServices for the same reason PlaySound/GetAxis are: b2Body/btRigidBody methods
+    // aren't header-only (real compiled code in libbox2d.a/libBulletDynamics.a), so a
+    // GameScripts.dll that doesn't link either library can't call them directly.
+    // `entityHandle` is always the calling Behaviour's own GetEntity().Handle() in practice.
+    // Registry() is Scene's own public accessor -- no new Scene method needed for this.
+    // Returns false/no-op if the entity has no Rigidbody of that dimension, or Play isn't
+    // running yet (RuntimeBody is null outside Play) -- same graceful-degradation convention
+    // as every other EngineServices call.
+    static bool EngineServices_GetVelocity2D(void* scenePtr, unsigned int entityHandle, float* outX, float* outY) {
+        auto& registry = static_cast<Scene*>(scenePtr)->Registry();
+        entt::entity handle = static_cast<entt::entity>(entityHandle);
+        if (!registry.valid(handle) || !registry.all_of<Rigidbody2DComponent>(handle))
+            return false;
+        void* runtimeBody = registry.get<Rigidbody2DComponent>(handle).RuntimeBody;
+        if (!runtimeBody)
+            return false;
+        const b2Vec2& v = static_cast<b2Body*>(runtimeBody)->GetLinearVelocity();
+        *outX = v.x;
+        *outY = v.y;
+        return true;
+    }
+
+    static void EngineServices_SetVelocity2D(void* scenePtr, unsigned int entityHandle, float x, float y) {
+        auto& registry = static_cast<Scene*>(scenePtr)->Registry();
+        entt::entity handle = static_cast<entt::entity>(entityHandle);
+        if (!registry.valid(handle) || !registry.all_of<Rigidbody2DComponent>(handle))
+            return;
+        void* runtimeBody = registry.get<Rigidbody2DComponent>(handle).RuntimeBody;
+        if (runtimeBody)
+            static_cast<b2Body*>(runtimeBody)->SetLinearVelocity(b2Vec2(x, y));
+    }
+
+    static void EngineServices_AddForce2D(void* scenePtr, unsigned int entityHandle, float x, float y) {
+        auto& registry = static_cast<Scene*>(scenePtr)->Registry();
+        entt::entity handle = static_cast<entt::entity>(entityHandle);
+        if (!registry.valid(handle) || !registry.all_of<Rigidbody2DComponent>(handle))
+            return;
+        void* runtimeBody = registry.get<Rigidbody2DComponent>(handle).RuntimeBody;
+        if (runtimeBody)
+            static_cast<b2Body*>(runtimeBody)->ApplyForceToCenter(b2Vec2(x, y), true); // true = wake the body
+    }
+
+    static bool EngineServices_GetVelocity3D(void* scenePtr, unsigned int entityHandle, float* outX, float* outY, float* outZ) {
+        auto& registry = static_cast<Scene*>(scenePtr)->Registry();
+        entt::entity handle = static_cast<entt::entity>(entityHandle);
+        if (!registry.valid(handle) || !registry.all_of<Rigidbody3DComponent>(handle))
+            return false;
+        void* runtimeBody = registry.get<Rigidbody3DComponent>(handle).RuntimeBody;
+        if (!runtimeBody)
+            return false;
+        const btVector3& v = static_cast<btRigidBody*>(runtimeBody)->getLinearVelocity();
+        *outX = v.x();
+        *outY = v.y();
+        *outZ = v.z();
+        return true;
+    }
+
+    static void EngineServices_SetVelocity3D(void* scenePtr, unsigned int entityHandle, float x, float y, float z) {
+        auto& registry = static_cast<Scene*>(scenePtr)->Registry();
+        entt::entity handle = static_cast<entt::entity>(entityHandle);
+        if (!registry.valid(handle) || !registry.all_of<Rigidbody3DComponent>(handle))
+            return;
+        void* runtimeBody = registry.get<Rigidbody3DComponent>(handle).RuntimeBody;
+        if (runtimeBody) {
+            auto* body = static_cast<btRigidBody*>(runtimeBody);
+            body->activate(true); // a sleeping body would otherwise just ignore this
+            body->setLinearVelocity(btVector3(x, y, z));
+        }
+    }
+
+    static void EngineServices_AddForce3D(void* scenePtr, unsigned int entityHandle, float x, float y, float z) {
+        auto& registry = static_cast<Scene*>(scenePtr)->Registry();
+        entt::entity handle = static_cast<entt::entity>(entityHandle);
+        if (!registry.valid(handle) || !registry.all_of<Rigidbody3DComponent>(handle))
+            return;
+        void* runtimeBody = registry.get<Rigidbody3DComponent>(handle).RuntimeBody;
+        if (runtimeBody) {
+            auto* body = static_cast<btRigidBody*>(runtimeBody);
+            body->activate(true);
+            body->applyCentralForce(btVector3(x, y, z));
+        }
+    }
+
+    static int EngineServices_GetPointerScreen() {
+        return static_cast<int>(Input::GetPointerScreen());
+    }
+
+    static bool EngineServices_Raycast2D(void* scenePtr, float originX, float originY, float dirX, float dirY, float maxDistance,
+                                          unsigned int* outHandle, float* outPointX, float* outPointY, float* outNormalX, float* outNormalY, float* outDistance) {
+        RaycastHit2D hit = static_cast<Scene*>(scenePtr)->Raycast2D({ originX, originY }, { dirX, dirY }, maxDistance);
+        if (!hit)
+            return false;
+        *outHandle = static_cast<unsigned int>(hit.HitEntity.Handle());
+        *outPointX = hit.Point.x; *outPointY = hit.Point.y;
+        *outNormalX = hit.Normal.x; *outNormalY = hit.Normal.y;
+        *outDistance = hit.Distance;
+        return true;
+    }
+
+    static bool EngineServices_Raycast3D(void* scenePtr, float originX, float originY, float originZ, float dirX, float dirY, float dirZ, float maxDistance,
+                                          unsigned int* outHandle, float* outPointX, float* outPointY, float* outPointZ,
+                                          float* outNormalX, float* outNormalY, float* outNormalZ, float* outDistance) {
+        RaycastHit3D hit = static_cast<Scene*>(scenePtr)->Raycast3D({ originX, originY, originZ }, { dirX, dirY, dirZ }, maxDistance);
+        if (!hit)
+            return false;
+        *outHandle = static_cast<unsigned int>(hit.HitEntity.Handle());
+        *outPointX = hit.Point.x; *outPointY = hit.Point.y; *outPointZ = hit.Point.z;
+        *outNormalX = hit.Normal.x; *outNormalY = hit.Normal.y; *outNormalZ = hit.Normal.z;
+        *outDistance = hit.Distance;
+        return true;
+    }
+
+    static bool EngineServices_ScreenPointToRay3D(void* scenePtr, int screen, float screenX, float screenY,
+                                                   float* outOriginX, float* outOriginY, float* outOriginZ,
+                                                   float* outDirX, float* outDirY, float* outDirZ) {
+        glm::vec3 origin, direction;
+        if (!static_cast<Scene*>(scenePtr)->ScreenPointToRay3D(static_cast<Screen>(screen), { screenX, screenY }, origin, direction))
+            return false;
+        *outOriginX = origin.x; *outOriginY = origin.y; *outOriginZ = origin.z;
+        *outDirX = direction.x; *outDirY = direction.y; *outDirZ = direction.z;
+        return true;
+    }
+
     static const EngineServices s_EngineServices = {
         &EngineServices_GetKey,
         &EngineServices_GetKeyDown,
@@ -313,6 +438,16 @@ namespace Duality {
         &EngineServices_RequestLoadScene,
         &EngineServices_Instantiate,
         &EngineServices_LoadScriptableObject,
+        &EngineServices_GetVelocity2D,
+        &EngineServices_SetVelocity2D,
+        &EngineServices_AddForce2D,
+        &EngineServices_GetVelocity3D,
+        &EngineServices_SetVelocity3D,
+        &EngineServices_AddForce3D,
+        &EngineServices_GetPointerScreen,
+        &EngineServices_Raycast2D,
+        &EngineServices_Raycast3D,
+        &EngineServices_ScreenPointToRay3D,
     };
 
     Entity Scene::CreateEntity(const std::string& name) {
@@ -449,6 +584,122 @@ namespace Duality {
         return Entity{};
     }
 
+    namespace {
+        // b2World::RayCast (classic v2.4 API) reports every fixture along the ray one at a
+        // time via ReportFixture, letting the callback itself decide how to narrow down to
+        // "closest" -- returning `fraction` clips the ray to that point for all SUBSEQUENT
+        // reports, which is exactly the "closest hit so far" behavior Raycast2D wants (Unity's
+        // own Physics2D.Raycast semantics), without needing to track/compare fractions by hand.
+        class ClosestRayCastCallback2D : public b2RayCastCallback {
+        public:
+            bool Hit = false;
+            b2Fixture* Fixture = nullptr;
+            b2Vec2 Point{}, Normal{};
+
+            float ReportFixture(b2Fixture* fixture, const b2Vec2& point, const b2Vec2& normal, float fraction) override {
+                Hit = true;
+                Fixture = fixture;
+                Point = point;
+                Normal = normal;
+                return fraction;
+            }
+        };
+    }
+
+    RaycastHit2D Scene::Raycast2D(const glm::vec2& origin, const glm::vec2& direction, float maxDistance) {
+        RaycastHit2D result;
+        if (!m_PhysicsWorld)
+            return result; // not Playing -- no b2World to query yet
+
+        glm::vec2 dir = glm::normalize(direction);
+        glm::vec2 to = origin + dir * maxDistance;
+
+        ClosestRayCastCallback2D callback;
+        PhysicsWorld2D(m_PhysicsWorld)->World->RayCast(&callback, b2Vec2(origin.x, origin.y), b2Vec2(to.x, to.y));
+        if (!callback.Hit)
+            return result;
+
+        // Same uintptr_t -> uint32_t -> entt::entity narrowing as Box2DContactListener::Record
+        // above -- same userData convention, just read here instead of at contact time.
+        entt::entity handle = static_cast<entt::entity>(static_cast<uint32_t>(callback.Fixture->GetBody()->GetUserData().pointer));
+        if (!m_Registry.valid(handle))
+            return result;
+
+        result.HitEntity = Entity(handle, this);
+        result.Point = { callback.Point.x, callback.Point.y };
+        result.Normal = { callback.Normal.x, callback.Normal.y };
+        result.Distance = glm::distance(origin, result.Point);
+        return result;
+    }
+
+    RaycastHit3D Scene::Raycast3D(const glm::vec3& origin, const glm::vec3& direction, float maxDistance) {
+        RaycastHit3D result;
+        if (!m_PhysicsWorld3D)
+            return result; // not Playing -- no btDiscreteDynamicsWorld to query yet
+
+        glm::vec3 dir = glm::normalize(direction);
+        glm::vec3 to = origin + dir * maxDistance;
+        btVector3 from(origin.x, origin.y, origin.z);
+        btVector3 toBt(to.x, to.y, to.z);
+
+        btCollisionWorld::ClosestRayResultCallback callback(from, toBt);
+        PhysicsWorld3D(m_PhysicsWorld3D)->World->rayTest(from, toBt, callback);
+        if (!callback.hasHit())
+            return result;
+
+        // Same uintptr_t/void* -> uint32_t -> entt::entity narrowing as the Bullet manifold
+        // diff in OnRuntimeUpdate below -- same userPointer convention, just read here instead
+        // of at contact time.
+        entt::entity handle = static_cast<entt::entity>(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(callback.m_collisionObject->getUserPointer())));
+        if (!m_Registry.valid(handle))
+            return result;
+
+        result.HitEntity = Entity(handle, this);
+        result.Point = { callback.m_hitPointWorld.x(), callback.m_hitPointWorld.y(), callback.m_hitPointWorld.z() };
+        result.Normal = { callback.m_hitNormalWorld.x(), callback.m_hitNormalWorld.y(), callback.m_hitNormalWorld.z() };
+        result.Distance = glm::distance(origin, result.Point);
+        return result;
+    }
+
+    bool Scene::ScreenPointToRay3D(Screen screen, const glm::vec2& screenPoint, glm::vec3& outOrigin, glm::vec3& outDirection) {
+        Entity camera = GetPrimaryCamera(screen);
+        if (!camera)
+            return false;
+        auto& cameraComponent = camera.GetComponent<CameraComponent>();
+        if (cameraComponent.Projection != ProjectionType::Perspective)
+            return false; // an Orthographic "ray" needs parallel-projection handling this doesn't attempt
+
+        TransformComponent camTransform = GetWorldTransform(camera);
+        float screenWidth = (screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
+        float screenHeight = (screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
+        float aspect = screenWidth / screenHeight;
+
+        // Same T*Rz*Ry*Rx rotation order OpenGLRenderer3D::ComposeWorldMtx/Citro3DRenderer's
+        // own copy build this exact camera's view matrix with (see those files' own "must
+        // match" comments -- this is a third, independent copy for the same reason: a raycast
+        // has to agree with whatever's actually rendered, or a click would hit the wrong
+        // thing). Only the rotation is needed (forward/right/up); origin is the camera's own
+        // world translation directly, no matrix needed for that part.
+        glm::mat4 rot(1.0f);
+        rot = glm::rotate(rot, glm::radians(camTransform.Rotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
+        rot = glm::rotate(rot, glm::radians(camTransform.Rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
+        rot = glm::rotate(rot, glm::radians(camTransform.Rotation.x), glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::vec3 forward = glm::vec3(rot * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f));
+        glm::vec3 right = glm::vec3(rot * glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+        glm::vec3 up = glm::vec3(rot * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+
+        // Same NDC-then-basis-composition formula ScenePanel.cpp's own 3D pick-ray uses (Editor
+        // Scene-view click-to-select) -- this is the runtime/gameplay equivalent, operating on
+        // a real CameraComponent instead of the Editor's free-roam orbit camera.
+        float ndcX = (2.0f * (screenPoint.x / screenWidth)) - 1.0f;
+        float ndcY = 1.0f - (2.0f * (screenPoint.y / screenHeight));
+        float tanHalfFov = std::tan(glm::radians(cameraComponent.FovDegrees) * 0.5f);
+
+        outOrigin = camTransform.Translation;
+        outDirection = glm::normalize(forward + right * (ndcX * tanHalfFov * aspect) + up * (ndcY * tanHalfFov));
+        return true;
+    }
+
     void Scene::OnRuntimeStart() {
         Physics2DWorld* world2D = new Physics2DWorld();
         world2D->World = new b2World(b2Vec2(0.0f, DefaultGravityY));
@@ -479,7 +730,11 @@ namespace Duality {
             TransformComponent worldTransform = GetWorldTransform(Entity(handle, this));
 
             b2BodyDef bodyDef;
-            bodyDef.type = rb.IsStatic ? b2_staticBody : b2_dynamicBody;
+            switch (rb.Type) {
+                case BodyType::Static:    bodyDef.type = b2_staticBody; break;
+                case BodyType::Kinematic: bodyDef.type = b2_kinematicBody; break;
+                case BodyType::Dynamic:   default: bodyDef.type = b2_dynamicBody; break;
+            }
             bodyDef.position.Set(worldTransform.Translation.x, worldTransform.Translation.y);
             // TransformComponent::Rotation is always in degrees (matching
             // Unity and the Properties panel's plain drag-float) -- Box2D's
@@ -580,7 +835,11 @@ namespace Duality {
             rb.RuntimeCollisionShape = attachedShape;
 
             constexpr float NoColliderMass = 1.0f;
-            btScalar mass = rb.IsStatic ? 0.0f : (volume > 0.0f ? density * volume : NoColliderMass);
+            // Bullet has no separate "type" enum the way Box2D does -- Static and Kinematic
+            // both use mass 0 (Bullet's own convention for "not moved by forces"); what tells
+            // them apart is the CF_KINEMATIC_OBJECT flag set below, matching Bullet's documented
+            // kinematic-body recipe.
+            btScalar mass = (rb.Type == BodyType::Dynamic) ? (volume > 0.0f ? density * volume : NoColliderMass) : 0.0f;
             btVector3 localInertia(0.0f, 0.0f, 0.0f);
             if (mass > 0.0f)
                 attachedShape->calculateLocalInertia(mass, localInertia);
@@ -605,6 +864,15 @@ namespace Duality {
                 // the manifold-diff below still detects touching (true sensor semantics).
                 body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_NO_CONTACT_RESPONSE);
             }
+            if (rb.Type == BodyType::Kinematic) {
+                // Bullet's own documented kinematic-body recipe: CF_KINEMATIC_OBJECT (moved
+                // directly, e.g. by a script setting Transform, rather than by forces -- still
+                // generates real collisions/pushes Dynamic bodies) plus DISABLE_DEACTIVATION,
+                // since a kinematic body's mass is 0 like a Static one and Bullet would
+                // otherwise treat "hasn't moved under simulation" as eligible to sleep.
+                body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
+                body->setActivationState(DISABLE_DEACTIVATION);
+            }
             world3D->World->addRigidBody(body);
             rb.RuntimeBody = body;
         }
@@ -618,6 +886,20 @@ namespace Duality {
             if (ScriptRegistry::TryCreate(bc.ClassName, &bc.Instance, &bc.Destroy)) {
                 bc.Instance->m_Entity = Entity(handle, this);
                 bc.Instance->SetEngineServices(&s_EngineServices);
+
+                // Apply Edit-mode Inspector overrides (see BehaviourComponent's own comment)
+                // onto the fresh instance's real fields before OnCreate() sees them --
+                // matches Unity's own field-initialization-before-Awake ordering.
+                const std::vector<FieldHandle>& fields = ScriptRegistry::GetFields(bc.ClassName);
+                for (auto& [name, value] : bc.PropertyOverrides) {
+                    for (auto& field : fields) {
+                        if (field.Name == name) {
+                            field.Set(bc.Instance, value);
+                            break;
+                        }
+                    }
+                }
+
                 bc.Instance->OnCreate();
             } else {
                 Log::Error("Behaviour: unknown script class '" + bc.ClassName + "'");
@@ -635,6 +917,20 @@ namespace Duality {
         if (m_PhysicsWorld) {
             Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);
             world2D->Listener->Events = &contactEvents;
+
+            // Kinematic bodies are moved by script/animation, not by Box2D's own solver (mass
+            // 0, same as Static) -- so unlike Dynamic, the ENTITY's current TransformComponent
+            // is the source of truth each frame, pushed into the body right before it steps.
+            // The sync-back loop after Step() below then just reads this same value straight
+            // back for a Kinematic body (nothing moved it), a harmless no-op.
+            for (auto handle : m_Registry.view<Rigidbody2DComponent, TransformComponent>()) {
+                auto& rb = m_Registry.get<Rigidbody2DComponent>(handle);
+                if (rb.Type != BodyType::Kinematic || !rb.RuntimeBody)
+                    continue;
+                auto& transform = m_Registry.get<TransformComponent>(handle);
+                static_cast<b2Body*>(rb.RuntimeBody)->SetTransform(b2Vec2(transform.Translation.x, transform.Translation.y), glm::radians(transform.Rotation.z));
+            }
+
             world2D->World->Step(deltaTime, VelocityIterations, PositionIterations);
 
             auto bodyView = m_Registry.view<Rigidbody2DComponent, TransformComponent>();
@@ -657,6 +953,23 @@ namespace Duality {
 
         if (m_PhysicsWorld3D) {
             Physics3DWorld* world3D = PhysicsWorld3D(m_PhysicsWorld3D);
+
+            // Same Kinematic push-before-step reasoning as the 2D world above -- Bullet's own
+            // documented recipe for a kinematic body is to set its new transform through the
+            // motion state (not the body directly), which is what the solver actually reads
+            // each step for a body with CF_KINEMATIC_OBJECT set.
+            for (auto handle : m_Registry.view<Rigidbody3DComponent, TransformComponent>()) {
+                auto& rb = m_Registry.get<Rigidbody3DComponent>(handle);
+                if (rb.Type != BodyType::Kinematic || !rb.RuntimeBody)
+                    continue;
+                auto& transform = m_Registry.get<TransformComponent>(handle);
+                btTransform kinematicTransform;
+                kinematicTransform.setIdentity();
+                kinematicTransform.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
+                kinematicTransform.setRotation(EulerDegreesToBtQuaternion(transform.Rotation));
+                static_cast<btRigidBody*>(rb.RuntimeBody)->getMotionState()->setWorldTransform(kinematicTransform);
+            }
+
             world3D->World->stepSimulation(deltaTime);
 
             auto body3DView = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
@@ -847,6 +1160,11 @@ namespace Duality {
             delete world3D;
             m_PhysicsWorld3D = nullptr;
         }
+    }
+
+    void Scene::Clear() {
+        m_Registry.clear();
+        m_RootEntities.clear();
     }
 
 }

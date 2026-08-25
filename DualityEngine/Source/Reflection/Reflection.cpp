@@ -88,7 +88,7 @@ namespace Duality {
         });
 
         TypeRegistry::Register<Rigidbody2DComponent>("Rigidbody 2D", false, {
-            MakeField("Is Static", &Rigidbody2DComponent::IsStatic),
+            MakeField("Body Type", &Rigidbody2DComponent::Type),
             MakeField("Fixed Rotation", &Rigidbody2DComponent::FixedRotation),
         });
 
@@ -111,7 +111,7 @@ namespace Duality {
         });
 
         TypeRegistry::Register<Rigidbody3DComponent>("Rigidbody 3D", false, {
-            MakeField("Is Static", &Rigidbody3DComponent::IsStatic),
+            MakeField("Body Type", &Rigidbody3DComponent::Type),
         });
 
         TypeRegistry::Register<BoxCollider3DComponent>("Box Collider 3D", false, {

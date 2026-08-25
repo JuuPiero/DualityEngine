@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor Panels — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="editor">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">API Reference</div>
+                <h1>Editor Panels</h1>
+                <p class="lede">
+                    Editor desktop dựng bằng Dear ImGui, layout dock kiểu Unity/Cocos Creator mặc
+                    định. Mở project cố định tại <code>SampleProject/</code> khi khởi động (chưa
+                    có "New Project" dialog — mở project khác qua <strong>File → Open
+                    Project...</strong>, chọn file <code>.dproj</code>).
+                </p>
+
+                <h2 style="border-top:none;margin-top:0">Menu Bar</h2>
+                <table>
+                    <tr><th>Mục</th><th>Hành vi</th></tr>
+                    <tr><td>Open Project...</td><td>Chọn file <code>.dproj</code>; dừng Play nếu đang chạy, đổi hẳn project/scene/root Content Browser.</td></tr>
+                    <tr><td>Save Scene</td><td>Ghi scene hiện tại ra <code>Assets/Scene.scene</code>.</td></tr>
+                    <tr><td>Load Scene</td><td>Xoá sạch scene hiện tại rồi đọc lại từ đĩa — trước đây có bug nạp đè lên scene cũ thay vì xoá trước, đã fix.</td></tr>
+                    <tr><td>Open Scene...</td><td>Chọn một file <code>.scene</code> bất kỳ và chuyển sang nó — <strong>có</strong> đổi luôn scene mà Save/Load Scene thao tác từ đó về sau, khác Save Scene As...</td></tr>
+                    <tr><td>Save Scene As...</td><td>Ghi một <em>bản chụp</em> scene hiện tại ra file mới do người dùng chọn — <strong>không</strong> đổi scene Save/Load Scene đang thao tác. Cách để project có thêm scene thứ hai cho <code>SceneManager</code>/<code>LoadScene</code> nhắm tới.</td></tr>
+                    <tr><td>Build for 3DS / Build for PC</td><td>Xem <a href="build-deploy.html">Build &amp; Deploy</a>.</td></tr>
+                </table>
+                <p>Menu bar cũng hiện tên file scene đang active (<code>Scene: &lt;tên file&gt;</code>) — dễ theo dõi khi nhiều thao tác (Open Scene.../double-click/nút "Open Scene") có thể đổi nó.</p>
+
+                <h2>Hierarchy</h2>
+                <p>
+                    Liệt kê entity trong scene, phân theo <strong>Top Screen</strong>/<strong>Bottom
+                    Screen</strong>/<strong>Ungrouped</strong> (dựa theo <code>ScreenGroupComponent</code>
+                    gắn trên root). Click chọn entity. <strong>Create Entity</strong> tạo entity
+                    rỗng mới. Kéo-thả để reparent (thả lên node) hoặc đổi thứ tự anh em (thả vào
+                    khoảng giữa hai node). Chuột phải một entity: <strong>Create Child Entity</strong>,
+                    <strong>Create Prefab from Selection</strong>.
+                </p>
+
+                <h2>Properties</h2>
+                <p>
+                    Hiện mọi component trên entity đang chọn — field hoàn toàn generic qua
+                    reflection (xem <a href="architecture.html">Kiến trúc</a>), thêm component/field
+                    mới không cần sửa code Editor. Mọi entity có checkbox <strong>Active</strong>
+                    ngay cạnh Transform/Name/Tag. Component không bắt buộc có nút "..." để gỡ; nút
+                    <strong>+ Add Component</strong> ở cuối liệt kê mọi loại chưa có trên entity.
+                </p>
+                <p>
+                    <strong>Lock</strong> (kiểu Unity Inspector) — ghim panel vào entity/asset đang
+                    hiện, bỏ qua lựa chọn mới ở Hierarchy/Scene/Content Browser cho tới khi bỏ
+                    khoá. Ít cần thiết hơn từ khi Content Browser đổi cách bắt click sang
+                    mouse-release (không còn tự chọn lại khi bắt đầu kéo-thả asset) — nhưng vẫn
+                    hữu ích để ghim khi duyệt chỗ khác.
+                </p>
+                <p>
+                    Nếu entity đang chọn có <strong>Behaviour</strong> gắn class hợp lệ, một mục
+                    "Script Properties" hiện thêm bên dưới field <code>Class</code> — field public
+                    do <code>DUALITY_PROPERTIES</code> khai báo (xem
+                    <a href="architecture.html">Kiến trúc</a>). Sửa lúc Edit lưu cùng scene; sửa
+                    lúc đang Play chỉ ảnh hưởng object đang sống, mất khi Stop.
+                </p>
+
+                <h2>Scene (panel edit)</h2>
+                <p>
+                    Hai pane song song Top/Bottom, mỗi pane một camera tự do (pan/zoom/orbit) độc
+                    lập với camera thật trong scene — không bao giờ sửa
+                    <code>CameraComponent</code> khi chỉ đang thao tác xem, giống Unity's
+                    Scene-vs-Game. Nút <strong>2D | 3D</strong> mỗi pane chuyển pipeline render.
+                </p>
+                <table>
+                    <tr><th>Chế độ</th><th>Thao tác chuột</th></tr>
+                    <tr><td>2D</td><td>Kéo-giữa (middle-drag) pan, lăn chuột zoom, click trái chọn sprite/kéo gizmo.</td></tr>
+                    <tr><td>3D</td><td>Click/kéo trái chọn + kéo gizmo, kéo phải orbit (quaternion thật, không giới hạn gimbal-lock), kéo-giữa pan, lăn chuột zoom.</td></tr>
+                </table>
+                <p>
+                    Cả hai chế độ vẽ lưới kiểu Unity/Cocos (xem <a href="rendering.html">Rendering</a>)
+                    và khung frustum thật cho camera entity thay vì chấm phẳng. Nút
+                    <strong>Translate / Rotate / Scale</strong> đổi chế độ gizmo cho entity đang
+                    chọn — kéo handle sửa Transform trực tiếp, thấy ngay ở cả Scene, Game, và bản
+                    build 3DS thật. <code>Transform.Rotation</code> luôn tính bằng độ.
+                </p>
+                <div class="callout">
+                    Entity <strong>inactive</strong> (checkbox Active tắt) biến mất khỏi cả hai
+                    pane Scene ngay lập tức, giống Game view — không chỉ mờ đi như quy ước gốc của
+                    Unity. Collider/frustum camera/gizmo vẫn hiện để còn chỉnh sửa được entity đó
+                    trong lúc inactive.
+                </div>
+
+                <h2>Game</h2>
+                <p>
+                    Vẽ đúng những gì camera TopCamera/BottomCamera thật render, xếp chồng theo
+                    đúng bố cục vật lý máy (Top trên, Bottom dưới) — cùng render pass 3DS thật
+                    dùng. <strong>Play/Stop</strong> chạy toàn bộ vòng đời runtime (script, physics
+                    2D/3D, sự kiện va chạm/trigger, UI); Stop phục hồi <em>đúng</em> trạng thái
+                    trước khi Play (xem <a href="architecture.html">Kiến trúc</a>).
+                    <strong>Reload Scripts</strong> build lại <code>GameScripts</code> và hot-load
+                    vào Editor đang chạy mà không khởi động lại.
+                </p>
+                <p>
+                    Click/chạm vào ảnh mỗi màn ở đây (lúc đang Play) được resolve đúng về toạ độ
+                    pixel local của màn đó — <code>Behaviour::GetPointerPosition()</code>/<code>ScreenPointToRay3D</code>
+                    hoạt động y hệt Play-in-Editor như trên <code>DualityPlayerDesktop</code> hay
+                    3DS thật.
+                </p>
+
+                <h2>Console</h2>
+                <p>Xem log <code>Duality::Log</code> (kể cả <code>Behaviour::LogInfo/Warn/Error</code> từ script), tô màu theo mức (Trace/Info/Warn/Error), lọc theo mức + ô tìm kiếm text.</p>
+
+                <h2>Content Browser</h2>
+                <p>Xem chi tiết ở <a href="assets.html">Asset Pipeline</a>.</p>
+
+                <div class="page-nav">
+                    <a class="prev" href="assets.html"><span class="dir">← Trước</span>Asset Pipeline</a>
+                    <a class="next" href="build-deploy.html"><span class="dir">Tiếp →</span>Build &amp; Deploy</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

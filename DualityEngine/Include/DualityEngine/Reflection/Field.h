@@ -1,11 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <variant>
 
 #include <glm/glm.hpp>
 
+#include "DualityEngine/Physics/BodyType.h"
 #include "DualityEngine/Renderer/MeshPrimitive.h"
 #include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
@@ -28,7 +30,21 @@ namespace Duality {
     // construction needed, unlike Color4.
     struct AssetRef { std::string Guid; };
 
-    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef, ProjectionType, MeshPrimitive, UIAnchor>;
+    // A reference to another entity in the same Scene, by its raw entt handle (kept as a
+    // plain uint32_t rather than entt::entity so this header doesn't need <entt.hpp> --
+    // Behaviour::ResolveEntityRef/MakeEntityRef do the entt::entity cast). Invalid = "no
+    // entity assigned". Unlike AssetRef, this is NOT stable across a scene save/load: a
+    // reloaded scene's entities get freshly assigned handles in creation order, so a raw
+    // handle from a previous session would silently resolve to the wrong entity (or none) --
+    // FieldValueToJson/JsonToFieldValue deliberately never round-trip this value, always
+    // saving/restoring it as "unset" instead. Usable directly with MakeField<C,T>() like any
+    // other field type.
+    struct EntityRef {
+        static constexpr uint32_t Invalid = 0xFFFFFFFF;
+        uint32_t Handle = Invalid;
+    };
+
+    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef, ProjectionType, MeshPrimitive, UIAnchor, BodyType, EntityRef>;
 
     // A named, type-erased accessor for one field of a component/script
     // instance. Reflection is only ever walked from the Properties panel

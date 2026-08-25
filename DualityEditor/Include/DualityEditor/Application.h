@@ -78,6 +78,12 @@ namespace Duality {
         // m_RequestOpenProject above -- see SaveSceneAsFromDialog's own comment for why
         // this does NOT change m_ScenePath (unlike Unity's own Save As).
         bool m_RequestSaveSceneAs = false;
+        // Set by MenuBarPanel's "Open Scene...", same request-flag convention -- see
+        // OpenSceneFromDialog's own comment.
+        bool m_RequestOpenSceneDialog = false;
+
+        // Play->Stop scene-state snapshot -- see EditorContext::PlaySnapshot's own comment.
+        std::string m_PlaySnapshot;
 
         // Editor stats overlay (GamePanel) -- m_Fps is exponentially smoothed so
         // it's readable frame-to-frame instead of jittering with raw 1/deltaTime.

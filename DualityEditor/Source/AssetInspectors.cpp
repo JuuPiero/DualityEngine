@@ -8,6 +8,7 @@
 #include "DualityEditor/AssetInspectorRegistry.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/FieldEditorWidget.h"
+#include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AudioImportSettings.h"
 #include "DualityEngine/Asset/Material.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
@@ -97,10 +98,17 @@ namespace Duality {
             }
         }
 
-        // Also read-only (a Scene is edited by opening it via "Load Scene", not in place here)
-        // -- lists every root entity (Parent == -1) by name, which is the meaningful "what's in
-        // this scene at a glance" summary, unlike Prefab's single well-defined root.
-        void DrawSceneAsset(const std::string& path, EditorContext&) {
+        // Also read-only (a Scene is edited by opening it, not in place here) -- lists every
+        // root entity (Parent == -1) by name, which is the meaningful "what's in this scene at
+        // a glance" summary, unlike Prefab's single well-defined root. The "Open Scene" button
+        // is the same action as double-clicking this file in the Content Browser (SceneOps::
+        // OpenScene) -- offered here too since a file already selected (this Inspector showing)
+        // is one click away from opening, instead of needing to go find and double-click it again.
+        void DrawSceneAsset(const std::string& path, EditorContext& ctx) {
+            if (ImGui::Button("Open Scene"))
+                OpenScene(ctx, path);
+            ImGui::Separator();
+
             json entities;
             if (!TryReadEntities(path, entities))
                 return;

@@ -95,19 +95,30 @@ namespace {
     // there's only one global Input pointer (see Input::SetPointer), so this picks whichever
     // screen the mouse is "over" this frame, letting either screen's UI/pointer-driven gameplay
     // respond, unlike the fixed touch-is-always-Bottom convention real 3DS hardware has.
-    bool MapWindowPointToScreen(double windowX, double windowY, glm::vec2& outScreenPoint) {
-        ScreenViewport top = TopViewport(), bottom = BottomViewport();
-        // GLFW's own cursor Y is measured from the window's top edge, same direction as the
-        // viewports below are measured from the window's BOTTOM edge (OpenGL convention) --
-        // flipped once here so both compare in the same sense.
-        double flippedY = WindowHeight - windowY;
+    //
+    // Deliberately computed directly in GLFW's own Y-down, top-left-origin window space rather
+    // than reusing TopViewport()/BottomViewport() -- those are in OpenGL's Y-up,
+    // bottom-left-origin glViewport/glScissor convention (needed for THEIR purpose), and mixing
+    // the two without care produced a real bug: the previous version of this function returned
+    // a Y-UP result within each screen (0 at that screen's bottom edge, growing upward), the
+    // opposite of every other pixel-space convention in this engine (OpenGLRenderer2D/3D's own
+    // glOrtho calls, Citro2D/Citro3DRenderer on device, UIRectComponent anchoring -- all Y-down,
+    // 0 at the top). A script reading GetPointerPosition() on this platform was getting an
+    // inverted Y with no way to know it.
+    bool MapWindowPointToScreen(double windowX, double windowY, glm::vec2& outScreenPoint, Screen& outScreen) {
+        double topTop = 0.0, topBottom = static_cast<double>(TopScreenHeight * DisplayScale);
+        double bottomTop = topBottom, bottomBottom = topBottom + BottomScreenHeight * DisplayScale;
+        double bottomLeft = (WindowWidth - BottomScreenWidth * DisplayScale) / 2.0;
+        double bottomRight = bottomLeft + BottomScreenWidth * DisplayScale;
 
-        if (windowX >= top.X && windowX < top.X + top.W && flippedY >= top.Y && flippedY < top.Y + top.H) {
-            outScreenPoint = { (windowX - top.X) / DisplayScale, (WindowHeight - windowY - top.Y) / DisplayScale };
+        if (windowX >= 0.0 && windowX < WindowWidth && windowY >= topTop && windowY < topBottom) {
+            outScreenPoint = { static_cast<float>(windowX / DisplayScale), static_cast<float>((windowY - topTop) / DisplayScale) };
+            outScreen = Screen::Top;
             return true;
         }
-        if (windowX >= bottom.X && windowX < bottom.X + bottom.W && flippedY >= bottom.Y && flippedY < bottom.Y + bottom.H) {
-            outScreenPoint = { (windowX - bottom.X) / DisplayScale, (WindowHeight - windowY - bottom.Y) / DisplayScale };
+        if (windowX >= bottomLeft && windowX < bottomRight && windowY >= bottomTop && windowY < bottomBottom) {
+            outScreenPoint = { static_cast<float>((windowX - bottomLeft) / DisplayScale), static_cast<float>((windowY - bottomTop) / DisplayScale) };
+            outScreen = Screen::Bottom;
             return true;
         }
         return false;
@@ -208,9 +219,10 @@ int main() {
         double mouseX, mouseY;
         glfwGetCursorPos(window, &mouseX, &mouseY);
         glm::vec2 screenPoint;
-        bool overAScreen = MapWindowPointToScreen(mouseX, mouseY, screenPoint);
+        Screen hitScreen = Screen::Top;
+        bool overAScreen = MapWindowPointToScreen(mouseX, mouseY, screenPoint, hitScreen);
         bool mouseDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-        Input::SetPointer(overAScreen && mouseDown, overAScreen ? screenPoint : glm::vec2{ 0.0f, 0.0f });
+        Input::SetPointer(overAScreen && mouseDown, overAScreen ? screenPoint : glm::vec2{ 0.0f, 0.0f }, hitScreen);
 
         AudioEngine::Update();
 

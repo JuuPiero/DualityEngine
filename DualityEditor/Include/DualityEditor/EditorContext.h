@@ -75,9 +75,21 @@ namespace Duality {
         const float& Fps;
         const uint32_t& GameDrawCallCount;
 
-        const std::string& ScenePath;
+        // Which file "Save Scene"/"Load Scene" operate on -- mutable (unlike most of the
+        // other plain-data fields below, this used to be const) since SceneOps.h's
+        // OpenScene() updates it directly when switching to a different scene.
+        std::string& ScenePath;
         const std::string& BuildDirectory;
         const std::string& RepoRoot;
+
+        // Captured by GamePanel's "Play" button (SceneSerializer::SerializeToJson().dump())
+        // right before Scene::OnRuntimeStart(), restored by "Stop" (via Scene::Clear() +
+        // DeserializeFromJson) so leaving Play mode reverts every change Play made --
+        // script-driven Transform edits, physics results, runtime-spawned entities --
+        // matching Unity's own Play/Stop guarantee. Owned by Application (a plain string,
+        // not a live nlohmann::json, so this header doesn't need that include) since
+        // EditorContext itself is rebuilt fresh every frame and can't hold state across one.
+        std::string& PlaySnapshot;
 
         // Set by MenuBarPanel when "Open Project..." is clicked; Application
         // checks this right after the menu bar renders and, if set, shows
@@ -90,6 +102,13 @@ namespace Duality {
         // lets a project accumulate additional scene files (e.g. for
         // Behaviour::LoadScene to target) without hand-copying JSON outside the Editor.
         bool& RequestSaveSceneAs;
+
+        // Same request-flag convention, for "Open Scene..." -- browses to an arbitrary
+        // .scene file (needs the native window handle, which only Application has) and
+        // then calls SceneOps.h's OpenScene() with the result. Opening a specific known
+        // path (Content Browser double-click, the Scene asset inspector's "Open Scene"
+        // button, "Load Scene") doesn't need a dialog and calls OpenScene() directly instead.
+        bool& RequestOpenSceneDialog;
     };
 
 }

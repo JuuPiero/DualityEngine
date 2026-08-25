@@ -25,6 +25,12 @@ namespace Duality {
                 return names[static_cast<int>(v)];
             } else if constexpr (std::is_same_v<T, AssetRef>) {
                 return v.Guid;
+            } else if constexpr (std::is_same_v<T, BodyType>) {
+                const char* names[] = { "Static", "Kinematic", "Dynamic" };
+                return names[static_cast<int>(v)];
+            } else if constexpr (std::is_same_v<T, EntityRef>) {
+                // Never round-tripped -- see EntityRef's own comment in Field.h.
+                return nullptr;
             } else {
                 return v; // int, float, bool, std::string
             }
@@ -59,6 +65,14 @@ namespace Duality {
                 return UIAnchor::TopLeft;
             } else if constexpr (std::is_same_v<T, AssetRef>) {
                 return AssetRef{ j.get<std::string>() };
+            } else if constexpr (std::is_same_v<T, BodyType>) {
+                std::string name = j.get<std::string>();
+                if (name == "Static") return BodyType::Static;
+                if (name == "Kinematic") return BodyType::Kinematic;
+                return BodyType::Dynamic;
+            } else if constexpr (std::is_same_v<T, EntityRef>) {
+                // Never round-tripped -- see EntityRef's own comment in Field.h.
+                return EntityRef{};
             } else {
                 return j.get<T>(); // int, float, bool, std::string
             }

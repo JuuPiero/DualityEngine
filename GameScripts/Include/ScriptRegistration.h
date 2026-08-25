@@ -1,5 +1,6 @@
 #pragma once
 
+#include <type_traits>
 #include <vector>
 
 #include "DualityEngine/Scripting/ScriptModule.h"
@@ -17,6 +18,25 @@ namespace Duality {
         return factories;
     }
 
+    namespace Detail {
+        // Detects whether T declares `static std::vector<FieldHandle> Fields()` (via
+        // DUALITY_PROPERTIES, see Reflection/PropertyMacros.h) -- unlike ScriptableObject,
+        // a Behaviour is NOT required to declare one: existing scripts written before this
+        // feature existed have none, and must keep compiling with zero Inspector fields.
+        template<typename T, typename = void>
+        struct HasFieldsMethod : std::false_type {};
+        template<typename T>
+        struct HasFieldsMethod<T, std::void_t<decltype(T::Fields())>> : std::true_type {};
+
+        template<typename T>
+        std::vector<FieldHandle> GetFieldsIfDeclared() {
+            if constexpr (HasFieldsMethod<T>::value)
+                return T::Fields();
+            else
+                return {};
+        }
+    }
+
     template<typename T>
     struct ScriptRegistrar {
         explicit ScriptRegistrar(const char* name) {
@@ -24,6 +44,7 @@ namespace Duality {
                 name,
                 []() -> Behaviour* { return new T(); },
                 [](Behaviour* instance) { delete instance; },
+                Detail::GetFieldsIfDeclared<T>(),
             });
         }
     };

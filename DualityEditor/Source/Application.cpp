@@ -11,6 +11,7 @@
 #include "DualityEditor/AssetInspectors.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/FileDialogs.h"
+#include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
@@ -138,7 +139,7 @@ namespace Duality {
         groundSprite.Size = { 360.0f, 16.0f };
         groundSprite.Color = { 0.3f, 0.75f, 0.35f, 1.0f };
         auto& groundBody = physicsGround.AddComponent<Rigidbody2DComponent>();
-        groundBody.IsStatic = true;
+        groundBody.Type = BodyType::Static;
         auto& groundCollider = physicsGround.AddComponent<BoxCollider2DComponent>();
         groundCollider.Size = { 180.0f, 8.0f };
 
@@ -164,7 +165,7 @@ namespace Duality {
         groundMesh3D.Primitive = MeshPrimitive::Cube;
         groundMesh3D.Material.Guid = materialGuid; // reuses the TestOrange material above, just for a visible surface
         auto& groundBody3D = physicsGround3D.AddComponent<Rigidbody3DComponent>();
-        groundBody3D.IsStatic = true;
+        groundBody3D.Type = BodyType::Static;
         auto& groundCollider3D = physicsGround3D.AddComponent<BoxCollider3DComponent>();
         groundCollider3D.Size = { 100.0f, 10.0f, 100.0f };
 
@@ -190,6 +191,13 @@ namespace Duality {
         auto& showcaseSprite = apiShowcase.AddComponent<SpriteRendererComponent>();
         showcaseSprite.Size = { 32.0f, 32.0f };
         apiShowcase.AddComponent<BehaviourComponent>().ClassName = "ApiShowcaseBehaviour";
+
+        // Physics Raycast API demo -- no Transform/collider of its own needed, just watches the
+        // Bottom screen's pointer (BottomCamera above is Perspective, so ScreenPointToRay3D
+        // works against it) and logs whichever 3D collider a click/touch hits (PhysicsGround3D/
+        // PhysicsBall3D above, or TestCube3D). See GameScripts/RaycastDemoBehaviour.cpp.
+        Entity raycastController = m_Scene.CreateEntity("RaycastController");
+        raycastController.AddComponent<BehaviourComponent>().ClassName = "RaycastDemoBehaviour";
 
         // Demo Button (UI system) in the Bottom screen's bottom-right corner -- its own
         // Normal/Hover/Pressed color already shows interaction feedback with no script needed;
@@ -223,8 +231,10 @@ namespace Duality {
         m_Project = project;
         m_Scene = Scene(); // old Entity handles (including m_Selected) don't survive this
         m_Selected = Entity();
-        m_TopSceneView = SceneViewCamera();    // re-seed from the new scene's own cameras
-        m_BottomSceneView = SceneViewCamera(); // instead of keeping the old project's pan/zoom
+        m_TopSceneView = SceneViewCamera();       // re-seed from the new scene's own cameras
+        m_BottomSceneView = SceneViewCamera();    // instead of keeping the old project's pan/zoom
+        m_TopSceneView3D = SceneViewCamera3D();   // same reasoning, 3D orbit cameras
+        m_BottomSceneView3D = SceneViewCamera3D();
         m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.scene";
         m_ContentBrowserPanel.SetRootDirectory(m_Project->GetAssetsDirectory());
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
@@ -249,6 +259,7 @@ namespace Duality {
             return;
         SceneSerializer(m_Scene).Serialize(path);
     }
+
 
     void Application::OnEvent(Event& e) {
         EventDispatcher dispatcher(e);
@@ -375,8 +386,8 @@ namespace Duality {
                 m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
                 m_Fps, m_GameDrawCallCount,
-                m_ScenePath, m_BuildDirectory, m_RepoRoot,
-                m_RequestOpenProject, m_RequestSaveSceneAs
+                m_ScenePath, m_BuildDirectory, m_RepoRoot, m_PlaySnapshot,
+                m_RequestOpenProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog
             };
 
             m_MenuBarPanel.OnImGuiRender(ctx);
@@ -394,6 +405,18 @@ namespace Duality {
             if (m_RequestSaveSceneAs) {
                 m_RequestSaveSceneAs = false;
                 SaveSceneAsFromDialog();
+            }
+            // Inlined rather than a separate Application method (unlike OpenProjectFromDialog/
+            // SaveSceneAsFromDialog above) -- this is the one action that both needs
+            // m_Window.GetNativeWindow() (only Application has it) AND wants to reuse
+            // SceneOps.h's OpenScene(EditorContext&, path) (which every other "open a known
+            // scene path" call site already shares) -- `ctx` right here is the only place
+            // both are available together without constructing a second EditorContext.
+            if (m_RequestOpenSceneDialog) {
+                m_RequestOpenSceneDialog = false;
+                std::string path = FileDialogs::OpenFile(m_Window.GetNativeWindow(), "Duality Scene (*.scene)\0*.scene\0");
+                if (!path.empty())
+                    OpenScene(ctx, path);
             }
 
             m_ScenePanel.OnImGuiRender(ctx);

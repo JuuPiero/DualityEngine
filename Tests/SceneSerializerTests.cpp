@@ -26,7 +26,7 @@ TEST_CASE("SceneSerializer round-trips multiple entities and a parent/child link
 
     Entity player = sourceScene.CreateEntity("Player");
     player.GetComponent<TransformComponent>().Translation = { 5.0f, 6.0f, 0.0f };
-    player.AddComponent<Rigidbody2DComponent>().IsStatic = false;
+    player.AddComponent<Rigidbody2DComponent>().Type = BodyType::Dynamic;
     player.AddComponent<CircleCollider2DComponent>().Radius = 12.0f;
 
     Entity weapon = sourceScene.CreateEntity("Weapon");

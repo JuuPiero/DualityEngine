@@ -5,13 +5,16 @@
 #include <string>
 #include <type_traits>
 
+#include <entt.hpp>
 #include <imgui.h>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/Scene.h"
 
 namespace Duality {
 
-    bool DrawFieldWidget(const FieldHandle& field, void* instance) {
+    bool DrawFieldWidget(const FieldHandle& field, void* instance, Scene* scene) {
         FieldValue value = field.Get(instance);
         bool changed = false;
 
@@ -66,6 +69,13 @@ namespace Duality {
                     v = static_cast<UIAnchor>(current);
                     changed = true;
                 }
+            } else if constexpr (std::is_same_v<T, BodyType>) {
+                const char* items[] = { "Static", "Kinematic", "Dynamic" };
+                int current = static_cast<int>(v);
+                if (ImGui::Combo(field.Name.c_str(), &current, items, 3)) {
+                    v = static_cast<BodyType>(current);
+                    changed = true;
+                }
             } else if constexpr (std::is_same_v<T, AssetRef>) {
                 // Drag-drop target only for this pass -- no
                 // inline thumbnail preview (would need
@@ -89,6 +99,40 @@ namespace Duality {
                     ImGui::SameLine();
                     if (ImGui::SmallButton("X")) {
                         v.Guid.clear();
+                        changed = true;
+                    }
+                }
+                ImGui::PopID();
+            } else if constexpr (std::is_same_v<T, EntityRef>) {
+                // Drag-drop target only, same scope as AssetRef above -- accepts the
+                // "HIERARCHY_ENTITY" payload HierarchyPanel already drags entities with.
+                ImGui::PushID(field.Name.c_str());
+                bool valid = v.Handle != EntityRef::Invalid;
+                std::string label = "<none>";
+                if (valid) {
+                    entt::entity handle = static_cast<entt::entity>(v.Handle);
+                    if (scene && scene->Registry().valid(handle) && scene->Registry().all_of<NameComponent>(handle))
+                        label = scene->Registry().get<NameComponent>(handle).Name;
+                    else if (scene)
+                        valid = false; // stale handle -- referenced entity no longer exists
+                    else
+                        label = "<entity #" + std::to_string(v.Handle) + ">"; // no Scene to resolve a name from
+                }
+                ImGui::Text("%s", field.Name.c_str());
+                ImGui::SameLine(120.0f);
+                ImGui::Button(label.c_str(), ImVec2(valid ? -32.0f : -1.0f, 0.0f));
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
+                        entt::entity dropped = *static_cast<const entt::entity*>(payload->Data);
+                        v.Handle = static_cast<uint32_t>(dropped);
+                        changed = true;
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                if (valid) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("X")) {
+                        v.Handle = EntityRef::Invalid;
                         changed = true;
                     }
                 }

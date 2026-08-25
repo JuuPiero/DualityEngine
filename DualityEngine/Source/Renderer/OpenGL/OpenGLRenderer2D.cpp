@@ -75,6 +75,40 @@ namespace Duality {
         glLoadIdentity();
     }
 
+    void OpenGLRenderer2D::DrawGrid(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, float cellSize) {
+        m_DrawCallCount += 2; // one glBegin/glEnd pair per pass below (plain grid, then axis lines)
+
+        float halfWidth = (viewportWidth * 0.5f) / zoom;
+        float halfHeight = (viewportHeight * 0.5f) / zoom;
+        float left = center.x - halfWidth, right = center.x + halfWidth;
+        float top = center.y - halfHeight, bottom = center.y + halfHeight;
+
+        // Fully opaque, just a shade lighter than the pane's own clear color -- avoids needing
+        // real alpha blending (not enabled anywhere in this legacy-immediate-mode renderer) for
+        // a "faint" look; still reads clearly as subtle against Unity/Cocos-style dark panes.
+        glColor4f(0.28f, 0.28f, 0.32f, 1.0f);
+        glBegin(GL_LINES);
+        for (float x = std::floor(left / cellSize) * cellSize; x <= right; x += cellSize) {
+            glVertex2f(x, top);
+            glVertex2f(x, bottom);
+        }
+        for (float y = std::floor(top / cellSize) * cellSize; y <= bottom; y += cellSize) {
+            glVertex2f(left, y);
+            glVertex2f(right, y);
+        }
+        glEnd();
+
+        // World axis lines, Unity's own X=red/Y=green convention (matches the 3D pane's ground
+        // grid and orientation gizmo too) -- drawn as a second pass so they're distinctly
+        // colored/on top of the plain grid regardless of draw order within one glBegin/glEnd.
+        glBegin(GL_LINES);
+        glColor4f(0.85f, 0.25f, 0.25f, 1.0f);
+        glVertex2f(left, 0.0f); glVertex2f(right, 0.0f); // X axis (world Y=0)
+        glColor4f(0.25f, 0.8f, 0.3f, 1.0f);
+        glVertex2f(0.0f, top); glVertex2f(0.0f, bottom); // Y axis (world X=0)
+        glEnd();
+    }
+
     void OpenGLRenderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t textureId) {
         m_DrawCallCount++; // one glBegin/glEnd pair below == one real draw call (no batching)
 

@@ -11,6 +11,8 @@
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/FieldEditorWidget.h"
 #include "DualityEngine/Reflection/TypeRegistry.h"
+#include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scripting/ScriptRegistry.h"
 
 namespace Duality {
 
@@ -35,6 +37,50 @@ namespace Duality {
             ImGui::Separator();
             ImGui::PushID("AssetFields");
             entry->DrawInspector(path, ctx);
+            ImGui::PopID();
+        }
+
+        // The script's own DUALITY_PROPERTIES fields, drawn right below BehaviourComponent's
+        // "Class" field -- mirrors Unity showing a MonoBehaviour's public fields right below
+        // its script reference. While Play is running, `behaviour.Instance` is a live object;
+        // edits go straight to it (and are lost on Stop, matching Unity's own semantics for
+        // editing fields during Play). In Edit mode there's no live instance to read/write
+        // through FieldHandle::Get/Set, so a scratch instance is created just for this frame,
+        // seeded from PropertyOverrides, rendered, and destroyed -- edits are captured back
+        // into PropertyOverrides instead.
+        void DrawScriptProperties(EditorContext& ctx, BehaviourComponent& behaviour) {
+            if (behaviour.ClassName.empty())
+                return;
+            const std::vector<FieldHandle>& fields = ScriptRegistry::GetFields(behaviour.ClassName);
+            if (fields.empty())
+                return;
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Script Properties");
+            ImGui::PushID("ScriptProperties");
+
+            Behaviour* target = behaviour.Instance;
+            Behaviour* scratch = nullptr;
+            void (*destroyScratch)(Behaviour*) = nullptr;
+            if (!target && ScriptRegistry::TryCreate(behaviour.ClassName, &scratch, &destroyScratch)) {
+                for (auto& field : fields) {
+                    auto it = behaviour.PropertyOverrides.find(field.Name);
+                    if (it != behaviour.PropertyOverrides.end())
+                        field.Set(scratch, it->second);
+                }
+                target = scratch;
+            }
+
+            if (target) {
+                for (auto& field : fields) {
+                    if (DrawFieldWidget(field, target, &ctx.SceneRef))
+                        behaviour.PropertyOverrides[field.Name] = field.Get(target);
+                }
+            }
+
+            if (scratch)
+                destroyScratch(scratch);
+
             ImGui::PopID();
         }
     }
@@ -114,8 +160,11 @@ namespace Duality {
                 // closed flag colliding with a text field's edit buffer).
                 ImGui::PushID("Fields");
                 for (auto& field : type.Fields)
-                    DrawFieldWidget(field, component);
+                    DrawFieldWidget(field, component, &ctx.SceneRef);
                 ImGui::PopID(); // matches PushID("Fields") above
+
+                if (type.DisplayName == "Behaviour")
+                    DrawScriptProperties(ctx, *static_cast<BehaviourComponent*>(component));
             }
 
             ImGui::PopID();

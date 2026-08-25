@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Physics 2D/3D — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="physics">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">API Reference</div>
+                <h1>Physics 2D/3D</h1>
+                <p class="lede">
+                    2D dùng <a href="https://box2d.org/" target="_blank" rel="noopener">Box2D</a>
+                    v2.4.1 (API C++ cổ điển — <strong>không</strong> phải v3.x kiểu C mới, khớp
+                    version portlib <code>3ds-box2d</code>/<code>ppc-box2d</code> của devkitPro).
+                    3D dùng <a href="https://pybullet.org/" target="_blank" rel="noopener">Bullet
+                    Physics</a>. <code>Scene</code> sở hữu cả hai world, chỉ tồn tại giữa
+                    <code>OnRuntimeStart</code>/<code>OnRuntimeStop</code>.
+                </p>
+
+                <div class="callout warn">
+                    <span class="callout-title">Chưa xác thực trên phần cứng thật</span>
+                    Hiệu năng thực tế của Bullet trên ARM11 3DS chưa được xác thực độc lập ngoài
+                    testing của chính project này — devkitPro có portlib
+                    <code>3ds-bulletphysics</code> chính thức nhưng không có ví dụ mẫu hay game đã
+                    ship nào công khai dùng nó.
+                </div>
+
+                <h2 style="border-top:none;margin-top:0">BodyType</h2>
+                <pre><code><span class="tok-kw">enum class</span> BodyType { Static, Kinematic, Dynamic };</code></pre>
+                <p>
+                    Field <code>Rigidbody2DComponent::Type</code>/<code>Rigidbody3DComponent::Type</code>
+                    (thay cho <code>bool IsStatic</code> cũ). Map thẳng sang Box2D's
+                    <code>b2_staticBody</code>/<code>b2_kinematicBody</code>/<code>b2_dynamicBody</code>.
+                    Bullet không có enum body-type sẵn — Static và Kinematic đều dùng mass 0,
+                    Kinematic thêm <code>CF_KINEMATIC_OBJECT</code> + <code>DISABLE_DEACTIVATION</code>.
+                </p>
+                <table>
+                    <tr><th>Type</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Static</code></td><td>Không di chuyển, không bị lực/trọng lực tác động — mặt đất, tường.</td></tr>
+                    <tr><td><code>Kinematic</code></td><td>Di chuyển trực tiếp bởi script (sửa <code>Transform</code> mỗi frame) hoặc animation — vẫn tạo va chạm/đẩy Dynamic body đầy đủ, nhưng không bao giờ bị trọng lực/lực tác động lên chính nó. Mỗi frame trước khi step physics, <code>Transform</code> hiện tại được đẩy VÀO body vật lý (chiều ngược với Dynamic).</td></tr>
+                    <tr><td><code>Dynamic</code></td><td>Mô phỏng đầy đủ — trọng lực, lực, va chạm hai chiều.</td></tr>
+                </table>
+
+                <h2>Rigidbody2DComponent / Rigidbody3DComponent</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">struct</span> Rigidbody2DComponent { BodyType Type; <span class="tok-type">bool</span> FixedRotation; }</div></div>
+                    <div class="api-body"><p><code>FixedRotation</code> khoá không cho vật xoay do va chạm (vd nhân vật đứng thẳng không bị lật).</p></div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">struct</span> Rigidbody3DComponent { BodyType Type; }</div></div>
+                    <div class="api-body"><p>Không có mass/drag riêng chỉnh qua Inspector ở phiên bản hiện tại — dùng giá trị mặc định của Bullet.</p></div>
+                </div>
+
+                <h2>Collider</h2>
+                <table>
+                    <tr><th>Component</th><th>Field chính</th></tr>
+                    <tr><td><code>BoxCollider2DComponent</code> <span class="badge badge-2d">2D</span></td><td><code>Offset</code>, <code>Size</code> (nửa-kích-thước), <code>Density</code>/<code>Friction</code>/<code>Restitution</code>, <code>IsTrigger</code></td></tr>
+                    <tr><td><code>CircleCollider2DComponent</code> <span class="badge badge-2d">2D</span></td><td><code>Offset</code>, <code>Radius</code>, <code>Density</code>/<code>Friction</code>/<code>Restitution</code>, <code>IsTrigger</code></td></tr>
+                    <tr><td><code>BoxCollider3DComponent</code> <span class="badge badge-3d">3D</span></td><td><code>Offset</code>, <code>Size</code> (nửa-kích-thước), <code>Restitution</code>, <code>IsTrigger</code></td></tr>
+                    <tr><td><code>SphereCollider3DComponent</code> <span class="badge badge-3d">3D</span></td><td><code>Offset</code>, <code>Radius</code>, <code>Restitution</code>, <code>IsTrigger</code></td></tr>
+                </table>
+                <p>
+                    Trong Scene view, mọi entity có collider vẽ khung wireframe xanh lá (kể cả
+                    không được chọn) — chỉ để xem, không bao giờ render trong Game view/trên máy
+                    thật, giống Unity's Gizmos. Entity đang chọn có thêm handle kéo được để chỉnh
+                    <code>Size</code>/<code>Radius</code> trực tiếp trong viewport (3D: một handle
+                    mỗi mặt cho box, một handle trên xích đạo cho sphere).
+                </p>
+
+                <h2>Collision vs Trigger</h2>
+                <p>
+                    <code>IsTrigger</code> trên collider quyết định cặp chạm nhau tính là Collision
+                    hay Trigger — nếu <strong>bất kỳ bên nào</strong> trong cặp là trigger, cả cặp
+                    tính là Trigger (quy ước của Unity), không bao giờ vừa Collision vừa Trigger
+                    cho cùng một cặp/frame. Cả hai bên của cặp chạm đều nhận callback, mỗi bên
+                    nhận bên còn lại làm tham số <code>other</code>.
+                </p>
+                <pre><code><span class="tok-type">void</span> CoinBehaviour::<span class="tok-fn">OnTriggerEnter</span>(Duality::Entity other) {
+    <span class="tok-fn">LogInfo</span>(<span class="tok-str">"Va chạm với: "</span> + other.<span class="tok-fn">GetComponent</span>&lt;Duality::NameComponent&gt;().Name);
+}</code></pre>
+
+                <h3>Cơ chế bên dưới</h3>
+                <p>
+                    Box2D có listener API thật (<code>b2ContactListener::BeginContact</code>/<code>EndContact</code>,
+                    chạy đồng bộ trong <code>b2World::Step</code>). Bullet <strong>không có</strong>
+                    callback enter/exit sẵn — engine tự làm bằng cách so sánh thủ công tập hợp cặp
+                    đang chạm giữa frame này và frame trước (duyệt
+                    <code>btDispatcher::getManifoldByIndexInternal</code> sau mỗi
+                    <code>stepSimulation</code>). Với collider trigger, Bullet's
+                    <code>CF_NO_CONTACT_RESPONSE</code> tắt phản ứng đẩy vật lý trong khi vẫn sinh
+                    contact manifold để phát hiện chạm — cho đúng ngữ nghĩa sensor.
+                </p>
+
+                <h2>Raycast <span class="badge badge-2d">2D</span><span class="badge badge-3d">3D</span></h2>
+                <p>
+                    Xem <a href="scripting-api.html">Scripting API</a> để biết API phía script
+                    (<code>Behaviour::Raycast2D/3D</code>, <code>ScreenPointToRay3D</code>). Bên
+                    dưới engine:
+                </p>
+                <ul>
+                    <li>2D dùng <code>b2World::RayCast</code> + một <code>b2RayCastCallback</code> tự viết trả về <code>fraction</code> ở mỗi <code>ReportFixture</code> để tự động clip dần về điểm chạm gần nhất — cách Box2D tự có sẵn để lấy "gần nhất" mà không cần tự so sánh khoảng cách tay.</li>
+                    <li>3D dùng thẳng <code>btCollisionWorld::ClosestRayResultCallback</code> có sẵn của Bullet.</li>
+                    <li>Cả hai resolve entity trúng qua <code>userData</code>/<code>userPointer</code> gắn vào body lúc tạo — con đường cast <code>uintptr_t</code> → <code>uint32_t</code> → <code>entt::entity</code> dùng chung với code sự kiện Collision/Trigger.</li>
+                </ul>
+                <pre><code>RaycastHit3D <span class="tok-fn">Scene::Raycast3D</span>(<span class="tok-kw">const</span> glm::vec3&amp; origin, <span class="tok-kw">const</span> glm::vec3&amp; direction, <span class="tok-type">float</span> maxDistance);
+RaycastHit2D <span class="tok-fn">Scene::Raycast2D</span>(<span class="tok-kw">const</span> glm::vec2&amp; origin, <span class="tok-kw">const</span> glm::vec2&amp; direction, <span class="tok-type">float</span> maxDistance);
+<span class="tok-type">bool</span> <span class="tok-fn">Scene::ScreenPointToRay3D</span>(Screen screen, <span class="tok-kw">const</span> glm::vec2&amp; screenPoint, glm::vec3&amp; outOrigin, glm::vec3&amp; outDirection);</code></pre>
+
+                <h2>Chưa có (biết trước)</h2>
+                <ul>
+                    <li>Joints/constraints (hinge, spring, fixed) — cả <code>b2World</code> lẫn <code>btDiscreteDynamicsWorld</code> mới chỉ wire free rigid bodies.</li>
+                    <li><code>OnCollisionStay</code>/<code>OnTriggerStay</code> — chỉ có cạnh enter/exit.</li>
+                    <li>Toggle <code>Active</code> giữa lúc Play không tự thêm/gỡ physics body — chỉ quyết định lúc Play bắt đầu.</li>
+                    <li><code>Rigidbody2DComponent</code> không theo dõi parent đang di chuyển/xoay lúc simulate — body Box2D spawn ở world transform đã resolve rồi simulate độc lập sau đó (giống giới hạn thật Unity tài liệu cho non-kinematic parent/child Rigidbody).</li>
+                </ul>
+
+                <div class="page-nav">
+                    <a class="prev" href="scripting-api.html"><span class="dir">← Trước</span>Scripting API</a>
+                    <a class="next" href="rendering.html"><span class="dir">Tiếp →</span>Rendering &amp; UI</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

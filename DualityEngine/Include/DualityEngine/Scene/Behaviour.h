@@ -5,6 +5,8 @@
 #include <glm/glm.hpp>
 
 #include "DualityEngine/Input/KeyCode.h"
+#include "DualityEngine/Physics/RaycastHit.h"
+#include "DualityEngine/Reflection/PropertyMacros.h" // brings in DUALITY_PROPERTIES() for scripts
 #include "DualityEngine/Scene/ActiveComponent.h"
 #include "DualityEngine/Scene/Scene.h" // Entity's GetComponent<T>/etc. templates are *defined*
                                        // here (after Scene is complete), not in Entity.h -- see
@@ -14,10 +16,13 @@
 namespace Duality {
 
     // The MonoBehaviour-equivalent base class for gameplay code, written as
-    // plain C++ (no embedded scripting language). A later phase adds
-    // reflection-driven public fields (Inspector-editable, like Unity's
-    // [SerializeField]) and DLL hot-reload for fast desktop iteration --
-    // this first version only wires up the lifecycle itself.
+    // plain C++ (no embedded scripting language). Subclasses can declare
+    // Inspector-editable public fields (Unity's [SerializeField]-equivalent)
+    // via DUALITY_PROPERTIES (Reflection/PropertyMacros.h) -- Edit-mode
+    // edits are stored on BehaviourComponent::PropertyOverrides and applied
+    // onto the real instance right before OnCreate() at Play start (see
+    // Scene::OnRuntimeStart). DLL hot-reload for fast desktop iteration is
+    // still a later phase.
     class Behaviour {
     public:
         virtual ~Behaviour() = default;
@@ -90,6 +95,10 @@ namespace Duality {
             m_Services->GetPointerPosition(&x, &y);
             return { x, y };
         }
+        // Which screen GetPointerPosition() is local to -- Top (400x240) and Bottom (320x240)
+        // share overlapping local pixel ranges, so this is the only way to tell which one a
+        // touch/click actually landed on. Defaults to Screen::Top if m_Services isn't set yet.
+        Screen GetPointerScreen() const { return m_Services ? static_cast<Screen>(m_Services->GetPointerScreen()) : Screen::Top; }
 
         // `assetGuid` is an AssetRef's Guid (e.g. an AssetRef field's
         // .Guid, or a value read from another component) -- resolved to a
@@ -134,6 +143,21 @@ namespace Duality {
         Entity FindEntityInTopScreen(const std::string& name) const { return FindEntityInScreen(Screen::Top, name); }
         Entity FindEntityInBottomScreen(const std::string& name) const { return FindEntityInScreen(Screen::Bottom, name); }
 
+        // Converts an EntityRef field (see Reflection/Field.h) to a usable Entity in THIS
+        // Behaviour's own Scene -- e.g. `Entity target = ResolveEntityRef(m_Target);` then
+        // `target.GetComponent<Rigidbody2DComponent>()`. There's no separate "component
+        // reference" field type: a script that needs one just holds an EntityRef and calls
+        // GetComponent<T>() itself, same as Unity's own [SerializeField] GameObject fields.
+        // Returns an empty (falsy) Entity if the ref is unset or this Behaviour has no Scene yet.
+        Entity ResolveEntityRef(EntityRef ref) const {
+            if (ref.Handle == EntityRef::Invalid || !m_Entity.GetScene())
+                return Entity{};
+            return Entity(static_cast<entt::entity>(ref.Handle), m_Entity.GetScene());
+        }
+        static EntityRef MakeEntityRef(Entity entity) {
+            return entity ? EntityRef{ static_cast<uint32_t>(entity.Handle()) } : EntityRef{};
+        }
+
         // Unity's Object.Instantiate -- spawns a new copy of the Prefab asset referenced
         // by `prefabAssetGuid` (an AssetRef's Guid) as a root entity in this Behaviour's
         // own Scene. Returns an empty Entity (falsy) if the guid doesn't resolve to a
@@ -160,6 +184,88 @@ namespace Duality {
             if (!m_Services || assetGuid.empty())
                 return nullptr;
             return static_cast<T*>(m_Services->LoadScriptableObject(assetGuid.c_str()));
+        }
+
+        // Unity's Rigidbody2D.velocity/Rigidbody.velocity and AddForce -- operates on THIS
+        // entity's own Rigidbody2DComponent/Rigidbody3DComponent (whichever exists; there's no
+        // GetComponent<Rigidbody2DComponent>().velocity the way Unity's own API reads, since
+        // b2Body/btRigidBody aren't header-only types GameScripts can call into directly -- see
+        // EngineServices.h's own comment). Returns a zero vector if this entity has no
+        // Rigidbody of that dimension, or Play isn't running yet.
+        glm::vec2 GetVelocity2D() const {
+            if (!m_Services)
+                return { 0.0f, 0.0f };
+            float x = 0.0f, y = 0.0f;
+            m_Services->GetVelocity2D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), &x, &y);
+            return { x, y };
+        }
+        void SetVelocity2D(const glm::vec2& velocity) const {
+            if (m_Services) m_Services->SetVelocity2D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), velocity.x, velocity.y);
+        }
+        void AddForce2D(const glm::vec2& force) const {
+            if (m_Services) m_Services->AddForce2D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), force.x, force.y);
+        }
+        glm::vec3 GetVelocity3D() const {
+            if (!m_Services)
+                return { 0.0f, 0.0f, 0.0f };
+            float x = 0.0f, y = 0.0f, z = 0.0f;
+            m_Services->GetVelocity3D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), &x, &y, &z);
+            return { x, y, z };
+        }
+        void SetVelocity3D(const glm::vec3& velocity) const {
+            if (m_Services) m_Services->SetVelocity3D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), velocity.x, velocity.y, velocity.z);
+        }
+        void AddForce3D(const glm::vec3& force) const {
+            if (m_Services) m_Services->AddForce3D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), force.x, force.y, force.z);
+        }
+
+        // Unity's Physics2D.Raycast/Physics.Raycast -- casts against this Scene's own live
+        // Box2D/Bullet colliders (only valid while Play is running). Returns a falsy
+        // RaycastHit2D/3D (check via `if (hit)`) if nothing was hit or Play isn't running.
+        RaycastHit2D Raycast2D(const glm::vec2& origin, const glm::vec2& direction, float maxDistance) const {
+            RaycastHit2D hit;
+            if (!m_Services)
+                return hit;
+            unsigned int handle = 0;
+            float px = 0, py = 0, nx = 0, ny = 0, dist = 0;
+            if (!m_Services->Raycast2D(m_Entity.GetScene(), origin.x, origin.y, direction.x, direction.y, maxDistance, &handle, &px, &py, &nx, &ny, &dist))
+                return hit;
+            hit.HitEntity = Entity(static_cast<entt::entity>(handle), m_Entity.GetScene());
+            hit.Point = { px, py };
+            hit.Normal = { nx, ny };
+            hit.Distance = dist;
+            return hit;
+        }
+        RaycastHit3D Raycast3D(const glm::vec3& origin, const glm::vec3& direction, float maxDistance) const {
+            RaycastHit3D hit;
+            if (!m_Services)
+                return hit;
+            unsigned int handle = 0;
+            float px = 0, py = 0, pz = 0, nx = 0, ny = 0, nz = 0, dist = 0;
+            if (!m_Services->Raycast3D(m_Entity.GetScene(), origin.x, origin.y, origin.z, direction.x, direction.y, direction.z, maxDistance,
+                                        &handle, &px, &py, &pz, &nx, &ny, &nz, &dist))
+                return hit;
+            hit.HitEntity = Entity(static_cast<entt::entity>(handle), m_Entity.GetScene());
+            hit.Point = { px, py, pz };
+            hit.Normal = { nx, ny, nz };
+            hit.Distance = dist;
+            return hit;
+        }
+
+        // Converts a point in `screen`'s own local pixel space (e.g. GetPointerPosition(), with
+        // `screen` = GetPointerScreen()) into a world-space ray from that screen's primary
+        // camera -- feed the result straight into Raycast3D for click/touch-to-select gameplay.
+        // Returns false (outOrigin/outDirection untouched) if that screen has no Perspective
+        // primary camera, or Play isn't running yet.
+        bool ScreenPointToRay3D(Screen screen, const glm::vec2& screenPoint, glm::vec3& outOrigin, glm::vec3& outDirection) const {
+            if (!m_Services)
+                return false;
+            float ox = 0, oy = 0, oz = 0, dx = 0, dy = 0, dz = 0;
+            if (!m_Services->ScreenPointToRay3D(m_Entity.GetScene(), static_cast<int>(screen), screenPoint.x, screenPoint.y, &ox, &oy, &oz, &dx, &dy, &dz))
+                return false;
+            outOrigin = { ox, oy, oz };
+            outDirection = { dx, dy, dz };
+            return true;
         }
 
         // Called by Scene right after creating this instance -- not for

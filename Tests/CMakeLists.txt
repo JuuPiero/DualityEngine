@@ -16,5 +16,10 @@ add_executable(DualityEngineTests
     ScriptableObjectTests.cpp
     AssetImportSettingsTests.cpp
     MaterialTests.cpp
+    MeshLoaderTests.cpp
+    RigidbodyAPITests.cpp
+    DualityPropertyTests.cpp
+    SceneManagementTests.cpp
+    RaycastTests.cpp
 )
 target_link_libraries(DualityEngineTests PRIVATE DualityEngine)

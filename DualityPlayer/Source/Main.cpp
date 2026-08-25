@@ -119,7 +119,10 @@ int main(int argc, char* argv[]) {
 
         touchPosition touch;
         hidTouchRead(&touch);
-        Input::SetPointer((heldKeys & KEY_TOUCH) != 0, { static_cast<float>(touch.px), static_cast<float>(touch.py) });
+        // The touch panel is physically only the bottom screen -- hidTouchRead's own px/py are
+        // already in that screen's native pixel range (0-320/0-240), top-left origin, Y-down,
+        // matching this engine's convention with no conversion needed.
+        Input::SetPointer((heldKeys & KEY_TOUCH) != 0, { static_cast<float>(touch.px), static_cast<float>(touch.py) }, Screen::Bottom);
 
         AudioEngine::Update();
 

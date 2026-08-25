@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 
 #include "DualityEngine/Input/KeyCode.h"
+#include "DualityEngine/Renderer/Screen.h"
 
 namespace Duality {
 
@@ -35,7 +36,16 @@ namespace Duality {
         static float GetAxis(const std::string& axisName);
 
         static bool GetPointerDown();
+        // Local pixel coordinates (top-left origin, Y-down) within whichever screen
+        // GetPointerScreen() reports -- NOT a single shared coordinate space across both
+        // screens (Top is 400x240, Bottom is 320x240; the platform host resolves which one the
+        // pointer is actually over before calling SetPointer, see its own comment below).
         static glm::vec2 GetPointerPosition();
+        // Which screen GetPointerPosition() is local to. Meaningless (holds whatever the last
+        // SetPointer call passed, arbitrarily defaulting to Top) when GetPointerDown() is false
+        // and the pointer isn't over either screen -- check GetPointerDown() first, same as
+        // Unity's own Input.GetMouseButtonDown-then-read-position convention.
+        static Screen GetPointerScreen();
 
         // --- Platform-host-only setters below. Plain public statics (no
         // friend-class trick), matching this project's existing convention
@@ -50,7 +60,12 @@ namespace Duality {
 
         static void SetKeyState(KeyCode key, bool isDown);
         static void SetAxis(const std::string& axisName, float value);
-        static void SetPointer(bool isDown, const glm::vec2& position);
+        // `position` must already be in `screen`'s own local pixel space (top-left origin,
+        // Y-down) -- resolving raw window/touch coordinates down to "which screen, and where
+        // on it" is the platform host's job (DualityEditor: GamePanel.cpp, since it's the one
+        // that knows each screen's on-screen image rect; DualityPlayerDesktop: Main.cpp's own
+        // MapWindowPointToScreen; DualityPlayer/3DS: hardware fact, touch is always Bottom).
+        static void SetPointer(bool isDown, const glm::vec2& position, Screen screen);
     };
 
 }

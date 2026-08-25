@@ -3,17 +3,21 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 
 #include <imgui.h>
 
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Asset/Material.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
 #include "DualityEngine/Asset/ScriptableObjectLoader.h"
 #include "DualityEngine/Core/Log.h"
+#include "DualityEngine/Scene/Scene.h"
+#include "DualityEngine/Scene/SceneSerializer.h"
 #include "DualityEngine/Scripting/ScriptableObjectRegistry.h"
 
 namespace Duality {
@@ -63,6 +67,27 @@ namespace Duality {
         AssetDatabase::Register(guid, path.string());
     }
 
+    // Writes a brand-new empty Scene (zero entities) to "<directory>/NewScene[ (N)].scene" --
+    // same numbered-suffix/3-step-registration shape as CreateMaterialAsset above, the
+    // Content Browser's "Create Scene" flow. Reuses SceneSerializer directly (a throwaway
+    // Scene has nothing to differ from what Serialize already writes for zero entities) rather
+    // than hand-writing the empty {"Entities":[]} JSON shape a second time. Does NOT open the
+    // new scene -- matches Unity's own Project-window "Create > Scene" (creates the asset,
+    // doesn't switch to it); double-click it afterward like any other .scene file.
+    static void CreateSceneAsset(const std::filesystem::path& directory) {
+        std::filesystem::path path = directory / "NewScene.scene";
+        for (int suffix = 1; std::filesystem::exists(path); suffix++)
+            path = directory / ("NewScene (" + std::to_string(suffix) + ").scene");
+
+        Scene emptyScene;
+        if (!SceneSerializer(emptyScene).Serialize(path.string())) {
+            Log::Error("ContentBrowserPanel: failed to create Scene at '" + path.string() + "'");
+            return;
+        }
+        std::string guid = AssetMeta::EnsureMetaFile(path);
+        AssetDatabase::Register(guid, path.string());
+    }
+
     static void DrawFolderIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max) {
         const ImU32 color = IM_COL32(230, 190, 80, 255);
         float w = max.x - min.x, h = max.y - min.y;
@@ -97,6 +122,104 @@ namespace Duality {
     void ContentBrowserPanel::SetRootDirectory(const std::filesystem::path& rootDirectory) {
         m_RootDirectory = rootDirectory;
         m_CurrentDirectory = rootDirectory;
+    }
+
+    void ContentBrowserPanel::BeginRename(const std::filesystem::path& path) {
+        m_RenamingPath = path.string();
+        std::string currentName = path.filename().string();
+        std::snprintf(m_RenameBuffer, sizeof(m_RenameBuffer), "%s", currentName.c_str());
+        m_FocusRenameField = true;
+    }
+
+    void ContentBrowserPanel::CommitRename(EditorContext& ctx) {
+        if (m_RenamingPath.empty())
+            return;
+        std::filesystem::path oldPath(m_RenamingPath);
+        m_RenamingPath.clear();
+
+        std::string newName = m_RenameBuffer;
+        if (newName.empty() || newName == oldPath.filename().string())
+            return; // blanked out or unchanged -- treat as a cancel, not an error
+
+        std::filesystem::path newPath = oldPath.parent_path() / newName;
+        if (std::filesystem::exists(newPath)) {
+            Log::Error("ContentBrowserPanel: cannot rename to '" + newPath.string() + "' -- already exists");
+            return;
+        }
+
+        std::error_code ec;
+        std::filesystem::rename(oldPath, newPath, ec);
+        if (ec) {
+            Log::Error("ContentBrowserPanel: rename failed: " + ec.message());
+            return;
+        }
+
+        if (!std::filesystem::is_directory(newPath)) {
+            // Move the ".meta" alongside it (best-effort -- a file never yet browsed into view
+            // has no .meta to move) so the SAME guid survives the rename; AssetDatabase's own
+            // mapping is what every existing AssetRef actually resolves through, so updating it
+            // here is what keeps those references intact, not the path itself.
+            std::filesystem::path oldMeta = oldPath; oldMeta += ".meta";
+            std::filesystem::path newMeta = newPath; newMeta += ".meta";
+            if (std::filesystem::exists(oldMeta))
+                std::filesystem::rename(oldMeta, newMeta, ec);
+
+            std::string guid = AssetMeta::EnsureMetaFile(newPath); // reads the (now-renamed) existing meta rather than regenerating
+            AssetDatabase::Register(guid, newPath.string());
+
+            if (ctx.SelectedAssetPath == oldPath.string())
+                ctx.SelectedAssetPath = newPath.string();
+        }
+
+        Log::Info("Renamed '" + oldPath.string() + "' to '" + newPath.string() + "'");
+    }
+
+    void ContentBrowserPanel::CreateFolder(const std::filesystem::path& parent) {
+        std::filesystem::path path = parent / "New Folder";
+        for (int suffix = 1; std::filesystem::exists(path); suffix++)
+            path = parent / ("New Folder (" + std::to_string(suffix) + ")");
+
+        std::error_code ec;
+        std::filesystem::create_directory(path, ec);
+        if (ec) {
+            Log::Error("ContentBrowserPanel: could not create folder: " + ec.message());
+            return;
+        }
+        BeginRename(path);
+    }
+
+    void ContentBrowserPanel::RequestDelete(const std::filesystem::path& path, bool isDirectory) {
+        m_PendingDeletePath = path.string();
+        m_PendingDeleteIsDirectory = isDirectory;
+    }
+
+    void ContentBrowserPanel::MoveAssetInto(const std::string& guid, const std::filesystem::path& destDir) {
+        std::string sourcePathStr = AssetDatabase::ResolvePath(guid);
+        if (sourcePathStr.empty())
+            return;
+        std::filesystem::path sourcePath(sourcePathStr);
+        std::filesystem::path destPath = destDir / sourcePath.filename();
+        if (sourcePath == destPath)
+            return; // dropped onto the folder it's already in
+        if (std::filesystem::exists(destPath)) {
+            Log::Error("ContentBrowserPanel: cannot move '" + sourcePath.string() + "' -- '" + destPath.string() + "' already exists");
+            return;
+        }
+
+        std::error_code ec;
+        std::filesystem::rename(sourcePath, destPath, ec);
+        if (ec) {
+            Log::Error("ContentBrowserPanel: move failed: " + ec.message());
+            return;
+        }
+
+        std::filesystem::path oldMeta = sourcePath; oldMeta += ".meta";
+        std::filesystem::path newMeta = destPath; newMeta += ".meta";
+        if (std::filesystem::exists(oldMeta))
+            std::filesystem::rename(oldMeta, newMeta, ec);
+
+        AssetDatabase::Register(guid, destPath.string()); // same guid, new path -- existing AssetRef fields keep resolving
+        Log::Info("Moved '" + sourcePath.string() + "' to '" + destPath.string() + "'");
     }
 
     void ContentBrowserPanel::ImportFile(const std::filesystem::path& sourceFile) {
@@ -166,9 +289,18 @@ namespace Duality {
 
             ImVec2 iconMin = ImGui::GetCursorScreenPos();
             ImVec2 iconMax(iconMin.x + thumbnailSize, iconMin.y + thumbnailSize);
-            ImGui::InvisibleButton("##thumb", ImVec2(thumbnailSize, thumbnailSize));
+            // InvisibleButton's own return value (true on mouse-RELEASE while still hovering
+            // the item it was pressed on -- standard ImGui button semantics) instead of raw
+            // IsMouseClicked (which fires on mouse-DOWN, before any drag distance is even
+            // evaluated) -- the raw-down-edge version used to select this asset in Properties
+            // the instant you pressed the mouse button, even when the press was actually the
+            // start of dragging it onto an AssetRef field elsewhere, forcing the Properties
+            // "Lock" toggle just to drag an asset without losing the field you were dragging
+            // onto. BeginDragDropSource() below already withholds the button's own "pressed"
+            // return once a drag-drop payload activates (the mouse releases over the drop
+            // target, not this item), so this fix needs no other changes to work correctly.
+            bool pressed = ImGui::InvisibleButton("##thumb", ImVec2(thumbnailSize, thumbnailSize));
             bool doubleClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
-            bool clicked = ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
             if (!isDirectory && !guid.empty() && ImGui::BeginDragDropSource()) {
                 ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
@@ -188,11 +320,37 @@ namespace Duality {
             else
                 DrawFileIcon(drawList, iconMin, iconMax);
 
-            ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + thumbnailSize);
-            ImGui::TextWrapped("%s", name.c_str());
-            ImGui::PopTextWrapPos();
+            bool renamingThis = (m_RenamingPath == path.string());
+            if (renamingThis) {
+                if (m_FocusRenameField) {
+                    ImGui::SetKeyboardFocusHere();
+                    m_FocusRenameField = false;
+                }
+                ImGui::SetNextItemWidth(thumbnailSize);
+                ImGui::InputText("##rename", m_RenameBuffer, sizeof(m_RenameBuffer));
+                if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+                    m_RenamingPath.clear(); // discard, same as clicking away from an unmodified field
+                else if (ImGui::IsItemDeactivated())
+                    CommitRename(ctx); // fires on both Enter and click-away
+            } else {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + thumbnailSize);
+                ImGui::TextWrapped("%s", name.c_str());
+                ImGui::PopTextWrapPos();
+            }
 
             ImGui::EndGroup();
+
+            // Folders accept a dropped "ASSET_GUID" payload to move that asset into them --
+            // attached to the whole group (icon+label) rather than just the thumbnail so the
+            // entire cell is a valid drop target, matching how the selection highlight below
+            // also reads the group's own combined bounds.
+            if (isDirectory && ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+                    std::string draggedGuid(static_cast<const char*>(payload->Data));
+                    MoveAssetInto(draggedGuid, path);
+                }
+                ImGui::EndDragDropTarget();
+            }
 
             // Selection highlight, drawn as an outline after the icon/label so it reads clearly
             // on top of either -- a filled background would need the item's bounds known BEFORE
@@ -204,9 +362,21 @@ namespace Duality {
 
             if (doubleClicked && isDirectory) {
                 m_CurrentDirectory = path;
-            } else if (clicked && !isDirectory) {
+            } else if (doubleClicked && !isDirectory && path.extension() == ".scene") {
+                OpenScene(ctx, path.string());
+            } else if (pressed && !isDirectory && !renamingThis) {
                 ctx.SelectedAssetPath = path.string();
                 ctx.Selected = Entity{};
+            }
+
+            // Per-item context menu -- takes precedence over the background one below thanks to
+            // that popup's own ImGuiPopupFlags_NoOpenOverItems.
+            if (!renamingThis && ImGui::BeginPopupContextItem("ItemContextMenu")) {
+                if (ImGui::MenuItem("Rename"))
+                    BeginRename(path);
+                if (ImGui::MenuItem("Delete"))
+                    RequestDelete(path, isDirectory);
+                ImGui::EndPopup();
             }
 
             ImGui::PopID();
@@ -221,6 +391,11 @@ namespace Duality {
         // has been (re)loaded at least once.
         if (ImGui::BeginPopupContextWindow("ContentBrowserContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
             if (ImGui::BeginMenu("Create")) {
+                if (ImGui::MenuItem("Folder"))
+                    CreateFolder(m_CurrentDirectory);
+                if (ImGui::MenuItem("Scene"))
+                    CreateSceneAsset(m_CurrentDirectory);
+                ImGui::Separator();
                 if (ImGui::MenuItem("Material"))
                     CreateMaterialAsset(m_CurrentDirectory);
                 if (ImGui::BeginMenu("ScriptableObject")) {
@@ -236,6 +411,43 @@ namespace Duality {
                 ImGui::EndMenu();
             }
             ImGui::EndPopup();
+        }
+
+        // Delete confirmation -- there's no Recycle Bin/undo here, so unlike Unity's own
+        // immediate-delete Project window context menu, this asks first.
+        if (!m_PendingDeletePath.empty()) {
+            ImGui::OpenPopup("Delete Asset?");
+            if (ImGui::BeginPopupModal("Delete Asset?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                std::string displayName = std::filesystem::path(m_PendingDeletePath).filename().string();
+                ImGui::Text("Delete '%s'?", displayName.c_str());
+                ImGui::TextDisabled("This cannot be undone.");
+                ImGui::Separator();
+                if (ImGui::Button("Delete", ImVec2(100, 0))) {
+                    std::filesystem::path path(m_PendingDeletePath);
+                    std::error_code ec;
+                    if (m_PendingDeleteIsDirectory) {
+                        std::filesystem::remove_all(path, ec);
+                    } else {
+                        std::filesystem::remove(path, ec);
+                        std::filesystem::path metaPath = path;
+                        metaPath += ".meta";
+                        std::error_code metaEc;
+                        std::filesystem::remove(metaPath, metaEc); // best-effort, doesn't affect the main result
+                    }
+                    if (ec)
+                        Log::Error("ContentBrowserPanel: delete failed: " + ec.message());
+                    else
+                        Log::Info("Deleted '" + m_PendingDeletePath + "'");
+                    m_PendingDeletePath.clear();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(100, 0))) {
+                    m_PendingDeletePath.clear();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
+            }
         }
 
         ImGui::End();

@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "DualityEngine/Core/Log.h"
+
 namespace Duality {
 
     namespace {
@@ -16,20 +18,36 @@ namespace Duality {
         // Parses one OBJ face-vertex token ("3", "3/2", "3//1", or "3/2/1") into its 1-based
         // position/texcoord indices (0 = not present). Negative (relative-to-end) OBJ indices
         // are not supported -- a known gap of this hand-rolled parser.
-        void ParseFaceVertex(char* token, int& posIndex, int& texIndex) {
-            int values[3] = { 0, 0, 0 };
-            char* segment = std::strtok(token, "/");
-            for (int slot = 0; slot < 3 && segment; slot++) {
-                values[slot] = std::atoi(segment);
-                // strtok on "3//1" skips the empty middle segment entirely (no token emitted
-                // for it), so re-tokenizing with nullptr here would misalign vt into vn's slot
-                // -- instead this parser only supports the two OBJ shapes it actually needs
-                // ("v", "v/vt", "v/vt/vn"), not "v//vn" (a mesh with normals but no UVs, which
-                // this unlit importer wouldn't use the normals from anyway).
-                segment = std::strtok(nullptr, "/");
-            }
-            posIndex = values[0];
-            texIndex = values[1];
+        //
+        // Deliberately does NOT use std::strtok here -- a real bug this fix replaces: the face
+        // loop below already runs its own std::strtok(line, " \t\r\n") to split a face line into
+        // vertex tokens, and strtok's internal position is ONE PIECE OF GLOBAL STATE shared by
+        // every call on the thread. Calling strtok(token, "/") in here to split "1/1/1" resets
+        // that same global state, so the OUTER loop's next strtok(nullptr, " \t\r\n") resumes
+        // from wherever THIS call left off (already exhausted) instead of the real line --
+        // confirmed empirically with a standalone repro: only the FIRST vertex of any face
+        // with more than 3 vertices ever got parsed. Since the triangulation loop below needs
+        // at least 3 face-vertices to emit even one triangle, ANY quad-or-larger face (the
+        // default for e.g. Blender's own unmodified cube export) silently contributed zero
+        // triangles -- for an all-quad mesh, that's the entire mesh, exactly the "dragged an
+        // .obj onto Mesh and nothing rendered" symptom. A plain manual scan for '/' has no
+        // shared state and also correctly distinguishes an EMPTY segment ("1//1", position +
+        // normal, no UV -- what Blender exports for a mesh with no UV map) from a real index,
+        // which the old strtok-based version also got wrong (strtok collapses "//" into a
+        // single skipped delimiter, silently shifting the normal's index into the texcoord
+        // slot instead of leaving it absent).
+        void ParseFaceVertex(const char* token, int& posIndex, int& texIndex) {
+            posIndex = std::atoi(token);
+            texIndex = 0;
+
+            const char* firstSlash = std::strchr(token, '/');
+            if (!firstSlash)
+                return; // "v" -- position only
+
+            const char* afterFirstSlash = firstSlash + 1;
+            if (*afterFirstSlash != '/') // "v/vt" or "v/vt/vn" -- a real number follows
+                texIndex = std::atoi(afterFirstSlash);
+            // else "v//vn" -- immediately hits the second '/', texIndex stays 0 (absent)
         }
     }
 
@@ -40,7 +58,9 @@ namespace Duality {
 
         MeshData data;
         FILE* file = std::fopen(path.c_str(), "rb");
-        if (file) {
+        if (!file) {
+            Log::Warn("MeshLoader: could not open '" + path + "'");
+        } else {
             std::vector<glm::vec3> positions;
             std::vector<glm::vec2> texcoords;
 
@@ -81,6 +101,10 @@ namespace Duality {
                 }
             }
             std::fclose(file);
+
+            if (data.Vertices.empty())
+                Log::Warn("MeshLoader: '" + path + "' produced 0 vertices -- only \"v\"/\"vt\"/\"f\" lines are "
+                    "supported (space-separated, positive 1-based indices), check the file uses that shape");
 
             float maxDistanceSq = 0.0f;
             for (const MeshVertex& vertex : data.Vertices)

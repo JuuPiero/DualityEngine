@@ -14,7 +14,7 @@ using json = nlohmann::json;
 
 namespace Duality {
 
-    bool SceneSerializer::Serialize(const std::string& path) {
+    json SceneSerializer::SerializeToJson() {
         json root;
         json entities = json::array();
 
@@ -44,32 +44,10 @@ namespace Duality {
         }
 
         root["Entities"] = entities;
-
-        std::ofstream file(path);
-        if (!file.is_open()) {
-            Log::Error("SceneSerializer: could not open '" + path + "' for writing");
-            return false;
-        }
-        file << root.dump(2);
-        Log::Info("Scene saved to '" + path + "'");
-        return true;
+        return root;
     }
 
-    bool SceneSerializer::Deserialize(const std::string& path) {
-        std::ifstream file(path);
-        if (!file.is_open()) {
-            Log::Error("SceneSerializer: could not open '" + path + "' for reading");
-            return false;
-        }
-
-        json root;
-        try {
-            file >> root;
-        } catch (const json::parse_error& e) {
-            Log::Error("SceneSerializer: failed to parse '" + path + "': " + e.what());
-            return false;
-        }
-
+    bool SceneSerializer::DeserializeFromJson(const json& root) {
         if (!root.contains("Entities"))
             return false;
 
@@ -96,6 +74,40 @@ namespace Duality {
             if (parentIndex >= 0 && parentIndex < static_cast<int>(orderedEntities.size()))
                 m_Scene.SetParent(orderedEntities[i], orderedEntities[parentIndex], {}, /*preserveWorldPosition=*/false);
         }
+
+        return true;
+    }
+
+    bool SceneSerializer::Serialize(const std::string& path) {
+        json root = SerializeToJson();
+
+        std::ofstream file(path);
+        if (!file.is_open()) {
+            Log::Error("SceneSerializer: could not open '" + path + "' for writing");
+            return false;
+        }
+        file << root.dump(2);
+        Log::Info("Scene saved to '" + path + "'");
+        return true;
+    }
+
+    bool SceneSerializer::Deserialize(const std::string& path) {
+        std::ifstream file(path);
+        if (!file.is_open()) {
+            Log::Error("SceneSerializer: could not open '" + path + "' for reading");
+            return false;
+        }
+
+        json root;
+        try {
+            file >> root;
+        } catch (const json::parse_error& e) {
+            Log::Error("SceneSerializer: failed to parse '" + path + "': " + e.what());
+            return false;
+        }
+
+        if (!DeserializeFromJson(root))
+            return false;
 
         Log::Info("Scene loaded from '" + path + "'");
         return true;

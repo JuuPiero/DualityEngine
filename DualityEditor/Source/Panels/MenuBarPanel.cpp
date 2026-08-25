@@ -1,9 +1,12 @@
 #include "DualityEditor/Panels/MenuBarPanel.h"
 
+#include <filesystem>
+
 #include <imgui.h>
 
 #include "DualityEditor/BuildPipeline.h"
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 
 namespace Duality {
@@ -16,8 +19,17 @@ namespace Duality {
                 ImGui::Separator();
                 if (ImGui::MenuItem("Save Scene"))
                     SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath);
+                // Reloads ctx.ScenePath from disk, discarding unsaved in-memory edits --
+                // routed through SceneOps::OpenScene (clears the scene first) rather than a
+                // raw Deserialize straight onto the live scene, which used to just ADD every
+                // loaded entity alongside whatever was already there (a real reported bug).
                 if (ImGui::MenuItem("Load Scene"))
-                    SceneSerializer(ctx.SceneRef).Deserialize(ctx.ScenePath);
+                    OpenScene(ctx, ctx.ScenePath);
+                // Same clear-then-load, but browses to an arbitrary .scene file first --
+                // Unity's own "Open Scene", unlike "Load Scene" which always targets whatever
+                // ctx.ScenePath currently is.
+                if (ImGui::MenuItem("Open Scene..."))
+                    ctx.RequestOpenSceneDialog = true;
                 // Writes a SNAPSHOT of the current scene to a new file the user picks --
                 // does not change which scene "Save Scene"/"Load Scene" above operate on.
                 // See Application::SaveSceneAsFromDialog's own comment for why -- this is
@@ -48,6 +60,13 @@ namespace Duality {
                 }
                 ImGui::EndMenu();
             }
+
+            // Which scene "Save Scene"/"Load Scene" currently target -- easy to lose track of
+            // once "Open Scene..."/Content Browser double-click/the Scene asset inspector's
+            // "Open Scene" button can all change it; a plain menu bar Text widget (ImGui allows
+            // arbitrary widgets between BeginMenuBar/EndMenuBar, not just BeginMenu blocks).
+            ImGui::TextDisabled("  Scene: %s", std::filesystem::path(ctx.ScenePath).filename().string().c_str());
+
             ImGui::EndMenuBar();
         }
     }

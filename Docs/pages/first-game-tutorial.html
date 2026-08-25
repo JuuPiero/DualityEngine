@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Làm game đầu tiên — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="first-game">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">Bắt đầu · Hướng dẫn từng bước</div>
+                <h1>Làm game đầu tiên</h1>
+                <p class="lede">
+                    Dựng một mini-game hoàn chỉnh từ Editor trống: nhân vật di chuyển bằng
+                    vật lý, một vật để "nhặt" bằng trigger, phản hồi qua Console/UI, và chuyển
+                    sang scene thứ hai khi thắng — rồi build ra máy 3DS thật. Giả định đã build
+                    Editor thành công (xem <a href="getting-started.html">Cài đặt &amp; Build</a>).
+                </p>
+
+                <ol class="steps">
+                    <li class="step">
+                        <div class="step-title">Tạo entity Player</div>
+                        <p>
+                            Trong panel <strong>Hierarchy</strong>, bấm <strong>Create Entity</strong>,
+                            đổi tên (field <strong>Name</strong> trong Properties) thành
+                            <code>Player</code>. Bấm <strong>+ Add Component → Sprite Renderer</strong>,
+                            chỉnh <code>Size</code> thành <code>(32, 32)</code> và <code>Color</code>
+                            tuỳ ý. Kéo một ảnh từ <strong>Content Browser</strong> vào field
+                            <code>Texture</code> nếu muốn (không bắt buộc — không có texture thì vẫn
+                            hiện ô màu đặc).
+                        </p>
+                    </li>
+                    <li class="step">
+                        <div class="step-title">Thêm vật lý cho Player</div>
+                        <p>
+                            <strong>+ Add Component → Rigidbody 2D</strong> (giữ
+                            <code>Body Type = Dynamic</code>), rồi
+                            <strong>+ Add Component → Box Collider 2D</strong>, chỉnh
+                            <code>Size</code> khớp với sprite (nửa-kích-thước, vd
+                            <code>(16, 16)</code>). Thêm một entity <code>Ground</code> khác
+                            với <strong>Sprite Renderer</strong> (kéo dài ra làm nền) +
+                            <strong>Rigidbody 2D</strong> (<code>Body Type = Static</code>) +
+                            <strong>Box Collider 2D</strong> để Player đứng lên trên.
+                        </p>
+                        <div class="callout note">
+                            Trục Y trong engine này tăng dần <strong>xuống dưới</strong> (khớp
+                            quy ước renderer) — trọng lực dương nghĩa là "rơi xuống", không phải
+                            âm như convention vật lý thường thấy.
+                        </div>
+                    </li>
+                    <li class="step">
+                        <div class="step-title">Viết script di chuyển</div>
+                        <p>Tạo <code>GameScripts/Include/PlayerMoveBehaviour.h</code>:</p>
+                        <pre><code><span class="tok-kw">#pragma once</span>
+<span class="tok-kw">#include</span> <span class="tok-str">"DualityEngine/Scene/Behaviour.h"</span>
+
+<span class="tok-kw">class</span> PlayerMoveBehaviour : <span class="tok-kw">public</span> Duality::Behaviour {
+<span class="tok-kw">public</span>:
+    <span class="tok-type">void</span> <span class="tok-fn">OnUpdate</span>(<span class="tok-type">float</span> deltaTime) <span class="tok-kw">override</span>;
+
+    <span class="tok-com">// Field này hiện trong Properties panel nhờ DUALITY_PROPERTIES bên dưới</span>
+    <span class="tok-type">float</span> Speed = <span class="tok-num">150.0f</span>;
+
+    DUALITY_PROPERTIES(PlayerMoveBehaviour, Speed)
+};</code></pre>
+                        <p>Và <code>GameScripts/Source/PlayerMoveBehaviour.cpp</code>:</p>
+                        <pre><code><span class="tok-kw">#include</span> <span class="tok-str">"PlayerMoveBehaviour.h"</span>
+<span class="tok-kw">#include</span> <span class="tok-str">"ScriptRegistration.h"</span>
+
+<span class="tok-type">void</span> PlayerMoveBehaviour::<span class="tok-fn">OnUpdate</span>(<span class="tok-type">float</span> deltaTime) {
+    <span class="tok-type">float</span> h = <span class="tok-fn">GetAxis</span>(<span class="tok-str">"Horizontal"</span>); <span class="tok-com">// WASD/mũi tên desktop, Circle Pad 3DS</span>
+    <span class="tok-fn">SetVelocity2D</span>({ h * Speed, <span class="tok-fn">GetVelocity2D</span>().y }); <span class="tok-com">// giữ nguyên Y để trọng lực vẫn hoạt động</span>
+
+    <span class="tok-kw">if</span> (<span class="tok-fn">GetKeyDown</span>(Duality::KeyCode::Space) || <span class="tok-fn">GetKeyDown</span>(Duality::KeyCode::GamepadA))
+        <span class="tok-fn">AddForce2D</span>({ <span class="tok-num">0.0f</span>, <span class="tok-num">-12000.0f</span> }); <span class="tok-com">// nhảy -- Y âm = hướng lên</span>
+}
+
+REGISTER_BEHAVIOUR(PlayerMoveBehaviour)</code></pre>
+                        <p>
+                            Thêm 2 file vào <code>GameScripts/CMakeLists.txt</code> (cạnh các entry
+                            có sẵn), gắn <code>PlayerMoveBehaviour</code> vào field <strong>Class</strong>
+                            của <strong>+ Add Component → Behaviour</strong> trên entity Player, rồi
+                            bấm <strong>Reload Scripts</strong> (toolbar panel Game).
+                        </p>
+                    </li>
+                    <li class="step">
+                        <div class="step-title">Tạo vật để nhặt (trigger)</div>
+                        <p>
+                            Tạo entity <code>Coin</code> — <strong>Sprite Renderer</strong> (màu
+                            vàng) + <strong>Circle Collider 2D</strong> với <code>Is Trigger</code>
+                            bật (không cần Rigidbody — một collider tĩnh không Rigidbody vẫn hoạt
+                            động như static). Script nhặt, <code>CollectCoinBehaviour.h</code>/<code>.cpp</code>:
+                        </p>
+                        <pre><code><span class="tok-kw">#pragma once</span>
+<span class="tok-kw">#include</span> <span class="tok-str">"DualityEngine/Scene/Behaviour.h"</span>
+
+<span class="tok-kw">class</span> CollectCoinBehaviour : <span class="tok-kw">public</span> Duality::Behaviour {
+<span class="tok-kw">public</span>:
+    <span class="tok-type">void</span> <span class="tok-fn">OnTriggerEnter</span>(Duality::Entity other) <span class="tok-kw">override</span>;
+};</code></pre>
+                        <pre><code><span class="tok-kw">#include</span> <span class="tok-str">"CollectCoinBehaviour.h"</span>
+<span class="tok-kw">#include</span> <span class="tok-str">"DualityEngine/Scene/Components.h"</span>
+<span class="tok-kw">#include</span> <span class="tok-str">"ScriptRegistration.h"</span>
+
+<span class="tok-type">void</span> CollectCoinBehaviour::<span class="tok-fn">OnTriggerEnter</span>(Duality::Entity other) {
+    <span class="tok-com">// Chỉ phản ứng khi đúng Player chạm vào (kiểm tra bằng Name -- đơn giản, đủ dùng ở quy mô này)</span>
+    <span class="tok-kw">if</span> (other.<span class="tok-fn">GetComponent</span>&lt;Duality::NameComponent&gt;().Name != <span class="tok-str">"Player"</span>)
+        <span class="tok-kw">return</span>;
+    <span class="tok-fn">LogInfo</span>(<span class="tok-str">"Nhặt được coin!"</span>); <span class="tok-com">// hiện trong panel Console</span>
+    <span class="tok-fn">SetActive</span>(<span class="tok-kw">false</span>); <span class="tok-com">// biến mất khỏi Scene view + Game view ngay lập tức</span>
+}</code></pre>
+                        <p>Gắn script này vào entity <code>Coin</code>, thêm file vào CMakeLists, Reload Scripts.</p>
+                        <div class="callout">
+                            Cả hai phía của một cặp chạm đều nhận callback  — script
+                            đặt ở <code>Coin</code> hay <code>Player</code> đều được, chỉ cần đúng
+                            một bên có <code>OnTriggerEnter</code>.
+                        </div>
+                    </li>
+                    <li class="step">
+                        <div class="step-title">Thử ngay trong Editor</div>
+                        <p>
+                            Bấm <strong>Play</strong> (panel Game). Dùng WASD/mũi tên di chuyển,
+                            Space nhảy, chạm vào Coin để thấy nó biến mất và dòng log hiện trong
+                            Console. Bấm <strong>Stop</strong> — scene tự động quay về đúng trạng
+                            thái trước khi Play (Coin xuất hiện lại), không cần Save/Load thủ công.
+                        </p>
+                    </li>
+                    <li class="step">
+                        <div class="step-title">Tạo màn thắng và chuyển scene</div>
+                        <p>
+                            Content Browser → chuột phải → <strong>Create → Scene</strong>, đổi tên
+                            thành <code>WinScreen.scene</code>, double-click để mở nó, thêm một
+                            entity <code>WinLabel</code> với Sprite Renderer màu nổi bật để biết
+                            đã sang scene mới thành công. <strong>Save Scene</strong>, rồi mở lại
+                            scene gốc (Content Browser, double-click file scene ban đầu).
+                        </p>
+                        <p>Sửa <code>CollectCoinBehaviour::OnTriggerEnter</code> để chuyển scene thay vì chỉ ẩn:</p>
+                        <pre><code><span class="tok-type">void</span> CollectCoinBehaviour::<span class="tok-fn">OnTriggerEnter</span>(Duality::Entity other) {
+    <span class="tok-kw">if</span> (other.<span class="tok-fn">GetComponent</span>&lt;Duality::NameComponent&gt;().Name != <span class="tok-str">"Player"</span>)
+        <span class="tok-kw">return</span>;
+    <span class="tok-fn">LogInfo</span>(<span class="tok-str">"Thắng!"</span>);
+    <span class="tok-fn">LoadScene</span>(<span class="tok-str">"WinScreen.scene"</span>); <span class="tok-com">// đường dẫn tương đối Assets/ -- xử lý ở frame kế tiếp, không ngay lập tức</span>
+}</code></pre>
+                        <div class="callout warn">
+                            <code>LoadScene</code> là request hoãn lại (deferred) -- code chạy
+                            <em>sau</em> lời gọi này trong cùng <code>OnUpdate</code> vẫn còn thấy
+                            scene <strong>cũ</strong>, vì việc chuyển scene diễn ra giữa hai frame,
+                            không đồng bộ ngay khi gọi.
+                        </div>
+                    </li>
+                    <li class="step">
+                        <div class="step-title">Build ra máy 3DS thật</div>
+                        <p>
+                            Menu <strong>File → Build for 3DS</strong> (xem
+                            <a href="getting-started.html">Cài đặt &amp; Build</a> để biết chi
+                            tiết .3dsx/.cia). Toàn bộ vật lý, script, chuyển scene chạy y hệt trên
+                            máy thật/Citra như trong Editor — cùng một pipeline
+                            <code>Scene</code>/<code>SceneSerializer</code>, chỉ khác renderer
+                            backend (citro2d/citro3d thay vì OpenGL).
+                        </p>
+                    </li>
+                </ol>
+
+                <h2>Đi tiếp từ đây</h2>
+                <div class="card-grid">
+                    <a class="card" href="scripting-api.html">
+                        <span class="card-icon">📜</span>
+                        <div class="card-title">Toàn bộ Scripting API</div>
+                        <div class="card-desc">Input, Audio, Physics, Raycast, SceneManager, Prefab, ScriptableObject...</div>
+                    </a>
+                    <a class="card" href="physics.html">
+                        <span class="card-icon">🪐</span>
+                        <div class="card-title">Physics chi tiết</div>
+                        <div class="card-desc">BodyType, Collider offset, Collision vs Trigger, Raycast2D/3D.</div>
+                    </a>
+                    <a class="card" href="rendering.html">
+                        <span class="card-icon">🖼️</span>
+                        <div class="card-title">UI trong game</div>
+                        <div class="card-desc">UIRectComponent/UIButtonComponent -- dựng nút bấm, panel HUD.</div>
+                    </a>
+                </div>
+
+                <div class="page-nav">
+                    <a class="prev" href="getting-started.html"><span class="dir">← Trước</span>Cài đặt &amp; Build</a>
+                    <a class="next" href="architecture.html"><span class="dir">Tiếp →</span>Kiến trúc: ECS &amp; Scene</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

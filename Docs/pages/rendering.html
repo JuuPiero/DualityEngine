@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rendering & UI — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="rendering">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">API Reference</div>
+                <h1>Rendering &amp; UI</h1>
+                <p class="lede">
+                    Renderer là interface trừu tượng (<code>IRenderer2D</code>/<code>IRenderer3D</code>)
+                    với backend riêng cho mỗi nền tảng — cùng logic vẽ Scene, khác lệnh GPU thật.
+                </p>
+
+                <h2 style="border-top:none;margin-top:0">Backend theo nền tảng</h2>
+                <table>
+                    <tr><th>Nền tảng</th><th>2D</th><th>3D</th></tr>
+                    <tr><td>Desktop (Editor + DualityPlayerDesktop)</td><td><code>OpenGLRenderer2D</code> — legacy immediate-mode GL (<code>glBegin</code>/<code>glEnd</code>), không batch</td><td><code>OpenGLRenderer3D</code> — modern GL qua <code>GLShaderProgram</code>/<code>GLVertexArray</code></td></tr>
+                    <tr><td>3DS</td><td><code>Citro2DRenderer</code> (citro2d)</td><td><code>Citro3DRenderer</code> (citro3d)</td></tr>
+                </table>
+                <p>
+                    Mỗi frame, mọi entity render qua đúng một trong 4 loop trong
+                    <code>SceneRenderer.cpp</code>'s <code>RenderScreen</code>: mesh pass 3D chạy
+                    trước (và clear màn), sprite pass 2D vẽ chồng lên không clear lại, UI vẽ sau
+                    cùng trên hết. Camera projection (Orthographic/Perspective) là "thuộc tính ống
+                    kính", không phải công tắc chọn renderer — cả mesh lẫn sprite luôn cùng vẽ trên
+                    một màn bất kể camera đang chiếu kiểu gì.
+                </p>
+
+                <h2>CameraComponent</h2>
+                <pre><code><span class="tok-kw">struct</span> CameraComponent {
+    Screen Screen = Screen::Top;
+    <span class="tok-type">bool</span> Primary = <span class="tok-kw">true</span>;
+    <span class="tok-type">float</span> Zoom = <span class="tok-num">1.0f</span>;              <span class="tok-com">// chỉ Orthographic</span>
+    ProjectionType Projection = Orthographic;
+    <span class="tok-type">float</span> FovDegrees = <span class="tok-num">60.0f</span>;       <span class="tok-com">// chỉ Perspective</span>
+    <span class="tok-type">float</span> NearPlane = <span class="tok-num">0.1f</span>, FarPlane = <span class="tok-num">1000.0f</span>; <span class="tok-com">// chỉ Perspective</span>
+};</code></pre>
+                <p>
+                    Camera luôn là entity riêng (Transform + Camera, không kèm
+                    Sprite/MeshRenderer) — tách rời "cái nhìn" khỏi "cái được vẽ", giống quy ước
+                    Unity/Cocos. Mỗi màn có đúng một camera <code>Primary</code> thật sự render
+                    (<code>Scene::GetPrimaryCamera(screen)</code>).
+                </p>
+
+                <h2>SpriteRendererComponent</h2>
+                <pre><code><span class="tok-kw">struct</span> SpriteRendererComponent {
+    glm::vec2 Size{ <span class="tok-num">32</span>, <span class="tok-num">32</span> };
+    glm::vec4 Color{ <span class="tok-num">1</span>, <span class="tok-num">1</span>, <span class="tok-num">1</span>, <span class="tok-num">1</span> };
+    AssetRef Texture; <span class="tok-com">// rỗng = ô màu đặc</span>
+};</code></pre>
+                <p>Vẽ như một quad axis-aligned tại <code>TransformComponent::Translation</code>, xoay theo <code>Rotation.z</code>.</p>
+
+                <h2>MeshRendererComponent, Material, Mesh</h2>
+                <pre><code><span class="tok-kw">struct</span> MeshRendererComponent {
+    MeshPrimitive Primitive = Cube; <span class="tok-com">// Cube | Sphere | Plane -- dựng thủ tục, không cần asset</span>
+    AssetRef Mesh;      <span class="tok-com">// rỗng = dùng Primitive; có giá trị = mesh OBJ import, thay thế Primitive khi resolve được</span>
+    AssetRef Material;  <span class="tok-com">// rỗng = Material mặc định (trắng, không texture)</span>
+};</code></pre>
+                <p>
+                    <strong>Material</strong> là asset JSON (<code>.mat</code>) — <code>Color</code>
+                    (vec4) + <code>Texture</code> (AssetRef). Xem
+                    <a href="assets.html">Asset Pipeline</a> để biết cách tạo/import.
+                    <strong>Mesh</strong> import từ file <code>.obj</code> (Wavefront) — kéo file
+                    từ Content Browser vào field <code>Mesh</code>. Parser tự viết
+                    (<code>MeshLoader.cpp</code>) hỗ trợ face tam giác lẫn tứ giác
+                    (<code>v</code>/<code>v/vt</code>/<code>v//vn</code>/<code>v/vt/vn</code>), tự
+                    triangulate quad.
+                </p>
+
+                <h2>Hệ UI trong game</h2>
+                <p>
+                    Không phải hệ XML+CSS như định hướng dài hạn ban đầu — bản đầu tiên đơn giản:
+                    mỗi widget là <code>UIRectComponent</code> (vị trí/kích thước) ghép với một
+                    component thứ hai theo loại widget, giống cách Unity tách từng mối quan tâm
+                    thành component riêng.
+                </p>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">struct</span> UIRectComponent { Screen Screen; UIAnchor Anchor; glm::vec2 Offset; glm::vec2 Size; }</div></div>
+                    <div class="api-body">
+                        <p>
+                            Neo (<code>UIAnchor</code>: <code>TopLeft</code>/<code>TopCenter</code>/<code>TopRight</code>/
+                            <code>MiddleLeft</code>/<code>MiddleCenter</code>/<code>MiddleRight</code>/
+                            <code>BottomLeft</code>/<code>BottomCenter</code>/<code>BottomRight</code>)
+                            trong không gian pixel cố định của một <code>Screen</code> vật lý — không
+                            liên quan camera nào cả.
+                        </p>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">struct</span> UIImageComponent { glm::vec4 Color; AssetRef Texture; }</div></div>
+                    <div class="api-body"><p>Panel/Image — cùng quy ước Color/Texture như Sprite Renderer.</p></div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">struct</span> UIButtonComponent { glm::vec4 NormalColor, HoverColor, PressedColor; <span class="tok-type">bool</span> IsHovered, IsPressed, WasClicked; }</div></div>
+                    <div class="api-body">
+                        <p>
+                            Thêm phát hiện click — <code>IsHovered</code>/<code>IsPressed</code>/<code>WasClicked</code>
+                            cập nhật mỗi frame bởi <code>UpdateUIInteractions</code>, đọc từ script
+                            giống <code>GetKeyDown()</code>. Màu paired Image tự đổi theo trạng thái
+                            tương tác (đè lên <code>UIImageComponent::Color</code>), không cần script.
+                            Chỉ phản ứng với pointer đang ở <strong>đúng màn</strong> của chính nó
+                            (<code>UIRectComponent::Screen</code>) — Top/Bottom có vùng toạ độ local
+                            trùng nhau nên việc này cần <code>Input::GetPointerScreen()</code> để phân
+                            biệt.
+                        </p>
+                        <pre><code><span class="tok-kw">if</span> (button.WasClicked) { <span class="tok-com">/* xử lý click, đọc trực tiếp component (không qua Behaviour wrapper riêng) */</span> }</code></pre>
+                    </div>
+                </div>
+                <div class="callout warn">
+                    Chưa có widget text/label (cần hệ font thật — citro2d có sẵn, desktop
+                    <code>OpenGLRenderer2D</code> chưa có font atlas nào). Chưa có 9-slice/border
+                    scaling. Chưa có Visual UI Builder (kéo-thả dựng UI).
+                </div>
+
+                <h2>Scene view của Editor: grid &amp; gizmo</h2>
+                <p>
+                    Panel <strong>Scene</strong> (không phải Game — xem
+                    <a href="editor.html">Editor Panels</a>) vẽ lưới kiểu Unity/Cocos ở cả hai
+                    pane, cả 2D lẫn 3D:
+                </p>
+                <ul>
+                    <li><strong>2D</strong>: lưới vẽ bằng lệnh GL thật (<code>OpenGLRenderer2D::DrawGrid</code>) — cố ý không dùng overlay <code>ImDrawList</code> để lưới nằm <em>sau</em> sprite, không đè lên trên. Một đường trục X đỏ, Y xanh lá qua gốc toạ độ world.</li>
+                    <li><strong>3D</strong>: lưới mặt phẳng XZ tại Y=0, trục X đỏ/Z xanh dương, cộng một orientation gizmo kiểu Blender/Unity ở góc phải trên mỗi pane — bấm vào một đầu trục để snap camera nhìn thẳng theo trục đó.</li>
+                </ul>
+
+                <div class="page-nav">
+                    <a class="prev" href="physics.html"><span class="dir">← Trước</span>Physics 2D/3D</a>
+                    <a class="next" href="assets.html"><span class="dir">Tiếp →</span>Asset Pipeline</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

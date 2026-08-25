@@ -68,18 +68,26 @@ yet, but an existing one can be opened via the File menu.
 - **File menu** (top) -- **Open Project...** (browse for a `.dproj` file;
   swaps the active project/scene/Content Browser root, stopping Play first
   if it's running), **Save Scene** / **Load Scene** (JSON round-trip to
-  `<project>/Assets/Scene.scene`), **Save Scene As...** (writes a *snapshot*
-  of the current scene to a new file the user picks, without changing which
-  scene Save/Load Scene operate on -- this is how a project gets a second
-  scene file for `SceneManager`/`Behaviour::LoadScene` to target), and
-  **Build for 3DS** (saves the scene, then runs `build-3ds.bat`, see below,
-  so the on-device build always packages the latest scene), and **Build for
-  PC** (saves the scene, then rebuilds `DualityPlayerDesktop` in the
-  existing desktop build tree -- no romfs/asset-cooking step needed, since
-  that target reads a project's `Assets/` directly off disk at its own
-  launch time; run it via `run-desktop-player.bat` once built). Both share
-  one build-status flag, so they can't run concurrently against the same
-  build tools.
+  `<project>/Assets/Scene.scene` -- Load Scene clears the current scene
+  first, then loads: it used to just add every loaded entity alongside
+  whatever was already there, a real reported bug), **Open Scene...**
+  (browse for a different `.scene` file and switch to it -- unlike Save
+  Scene As... below, this DOES change which scene Save/Load Scene operate
+  on afterward), **Save Scene As...** (writes a *snapshot* of the current
+  scene to a new file the user picks, without changing which scene Save/
+  Load Scene operate on -- this is how a project gets a second scene file
+  for `SceneManager`/`Behaviour::LoadScene` to target), and **Build for
+  3DS** (saves the scene, then runs `build-3ds.bat`, see below, so the
+  on-device build always packages the latest scene), and **Build for PC**
+  (saves the scene, then rebuilds `DualityPlayerDesktop` in the existing
+  desktop build tree -- no romfs/asset-cooking step needed, since that
+  target reads a project's `Assets/` directly off disk at its own launch
+  time; run it via `run-desktop-player.bat` once built). Both share one
+  build-status flag, so they can't run concurrently against the same build
+  tools. The menu bar also shows which scene file is currently active
+  (`Scene: <filename>`), since **Open Scene...**/a Content Browser
+  double-click/the Scene asset inspector's own "Open Scene" button can all
+  change it.
 - **Hierarchy** (left) -- lists entities in the scene; click one to select
   it. **Create Entity** adds a new empty entity and selects it. A search box
   filters to a flat scene-wide list of matching entities while it has text
@@ -97,34 +105,50 @@ yet, but an existing one can be opened via the File menu.
   currently shown, ignoring further Hierarchy/Scene/Content Browser
   selections until unlocked -- needed because clicking a Content Browser
   thumbnail to start dragging it (e.g. a Material/Texture onto an `AssetRef`
-  field here) fires on mouse-down, the same frame the drag begins, which
-  would otherwise swap Properties away from the very field being dragged
-  onto.
+  field here) fires on mouse-down -- fixed to fire on release-while-still-
+  hovering instead (`ContentBrowserPanel`'s own thumbnail button), so Lock
+  is no longer *required* just to drag-and-drop an asset (still useful for
+  pinning Properties while browsing elsewhere).
 - **Scene** (center, tabbed with Game) -- one free-roam edit camera per
   screen, independent of any in-scene camera, with a **2D | 3D** toggle per
-  pane. 2D: middle-drag to pan, wheel to zoom, left-click a sprite to select
-  it. 3D: left-click/drag to select and gizmo-drag, right-drag to orbit
-  (a genuine quaternion orbit -- no gimbal-lock clamp, it flips smoothly
-  through the poles like Unity/Blender), middle-drag to pan, wheel to zoom.
-  The viewport always exactly fills the panel. Camera entities draw a real
-  frustum wireframe (near/far planes, FOV) instead of a flat marker, so you
-  can see exactly where a camera is looking. **Translate / Rotate / Scale**
-  buttons switch the selected entity's gizmo mode -- drag a handle to edit
-  its Transform live, visible immediately in Scene, Game, and on a real 3DS
-  build. `Transform.Rotation` is always in degrees. Colliders
+  pane. Both draw a Unity/Cocos-style grid (world-aligned lines, a red
+  X-axis/green Y-or-Z-axis line through the origin) so you always have a
+  sense of scale/position. 2D: middle-drag to pan, wheel to zoom, left-click
+  a sprite to select it. 3D: left-click/drag to select and gizmo-drag,
+  right-drag to orbit (a genuine quaternion orbit -- no gimbal-lock clamp,
+  it flips smoothly through the poles like Unity/Blender), middle-drag to
+  pan, wheel to zoom; a Blender/Unity-style orientation gizmo sits in the
+  pane's top-right corner -- click one of its axis tips to snap the view to
+  look straight down that axis. The viewport always exactly fills the
+  panel. Camera entities draw a real frustum wireframe (near/far planes,
+  FOV) instead of a flat marker, so you can see exactly where a camera is
+  looking. **Translate / Rotate / Scale** buttons switch the selected
+  entity's gizmo mode -- drag a handle to edit its Transform live, visible
+  immediately in Scene, Game, and on a real 3DS build. `Transform.Rotation`
+  is always in degrees. Colliders
   (`BoxCollider2D`/`CircleCollider2D`/`BoxCollider3D`/`SphereCollider3D`)
   draw as green wireframe outlines for every entity that has one -- an
   editor-only visualization, like Unity's Gizmos, never actually rendered
-  in the Game view or on-device.
+  in the Game view or on-device. The selected entity's 3D collider also gets
+  a draggable resize handle per axis (box: one per face; sphere: one on the
+  equator) for editing `Size`/`Radius` directly in the 3D pane.
 - **Game** (center, tabbed with Scene) -- exactly what the real
   TopCamera/BottomCamera entities render, stacked to match the console's
   physical layout (Top 400x240 above, Bottom 320x240 below). This is the
   same render pass the 3DS build itself uses. **Play / Stop** runs the full
   runtime lifecycle (`Behaviour` scripts, 2D/3D physics, collision/trigger
-  events, UI) against the live scene; **Reload Scripts** rebuilds
-  `GameScripts` and hot-reloads it into the running Editor without
-  restarting -- edit a script's `.cpp`, click this, see the change
-  immediately.
+  events, UI) against the live scene and, on Stop, reverts every change
+  Play made -- script-driven Transform edits, physics results, runtime-
+  spawned/destroyed entities -- back to exactly how the scene looked the
+  instant Play was pressed, matching Unity's own Play/Stop guarantee.
+  **Reload Scripts** rebuilds `GameScripts` and hot-reloads it into the
+  running Editor without restarting (stopping -- and reverting -- Play
+  first if it's running) -- edit a script's `.cpp`, click this, see the
+  change immediately. Clicking/touching either screen's image here (while
+  Playing) is correctly resolved to that screen's own local pixel
+  coordinates, so `Behaviour::GetPointerPosition()`/`ScreenPointToRay3D`
+  work the same in Play-in-Editor as they do on `DualityPlayerDesktop` or a
+  real 3DS.
 - **Console** (bottom, tabbed with Content Browser) -- `Duality::Log`
   output (including `Behaviour::LogInfo/LogWarn/LogError` calls from
   scripts), color-coded and filterable by level (Trace/Info/Warn/Error),
@@ -139,22 +163,32 @@ yet, but an existing one can be opened via the File menu.
   an `AssetRef` field in Properties (a texture, a Material, a Prefab, ...)
   to assign it (referenced by its GUID, so renaming/moving the file later
   doesn't break it); drag a file in from Windows Explorer to import it into
-  whatever folder is currently open. Click a file once to select it --
+  whatever folder is currently open. Click a file once to select it (fires
+  on release, not press, so starting a drag doesn't also reselect the file
+  being dragged) --
   Properties shows the right Inspector for its type, dispatched by file
   extension through `AssetInspectorRegistry` (`DualityEditor/
   AssetInspectors.cpp`) the same way `TypeRegistry` dispatches Entity
   components: `.mat`/`.asset` (Material/ScriptableObject) are fully editable,
   auto-saving on every change; `.prefab`/`.scene` show a read-only summary
   (entity count, root/top-level entity names -- editing a Prefab or Scene
-  asset in place isn't built yet, see "Known limitations"); an image or
+  asset in place isn't built yet, see "Known limitations"); a `.scene`'s
+  Inspector also has an **Open Scene** button, and double-clicking a
+  `.scene` file (instead of single-clicking to select it) opens it directly
+  as the active scene; an image or
   `.wav` shows its **Import Settings** (Filter Mode/Wrap Mode/Generate
   Mipmaps for a texture, Volume for audio) -- a Unity/Cocos-style importer
   block written into that asset's own `.meta` file (alongside its existing
   `"guid"` key) rather than the asset itself, since a `.png`/`.wav` is a
   foreign binary format this engine doesn't own. Right-click empty space for
-  **Create > Material** or **Create > ScriptableObject > &lt;Type&gt;** (the
-  latter listing every class GameScripts currently has
-  `REGISTER_SCRIPTABLE_OBJECT`'d).
+  **Create > Folder / Scene / Material / ScriptableObject > &lt;Type&gt;**
+  (the latter listing every class GameScripts currently has
+  `REGISTER_SCRIPTABLE_OBJECT`'d); right-click an existing file or folder for
+  **Rename** (label becomes an editable text field, Enter or click-away
+  commits, Escape cancels) or **Delete** (asks for confirmation first --
+  there's no Recycle Bin/undo here). Drag a file onto a folder icon to move
+  it there (its `.meta` sidecar moves with it, and its GUID keeps resolving
+  to the new path, so nothing referencing it needs fixing up).
 
 ### Writing gameplay scripts
 
@@ -171,6 +205,36 @@ Play-in-Editor, or linked statically straight into `DualityPlayer` for the
 4. In the Editor, set an entity's `BehaviourComponent` "Class" field to the
    class name (a plain string, matched by name -- like picking a
    MonoBehaviour in Unity), then click **Reload Scripts**.
+
+### Inspector-editable fields
+
+A script's own public fields can show up in the Properties panel, like
+Unity's `[SerializeField]`:
+
+```cpp
+class BounceBehaviour : public Duality::Behaviour {
+public:
+    float Amplitude = 40.0f;
+    float Speed = 8.0f;
+    Duality::EntityRef Target;   // drag an entity from the Hierarchy onto this field
+
+    DUALITY_PROPERTIES(BounceBehaviour, Amplitude, Speed, Target)
+    ...
+};
+```
+
+One `DUALITY_PROPERTIES(ClassName, field1, field2, ...)` line lists
+already-declared field names once (no per-field macro, no repeated
+`MakeField()` calls) -- entirely optional, a script with no such line just
+has no Inspector fields, exactly like before this feature existed. There's
+no separate "component reference" field type: hold an `EntityRef` and call
+`ResolveEntityRef(ref).GetComponent<T>()` to reach a specific component on
+whatever entity it points at. Edits made in Edit mode are saved with the
+scene; edits made while Play is running affect the live object only and are
+lost on Stop (matching Unity's own behavior). One limitation: an `EntityRef`
+field does NOT survive a scene save/load round trip -- it always reloads as
+unset, since a raw handle isn't stable across a reload (see "Known
+limitations").
 
 ### Lifecycle
 
@@ -199,16 +263,45 @@ Inside any lifecycle method, a script can call (all inherited from
   `GameObject.SetActive`/`activeSelf`. Toggling this does NOT dynamically
   add/remove a Rigidbody's physics body mid-Play -- only whether one
   existed when Play started.
+- **Rigidbody velocity/force**: `GetVelocity2D`/`3D()`, `SetVelocity2D`/`3D(v)`,
+  `AddForce2D`/`3D(f)` -- Unity's `Rigidbody2D.velocity`/`Rigidbody.velocity`/
+  `AddForce`, operating on this entity's own `Rigidbody2DComponent`/
+  `Rigidbody3DComponent`. `Rigidbody2D/3DComponent::Type` (`BodyType`:
+  Static/Kinematic/Dynamic, replacing the old plain `IsStatic` boolean) adds
+  Kinematic -- moved directly by a script (mutate `Transform` each frame) or
+  animation, still generates full collision response against Dynamic bodies,
+  but never affected by gravity/forces itself.
+- **Raycast**: `Raycast2D(origin, direction, maxDistance)` /
+  `Raycast3D(origin, direction, maxDistance)` -- Unity's
+  `Physics2D.Raycast`/`Physics.Raycast`, returns a `RaycastHit2D`/
+  `RaycastHit3D` (falsy `HitEntity` if nothing was hit -- check via `if
+  (hit)` before reading `Point`/`Normal`/`Distance`) for the closest
+  collider along the ray. `ScreenPointToRay3D(screen, screenPoint,
+  outOrigin, outDirection)` converts a screen-local pixel point (e.g.
+  `GetPointerPosition()`, paired with `GetPointerScreen()`) into a
+  world-space ray from that screen's real Perspective primary camera --
+  feed the result straight into `Raycast3D` for click/touch-to-select
+  gameplay (see `GameScripts/RaycastDemoBehaviour.cpp`, attached to the
+  sample scene's "RaycastController" entity: click/touch the Bottom screen
+  in Play mode and watch the Console log whichever 3D object was hit).
+  Returns false if that screen has no Perspective primary camera. Both
+  Raycast functions only work while Play is running (no physics world to
+  query otherwise).
 - **Input**, Unity-old-Input-Manager-style: `GetKey`/`GetKeyDown`/
   `GetKeyUp(Duality::KeyCode::...)`, `GetAxis("Horizontal")`/
   `GetAxis("Vertical")` (digital ±1 from WASD/arrows on desktop, real analog
   values from the Circle Pad on 3DS -- same script code, platform-
   appropriate values on each), and `GetPointerDown()`/`GetPointerPosition()`
-  (mouse on desktop, touchscreen on 3DS). `KeyCode` covers common desktop
-  keys (`W`/`A`/`S`/`D`, arrows, `Space`/`Enter`/`Escape`) and 3DS buttons
-  (`GamepadA`/`B`/`X`/`Y`/`L`/`R`, `GamepadStart`/`Select`, D-Pad) -- a
-  keycode meaningless on the current platform just always reads as not
-  pressed, rather than being unavailable.
+  (mouse on desktop, touchscreen on 3DS). Since Top (400x240) and Bottom
+  (320x240) share overlapping local pixel ranges, `GetPointerScreen()`
+  reports which one `GetPointerPosition()` is actually local to -- always
+  `Screen::Bottom` on 3DS (the touch panel is physically only there), the
+  real screen under the cursor/touch on desktop (Play-in-Editor's Game
+  panel and `DualityPlayerDesktop` both resolve this correctly). `KeyCode`
+  covers common desktop keys (`W`/`A`/`S`/`D`, arrows, `Space`/`Enter`/
+  `Escape`) and 3DS buttons (`GamepadA`/`B`/`X`/`Y`/`L`/`R`,
+  `GamepadStart`/`Select`, D-Pad) -- a keycode meaningless on the current
+  platform just always reads as not pressed, rather than being unavailable.
 - **Audio**: `PlaySound(assetGuid, loop=false)` / `StopAllSounds()` play a
   WAV asset (referenced by its `.meta` GUID, same as a
   `SpriteRendererComponent::Texture` field) through the same real audio
@@ -376,11 +469,16 @@ repo (prebuilt binaries).
   swap does not get any such reset.
 - No collision-event Stay variant (`OnCollisionEnter`/`Exit` and
   `OnTriggerEnter`/`Exit` exist; no per-frame-while-touching `OnCollisionStay`/
-  `OnTriggerStay` yet), no Raycast API, and no physics joints/constraints
-  (hinge, spring, fixed) for either Box2D or Bullet.
+  `OnTriggerStay` yet), and no physics joints/constraints (hinge, spring,
+  fixed) for either Box2D or Bullet.
 - A Prefab instance has no link back to its source asset -- editing the
   original `.prefab` later does not update entities already
   instantiated from it (no "Apply"/"Revert" like Unity's prefab instances).
+- An `EntityRef` script field (see "Inspector-editable fields") does not
+  survive a scene save/load round trip -- it always reloads as unset, since
+  the raw handle it stores isn't stable across a reload (entities get freshly
+  assigned handles in creation order). It works correctly within one Editor/
+  Play session.
 - A `ScriptableObject`/Material asset has no "used by" tracking -- deleting
   or renaming one doesn't warn about (or fix up) scripts/other assets whose
   `AssetRef` still points at its old guid, same as every other asset type

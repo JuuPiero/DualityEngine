@@ -25,6 +25,43 @@ this file whenever something below actually gets built, or a new deferred item c
       shader graph on desktop, a simplified fixed-function/TEV-stage model for the 3DS's
       PICA200 GPU) and real lighting remain open, carried over from the earlier
       Polyphase-Engine research.
+- [x] Fixed a real OBJ-import bug: `MeshLoader::Load`'s per-face-vertex parser called
+      `std::strtok` again internally (to split "1/1/1" on "/") from INSIDE the outer loop that
+      was ALSO mid-iteration over the same face line via its own `std::strtok` call --
+      `strtok`'s position is one piece of global state shared by every call on the thread, so
+      the inner call silently corrupted the outer loop's saved position. Confirmed empirically
+      (a standalone repro parsed only 1 of 4 tokens in a quad face): since the triangulation
+      loop needs at least 3 face-vertices to emit even one triangle, ANY face with more than 3
+      vertices (a quad, the default for e.g. Blender's own unmodified cube export) silently
+      contributed zero triangles -- for an all-quad mesh, that's the entire mesh, exactly a
+      user-reported "dragged an .obj onto Mesh and nothing rendered" bug. Fixed by replacing
+      `ParseFaceVertex`'s strtok-based parsing with a plain manual `strchr` scan (no shared
+      state), which also fixes a second latent bug in the same function: strtok collapses "//"
+      into a single skipped delimiter, so a `v//vn` face (position + normal, no UV -- what
+      Blender exports for a mesh with no UV map) silently shifted the normal's index into the
+      texcoord slot instead of leaving it absent. Also added `Log::Warn` for "file could not
+      open" and "produced 0 vertices" (previously both totally silent). Verified via
+      `Tests/MeshLoaderTests.cpp` (a realistic quad-faced/no-UV cube, a plain triangle mesh, and
+      graceful failure on a missing file) and a scratch program confirming the fix against a
+      real quad-faced test OBJ.
+- [x] 3D collider gizmos (`ScenePanel.cpp`'s `DrawBoxCollider3D`/`DrawSphereCollider3D`) -- the
+      Scene view's 3D pane previously had no visualization at all for `BoxCollider3DComponent`/
+      `SphereCollider3DComponent` (only the 2D pane's `BoxCollider2D`/`CircleCollider2D`
+      wireframes existed). Same green-wireframe, always-drawn-not-just-selected convention as
+      the 2D ones, projected via the existing `Projector3D` (the same per-point technique
+      `DrawCameraFrustum` already established) -- a box gets its full 12-edge wireframe,
+      correctly oriented by the entity's own world rotation (unlike 2D colliders, a 3D
+      BoxCollider's shape really does rotate with its body); a sphere gets three orthogonal
+      great-circle rings. The SELECTED entity's collider additionally gets one draggable resize
+      handle per positive axis (box: 3, one per face; sphere: 1, on the +X equator) --
+      dragging edits `Size`/`Radius` directly in the viewport, via a small `DragCollider3DHandle`
+      helper built on a plain ImGui `InvisibleButton` (deliberately NOT threaded through
+      `EditorContext`'s `DraggingGizmoAxis`/`-Screen` the way the Translate/Rotate/Scale gizmo
+      is -- that machinery exists specifically for a drag to track correctly across BOTH
+      Top/Bottom panes sharing one selection, which a collider handle never needs, since it's
+      only ever drawn in the one pane matching the collider's own effective screen). Verified
+      via a live Editor screenshot showing the wireframe box rendering correctly around a real
+      `BoxCollider3D`.
 - [x] Extracted `OpenGLRenderer3D`'s inline shader compile/link and VAO/VBO mesh-upload
       boilerplate into two small reusable classes -- `GLShaderProgram`
       (`DualityEngine/Renderer/OpenGL/GLShaderProgram.h`: compile+link, `GetUniformLocation`/
@@ -104,14 +141,105 @@ this file whenever something below actually gets built, or a new deferred item c
       (`Behaviour::LogInfo/LogWarn/LogError`, same `EngineServices` pattern as
       `PlaySound`/`GetAxis` -- see the Scripting section's own now-`[x]`'d entry) and a demo
       script (`GameScripts/Source/CollisionLogBehaviour.cpp`).
+- [x] `BodyType` (Static/Kinematic/Dynamic, `DualityEngine/Physics/BodyType.h`) replacing the old
+      plain `bool IsStatic` on `Rigidbody2D/3DComponent` -- user asked for this "như unity".
+      Kinematic fills a real gap a boolean couldn't: moved directly (by a script setting
+      Transform, or an animation), still generates full collision response against Dynamic
+      bodies, but never affected by gravity/forces itself. Maps onto Box2D's own
+      `b2_staticBody`/`b2_kinematicBody`/`b2_dynamicBody` directly; Bullet has no such enum, so
+      Static and Kinematic both use mass 0 (its own "not moved by forces" convention) and
+      Kinematic additionally gets `btCollisionObject::CF_KINEMATIC_OBJECT` +
+      `DISABLE_DEACTIVATION` (Bullet's documented recipe, since a 0-mass body would otherwise be
+      eligible to sleep). Needed a genuinely new sync direction to actually work: `OnRuntimeUpdate`
+      previously only ever read physics->Transform (Static never moved, so no reverse case
+      existed) -- a Kinematic body now gets its current `TransformComponent` pushed into the
+      body (`b2Body::SetTransform` / `btRigidBody`'s motion state) right before each step, so a
+      script driving one by mutating Transform each frame actually moves the real physics
+      body. Clean-break rename, no migration shim -- `SampleProject/Assets/Scene.scene` and its
+      romfs copy hand-migrated (`"Is Static": true/false` -> `"Body Type": "Static"/"Dynamic"`).
+      Verified via `Tests/RigidbodyAPITests.cpp`: a Kinematic body ignores gravity while
+      tracking script-driven Transform changes (both 2D/3D), and a moving Kinematic platform
+      still pushes a Dynamic body out of its way (proving real collision response, not a
+      trigger-like pass-through).
+- [x] `Behaviour::GetVelocity2D/3D`, `SetVelocity2D/3D`, `AddForce2D/3D` (Unity's
+      `Rigidbody2D.velocity`/`Rigidbody.velocity`/`AddForce`) -- routed through `EngineServices`
+      (`EngineServices.h`/`Scene.cpp`'s adapters) for the same reason `PlaySound`/`GetAxis` are:
+      `b2Body`/`btRigidBody` methods aren't header-only (real compiled code in
+      `libbox2d.a`/`libBulletDynamics.a`), so a `GameScripts.dll` that doesn't link either
+      library can't call them directly. The adapters themselves are thin wrappers around
+      `Scene::Registry()` (already public, no new `Scene` method needed) +
+      `GetLinearVelocity`/`SetLinearVelocity`/`ApplyForceToCenter` (2D) or
+      `getLinearVelocity`/`setLinearVelocity`/`applyCentralForce` + `activate(true)` (3D, since a
+      sleeping body otherwise ignores an applied force/velocity change).
 - [ ] OnCollisionStay/OnTriggerStay (fires every frame while still touching, not just on
       the enter/exit edge) -- deferred from the pass above; the 3D side would mean not
       re-running the full manifold diff, just also emitting for every pair still present in
       both this frame's and last frame's touching set.
-- [ ] Raycast API exposed to scripts (a `Physics.Raycast`-equivalent through the same
-      `EngineServices` bridge `PlaySound`/`GetAxis` already use), for both 2D and 3D --
-      ground checks, line-of-sight, click-to-select-in-game all need this and nothing like it
-      exists yet.
+- [x] Raycast API exposed to scripts (`Behaviour::Raycast2D/3D`, `Scene::Raycast2D/3D`
+      underneath) -- user asked for it specifically to click a 3D collider on the Bottom
+      screen. `RaycastHit2D`/`RaycastHit3D` (`Physics/RaycastHit.h`, Unity's `RaycastHit2D`/
+      `RaycastHit` -- falsy `HitEntity` when nothing was hit, same "check before reading"
+      convention as every other query in this engine's scripting API) hold the closest hit's
+      entity/point/normal/distance. 2D uses `b2World::RayCast` + a `ClosestRayCastCallback2D`
+      (`ReportFixture` returning `fraction` clips to progressively closer hits, Box2D's own
+      built-in way to get "closest" without hand-tracking it); 3D uses Bullet's own
+      `btCollisionWorld::ClosestRayResultCallback` + `rayTest` directly, no custom callback
+      needed. Both resolve the hit back to an `entt::entity` via the SAME `uintptr_t`/
+      `b2BodyUserData::pointer` -> `uint32_t` -> `entt::entity` narrowing the collision/trigger
+      event code already established (`Box2DContactListener::Record`/the Bullet manifold diff)
+      -- reading the same userData/userPointer at raycast time instead of contact time, no new
+      body-tagging needed. Routed through `EngineServices` (`Raycast2D`/`Raycast3D`, the same
+      bridge shape `GetVelocity2D/3D`/`AddForce2D/3D` already use) since `b2World`/
+      `btDiscreteDynamicsWorld` aren't header-only.
+      - **`Behaviour::ScreenPointToRay3D(screen, screenPoint, outOrigin, outDirection)`** --
+        the "click/touch to select a 3D object" half of the ask: converts a screen-local pixel
+        point (e.g. `GetPointerPosition()`) into a world-space ray from that screen's real
+        Perspective primary `CameraComponent`, ready to feed into `Raycast3D`. Builds the
+        camera's forward/right/up from its Euler rotation using the exact same `T*Rz*Ry*Rx`
+        composition `OpenGLRenderer3D::ComposeWorldMtx`/`Citro3DRenderer`'s own copy use to
+        actually RENDER that camera (a third independent copy of that formula, matching how
+        those two already keep their own copies in sync via a "must match" comment -- a
+        raycast has to agree with what's actually on screen or a click hits the wrong thing),
+        then the same NDC-to-ray formula `ScenePanel.cpp`'s own 3D pick-ray already uses for
+        Editor Scene-view click-to-select. Returns false for a screen with no Perspective
+        primary camera.
+      - **Real, pre-existing gap found and fixed while wiring this up**: `Duality::Input` had
+        exactly one global pointer `(x,y)` with NO screen tag at all -- Top (400x240) and
+        Bottom (320x240) screen-local pixel ranges overlap, so nothing could tell "was this
+        touch/click actually on the screen a raycast/UI button cares about". Fixed by adding
+        `Input::SetPointer(down, position, screen)`/`GetPointerScreen()` (`Behaviour::
+        GetPointerScreen()` on the scripting side) and updating every platform host that
+        resolves pointer state to pass the real screen: 3DS's touch hardware is always Bottom
+        (a hardware fact, not resolved code); `DualityPlayerDesktop`'s `MapWindowPointToScreen`
+        already resolved which screen but is now fixed to ALSO return it (see its own real bug
+        below); the Editor's `Window.cpp` used to set a raw whole-window mouse position every
+        frame with no screen resolution at all (meaningless for scripts, since GamePanel's
+        Play-mode images don't occupy the whole window) -- replaced with `GamePanel.cpp` itself
+        resolving hover + local pixel position against each screen's own rendered `ImGui::
+        Image()` rect (the same job `MapWindowPointToScreen` does on
+        `DualityPlayerDesktop`), so Play-in-Editor clicking now works correctly too, not just
+        the standalone/on-device builds. `UpdateUIInteractions` (`UIRenderer.cpp`) also gained
+        an `if (rect.Screen != Input::GetPointerScreen()) continue;` guard, fixing a real latent
+        ambiguity bug this same gap caused: a Top-screen button and a Bottom-screen button at
+        the same local position could BOTH register hover/click from a single pointer event.
+      - **Real, independent bug found and fixed in `DualityPlayerDesktop`'s own
+        `MapWindowPointToScreen`**: its result was Y-UP within each screen (0 at that screen's
+        BOTTOM edge, growing upward) -- the opposite of every other pixel-space convention in
+        this engine (`OpenGLRenderer2D`/`3D`'s own `glOrtho` calls, `Citro2D`/
+        `Citro3DRenderer` on device, `UIRectComponent` anchoring -- all Y-down, 0 at the top).
+        Caused by mixing GLFW's own Y-down window coordinates with `TopViewport()`/
+        `BottomViewport()`'s Y-up OpenGL `glViewport`/`glScissor` convention without
+        re-flipping. Rewritten to compute directly in GLFW's native Y-down window space instead
+        of reusing those GL-convention viewport rects.
+      - Demo: `GameScripts/RaycastDemoBehaviour.cpp` (attached to a "RaycastController" entity,
+        no Transform/collider of its own needed) -- on a Bottom-screen click/touch, converts
+        the pointer to a ray via `ScreenPointToRay3D` and logs whichever collider `Raycast3D`
+        hit (`TestCube3D`/`PhysicsGround3D`/`PhysicsBall3D` in the sample scene).
+      - Verified via `Tests/RaycastTests.cpp` (6 tests: 2D/3D hit-with-correct-point/distance,
+        miss, graceful failure before Play starts, `ScreenPointToRay3D`'s screen-center ray
+        matching the camera's own forward axis exactly, and graceful failure with no camera/an
+        Orthographic one) plus the full existing suite (50/50) and clean `build.bat`/
+        `build-3ds.bat`.
 - [ ] Joints/constraints (hinge, spring, fixed) -- neither `b2World` nor the new
       `btDiscreteDynamicsWorld` wires up any joint type yet, just free rigid bodies.
 
@@ -130,9 +258,12 @@ this file whenever something below actually gets built, or a new deferred item c
       with its own Normal/Hover/Pressed color). Always drawn last/on top of the mesh+sprite
       passes (`SceneRenderer.cpp`'s `RenderScreen`), on both platforms. No text/label widget yet
       (needs real font rendering, not built -- see the 3D renderer entry's own "next" list for
-      the general shape of what's still open elsewhere), no 9-slice/border scaling, single
-      global pointer only (see `UpdateUIInteractions`'s own comment on why a button doesn't
-      distinguish which physical screen the pointer is actually over).
+      the general shape of what's still open elsewhere), no 9-slice/border scaling. Still a
+      single global `Input` pointer (matches real hardware -- only one touch point/mouse
+      cursor at a time), but it's screen-tagged now (`Input::GetPointerScreen()`, see the
+      Physics section's Raycast API entry) so a button correctly only reacts to a pointer
+      actually over its own screen -- fixed alongside the Raycast work above, since both needed
+      the same "which screen was this pointer event for" fact.
 - [ ] Text/label UI widget -- needs real font rendering on both backends (citro2d has one
       built in; desktop has none, `OpenGLRenderer2D` is legacy fixed-function with no font atlas
       at all yet). The natural next widget after Panel/Button above.
@@ -190,6 +321,77 @@ this file whenever something below actually gets built, or a new deferred item c
       scene "generation" produced it) -- covers a scene swap happening while locked,
       mirroring this codebase's existing accepted stale-Entity-across-scene-swap risk
       class rather than adding new never-before-attempted protection.
+- [x] Content Browser Explorer-like UX (`ContentBrowserPanel.h`/`.cpp`) -- user wanted it to
+      behave more like a real Windows Explorer/folder manager. Inline rename (label becomes
+      an `InputText`, `Escape` cancels, `IsItemDeactivated()` commits on both Enter and
+      click-away -- same convention `Explorer`/Unity/Unreal use), Create Folder (numbered-
+      suffix collision handling matching the existing `CreateMaterialAsset` pattern, then
+      immediately enters rename mode per Explorer/Unity convention for a freshly-created
+      folder), Delete with a confirmation modal (`BeginPopupModal`, since there's no Recycle
+      Bin/undo safety net), and drag-and-drop move (dropping an `ASSET_GUID` payload onto a
+      folder icon calls `MoveAssetInto`, which moves the `.meta` sidecar alongside the file
+      and re-registers the same guid at its new path via `AssetDatabase::Register` so every
+      existing `AssetRef` field keeps resolving with zero fixup needed). Right-click an item
+      for Rename/Delete; right-click empty space gained "Create > Folder" above the existing
+      Material/ScriptableObject entries. Verified via `build.bat` (clean) and the full test
+      suite (unaffected, this is Editor-UI-only code with no engine-side logic) --
+      interactive drag/rename/delete behavior itself could only be verified by code review
+      and a static (non-interactive) screenshot of the panel rendering correctly, not a live
+      click-through: synthetic mouse input in this environment proved unreliable earlier in
+      the session (twice landed on an unrelated window instead of the intended target), so
+      it was deliberately not attempted again for this feature.
+      - **Follow-up, same panel**: "Create > Scene" (writes an empty `.scene` file via
+        `SceneSerializer` against a throwaway `Scene()`, same as any other Create entry --
+        doesn't open it, matching Unity's own Project-window "Create > Scene" not auto-opening
+        either) and double-click a `.scene` file to open it as the active scene (`SceneOps::
+        OpenScene`, see the Assets section's Scene Management entry). Also a real click-vs-drag
+        bug fix, user-reported: single-click-to-select used to fire on mouse-DOWN
+        (`ImGui::IsMouseClicked`), before any drag distance was evaluated -- meaning starting a
+        drag (to drop an asset onto an `AssetRef` field) ALSO immediately reselected that asset
+        in Properties, the exact pain the "Lock" toggle above exists to work around. Fixed by
+        using the `InvisibleButton`'s own return value instead (fires on mouse-RELEASE while
+        still hovering the item it was pressed on -- standard ImGui button semantics, which
+        already correctly withholds "clicked" once a drag-drop source activates from the same
+        item) -- Lock is no longer *required* just to drag-and-drop an asset, though it's still
+        useful for pinning Properties while browsing elsewhere.
+- [x] Unity/Cocos-style Scene view grid + 3D orientation gizmo (`ScenePanel.cpp`), both panes
+      (Top and Bottom) -- user asked directly, referencing Unity/Blender screenshots. 2D pane:
+      world-aligned grid lines every `GridCellSize2D(zoom)` units (stepped, not one fixed size,
+      so it stays readable across the whole 0.1x-5x zoom range) plus a red X-axis/green Y-axis
+      line through the world origin -- drawn via a new `OpenGLRenderer2D::DrawGrid` (real GL
+      calls, not a screen-space `ImDrawList` overlay, specifically so it renders BEHIND sprites
+      -- an overlay drawn after `ImGui::Image()` would sit on top of the whole already-
+      composited framebuffer, including every opaque sprite). 3D pane: an XZ ground-plane grid
+      (`DrawGrid3D`, same `Projector3D::Project`-per-line-segment overlay technique
+      `DrawCameraFrustum`/`DrawBoxCollider3D` already use, red X/blue Z axis lines) re-centered
+      near the orbit camera's own Target every frame, plus a Blender/Unity-style ViewCube-
+      equivalent fixed in the pane's own top-right corner (`DrawAndInteractOrientationGizmo3D`)
+      showing world X/Y/Z relative to the current camera orientation -- clicking a filled tip
+      snaps the orbit camera to look straight down that axis (keeping Target/Distance, only
+      Rotation changes; hit-tested BEFORE the pane's own entity-pick-ray so a gizmo click never
+      also selects/deselects whatever mesh is underneath it).
+      - **Grid stability fix, user-reported** ("dễ bị mất hiển thị các nét vẽ của grid... lúc
+        thu phóng thao tác chuột" -- grid lines easily go missing while zooming/panning):
+        `Projector3D::Project` has no clipping of its own (a point either projects or reports
+        failure), so a LONG grid line (unlike the single points every other gizmo in this pane
+        projects) needs its own near-plane clip -- without one, a line with just ONE endpoint
+        dipping behind the camera vanished ENTIRELY (both-endpoints-must-project) instead of
+        being clipped at the visible edge. Root cause of the *specific* flicker (not just the
+        one-time "vanish," which the first clip fixed): clipping right at the bare minimum
+        "still technically in front" threshold still allowed a line nearly parallel to the view
+        direction (near the horizon) to have a near-zero view-space depth, which blows its
+        projected screen coordinates up to an enormous magnitude -- ImGui/the GPU rasterizing
+        near-infinite line endpoints, not the clip logic itself, is what actually produced the
+        flicker. Fixed with two changes: `ClipSegmentToCameraFront`'s near distance is now a
+        meaningful chunk of a grid cell (not a bare epsilon), and a second `IsReasonableScreenPoint`
+        check rejects any projected point landing absurdly far outside the viewport regardless.
+        Also made the grid patch's `extent` scale with the orbit camera's own `Distance`
+        (bounded to 10-40 grid squares) instead of one fixed large size regardless of zoom, so
+        lines are less likely to need clipping in the first place.
+      - Verified via clean `build.bat`/`build-3ds.bat` + the full test suite (unaffected,
+        Editor-rendering-only code) each pass; the interactive zoom/pan behavior itself was
+        verified by the user directly (this environment's synthetic-click unreliability, noted
+        earlier this session, ruled out automated interactive verification here too).
 - [x] Split Scene view (`DualityEditor/Source/Panels/ScenePanel.cpp`) -- two side-by-side
       panes, one per screen, each its own free-roam `SceneViewCamera` (pan/zoom) seeded
       once from that screen's real primary `CameraComponent` so the initial view looks
@@ -278,6 +480,40 @@ this file whenever something below actually gets built, or a new deferred item c
 - [ ] Upfront recursive asset scan on project load -- `.meta` generation and the
       GUID->path index are currently populated lazily as the Content Browser is
       browsed into each folder, not scanned ahead of time.
+- [x] Scene management upgrade (`Scene::Clear`, `SceneSerializer::SerializeToJson`/
+      `DeserializeFromJson`, `DualityEditor/SceneOps.h`) -- user-reported bug: "Load Scene"
+      didn't clear the existing scene first, it just ADDED every loaded entity alongside
+      whatever was already there. Root cause: `MenuBarPanel`'s "Load Scene" called
+      `SceneSerializer::Deserialize` directly on the live scene -- `Deserialize` itself never
+      clears (by design, callers decide when that's appropriate, e.g. a Prefab's `Instantiate`
+      deliberately does NOT clear the target scene), and this one call site was the only one
+      that didn't. Fixed at the root by adding `Scene::Clear()` (`m_Registry.clear()` +
+      `m_RootEntities.clear()` -- NOT just the registry alone, which would leave
+      `m_RootEntities` holding dangling handles into now-destroyed entities) and a shared
+      `SceneOps::OpenScene(ctx, path)` free function (stops Play if running, `Clear()`s,
+      updates `ctx.ScenePath`, re-seeds the Scene view's free-roam cameras, deserializes) that
+      "Load Scene", "Open Scene..." (new file-dialog menu item), the Content Browser's
+      double-click-to-open, and the Scene asset inspector's new "Open Scene" button all share --
+      one implementation, not four copies of the clear-before-load invariant.
+      - **Play->Stop now actually reverts, matching Unity's own guarantee**: previously Play
+        just ran `OnRuntimeStart`/`OnRuntimeStop` directly on the live scene, so anything Play
+        did -- script-driven Transform edits, physics results, runtime-`Instantiate`d/destroyed
+        entities -- silently persisted into Edit mode after Stop. Fixed by adding
+        `SceneSerializer::SerializeToJson()`/`DeserializeFromJson()` (in-memory JSON variants,
+        no disk I/O -- the existing file-based `Serialize`/`Deserialize` are now thin wrappers
+        around these, sharing 100% of the entity-walking logic) so `GamePanel`'s "Play" button
+        captures a snapshot (`ctx.PlaySnapshot`, an Application-owned `std::string`) right
+        before `OnRuntimeStart()`, and "Stop" (plus "Reload Scripts"' own mid-Play stop, which
+        now goes through the identical path) does `OnRuntimeStop()` -- real cleanup, firing
+        final `OnDisable`/`OnDestroy` and freeing the physics worlds, on the scene that was
+        actually playing -- THEN `Clear()` + `DeserializeFromJson(snapshot)` to restore exactly
+        what was there before Play started.
+      - Content Browser: "Create > Scene" and double-click-to-open (see its own entry above).
+      - Verified via `Tests/SceneManagementTests.cpp` (`Scene::Clear()` resets both the
+        registry and root list and leaves the Scene fully reusable afterward; a full in-memory
+        serialize/mutate/clear/restore round trip proving a Play-mode mutation doesn't survive;
+        graceful failure on a malformed snapshot) plus the full suite (44/44 at the time) and
+        clean `build.bat`/`build-3ds.bat`.
 - [x] Prefab system (`DualityEngine/Include/DualityEngine/Scene/PrefabSerializer.h`,
       `Behaviour::Instantiate`) -- Unity's Prefab. A `.prefab` asset (same
       GUID/`.meta`/`AssetDatabase` convention as any other custom asset type, e.g.
@@ -424,11 +660,46 @@ this file whenever something below actually gets built, or a new deferred item c
 
 ## Scripting
 
-- [ ] Per-script public/serialized fields shown in the Properties panel, like Unity's
-      `[SerializeField]` -- `BehaviourComponent` (`Reflection.cpp`) currently only exposes
-      which script class is attached, not that script's own tunable fields. Needs an
-      Overrides map so Edit-mode edits to those fields survive Play/Stop (flagged inline in
-      `Reflection.cpp`'s own comment already, just not tracked here until now).
+- [x] Per-script public/serialized fields shown in the Properties panel, like Unity's
+      `[SerializeField]` -- user asked for a `DUALITY_PROPERTY() float speed;` per-field
+      marker macro, mirroring Unreal's `UPROPERTY()`. Confirmed not achievable in plain C++
+      without a code-generation pass scanning the header for that marker (this project has
+      none) -- a macro attached to one field declaration has no way to see its own name/type
+      or reach into a class-wide field list. Instead built `DUALITY_PROPERTIES(ClassName,
+      field1, field2, ...)` (`Reflection/PropertyMacros.h`, included by `Behaviour.h`),
+      inspired by the ImGui-ecosystem `ImReflect` library's `IMGUI_REFLECT(Type, field...)`
+      shape the user pointed at (github.com/ocornut/imgui/wiki/Useful-Extensions) -- one
+      class-level macro listing already-declared field names once, expanding via a portable
+      variadic FOR_EACH (GCC/Clang-conformant preprocessor, matching both this project's
+      MinGW desktop build and devkitARM's GCC) into the same `static std::vector<FieldHandle>
+      Fields()` method ScriptableObject/Material already hand-write. Entirely optional --
+      `ScriptRegistrar` detects `T::Fields()` via a `std::void_t` SFINAE check
+      (`ScriptRegistration.h`), so every pre-existing script with no `DUALITY_PROPERTIES` line
+      keeps compiling with zero Inspector fields, unlike ScriptableObject where `Fields()` is
+      mandatory. New `EntityRef` field type (`Reflection/Field.h`) covers "ref to another
+      entity"; there's no separate "component reference" type -- a script holds an `EntityRef`
+      and calls `Behaviour::ResolveEntityRef(ref).GetComponent<T>()` itself, same as Unity's own
+      `[SerializeField] GameObject` fields. `BehaviourComponent::PropertyOverrides`
+      (`std::unordered_map<std::string, FieldValue>`, not TypeRegistry-reflected -- a map isn't
+      a plain `FieldValue`) holds Edit-mode values; `Scene::OnRuntimeStart` applies them onto
+      the freshly-created instance's real fields right before `OnCreate()` (Unity's
+      field-init-before-Awake ordering). While Play is running, the Properties panel edits the
+      live `BehaviourComponent::Instance` directly instead (lost on Stop, matching Unity); in
+      Edit mode (no live instance) it spins up a scratch instance for one frame, seeded from
+      `PropertyOverrides`, to render/edit against. `EntitySerialization.cpp` special-cases
+      `"PropertyOverrides"` alongside `"Class"` for save/load, same bespoke-field precedent as
+      `HierarchyComponent::Parent`. Scope cut, clearly documented rather than silently broken:
+      an `EntityRef` value never round-trips through save/load -- a raw `entt` handle isn't
+      stable across a reload (entities get freshly assigned handles in creation order), so
+      persisting it would silently resolve to the wrong entity; `FieldValueToJson`/
+      `JsonToFieldValue` always write/restore it as "unset" instead. Demo:
+      `GameScripts/BounceBehaviour` gained `Amplitude`/`Speed`/`Target` (an `EntityRef` --
+      when set, bounces relative to that other entity's current Y instead of a fixed height).
+      Verified via `Tests/DualityPropertyTests.cpp` (macro generates `Fields()` in declaration
+      order, a class with no `DUALITY_PROPERTIES` resolves to `{}` rather than a compile error,
+      overrides apply before `OnCreate` sees them, no-override entities keep their compiled-in
+      defaults, and a full `SceneSerializer` round trip preserving float/bool overrides while
+      confirming `EntityRef` always reloads unset) plus a clean `build.bat`/`build-3ds.bat`.
 - [ ] Coroutines / a delayed-call helper (`Invoke`/`WaitForSeconds`-equivalent) -- right now
       a script can only act every frame from `OnUpdate`, with no built-in way to schedule
       "do X after N seconds" without hand-rolling a timer field.

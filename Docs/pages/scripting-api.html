@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scripting API — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="scripting-api">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">API Reference</div>
+                <h1>Scripting API (Behaviour)</h1>
+                <p class="lede">
+                    Mọi gameplay code kế thừa <code>Duality::Behaviour</code> — C++ thuần, không
+                    ngôn ngữ script nhúng. Build thành DLL hot-reload trên desktop
+                    (<strong>Reload Scripts</strong>, không cần khởi động lại Editor), link tĩnh
+                    vào <code>DualityPlayer</code> trên 3DS — <strong>cùng một bộ source</strong>,
+                    không sửa code giữa hai nền tảng. Mọi method dưới đây gọi được từ bất kỳ
+                    lifecycle nào bên trong một <code>Behaviour</code> subclass.
+                </p>
+
+                <div class="callout">
+                    <span class="callout-title">Vì sao API đi qua EngineServices?</span>
+                    Trên desktop, <code>GameScripts.dll</code> <strong>không</strong> link
+                    compiled code của <code>DualityEngine</code> (chỉ header — tránh 2 bản sao độc
+                    lập của mọi static/registry, gây desync). Nên mọi lời gọi chạm tới code đã
+                    compile (Input, Audio, Box2D/Bullet, TypeRegistry...) phải đi qua
+                    <code>EngineServices</code> — một struct con trỏ hàm C-ABI thuần
+                    (<code>int</code>, <code>const char*</code>, <code>void*</code>, không kiểu
+                    engine/STL nào lộ ra ABI) được <code>Scene</code> gán cho mỗi
+                    <code>Behaviour</code> ngay sau khi tạo. Các method dưới đây là lớp wrapper
+                    tiện dùng bọc quanh cầu nối đó — bạn không bao giờ gọi
+                    <code>EngineServices</code> trực tiếp.
+                </div>
+
+                <h2 style="border-top:none;margin-top:0">Vòng đời (Lifecycle)</h2>
+                <table>
+                    <tr><th>Method</th><th>Khi nào chạy</th></tr>
+                    <tr><td><code>OnCreate()</code></td><td>Một lần khi Play bắt đầu (giống <code>Awake</code> Unity) — chạy kể cả khi entity bắt đầu ở trạng thái inactive.</td></tr>
+                    <tr><td><code>OnEnable()</code> / <code>OnDisable()</code></td><td>Mỗi khi <code>Scene::IsEffectivelyActive</code> của entity đổi trạng thái (do chính nó gọi <code>SetActive</code>, hoặc do cha đổi) — có thể chạy nhiều lần trong một lần Play.</td></tr>
+                    <tr><td><code>OnUpdate(float deltaTime)</code></td><td>Mỗi frame, chỉ khi đang active.</td></tr>
+                    <tr><td><code>OnCollisionEnter(Entity other)</code> / <code>OnCollisionExit(Entity other)</code></td><td>Cặp collider chạm/rời nhau, không bên nào <code>IsTrigger</code>. Cả 2D và 3D dùng chung callback này.</td></tr>
+                    <tr><td><code>OnTriggerEnter(Entity other)</code> / <code>OnTriggerExit(Entity other)</code></td><td>Giống trên, nhưng ít nhất một bên <code>IsTrigger = true</code>.</td></tr>
+                    <tr><td><code>OnDestroy()</code></td><td>Một lần lúc Stop — một instance vẫn active nhận thêm một <code>OnDisable()</code> cuối ngay trước đó.</td></tr>
+                </table>
+                <div class="callout warn">
+                    Chưa có <code>OnCollisionStay</code>/<code>OnTriggerStay</code> (chạy mỗi frame
+                    trong lúc vẫn chạm) — chỉ có cạnh enter/exit ở phiên bản hiện tại.
+                </div>
+
+                <h2>Entity &amp; Component</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig">
+                        <span class="p-type">template&lt;typename T&gt; T&amp;</span> <span class="p-name">GetComponent</span>()
+                    </div></div>
+                    <div class="api-body">
+                        <p>Lấy component <code>T</code> trên entity đang sở hữu script này. Add/Has/Remove không expose trực tiếp trên <code>Behaviour</code> — dùng <code>GetEntity().AddComponent&lt;T&gt;()</code>/<code>HasComponent&lt;T&gt;()</code>/<code>RemoveComponent&lt;T&gt;()</code>.</p>
+                        <pre><code><span class="tok-kw">auto</span>&amp; transform = <span class="tok-fn">GetComponent</span>&lt;Duality::TransformComponent&gt;();
+transform.Rotation.z += <span class="tok-num">90.0f</span> * deltaTime; <span class="tok-com">// độ, không phải radian</span></code></pre>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">Entity</span> <span class="p-name">GetEntity</span>() <span class="tok-kw">const</span></div></div>
+                    <div class="api-body"><p>Entity đang sở hữu instance script này.</p></div>
+                </div>
+
+                <h2>Trạng thái Active</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">void</span> <span class="p-name">SetActive</span>(<span class="p-arg">bool active</span>)</div></div>
+                    <div class="api-body">
+                        <p>Unity's <code>GameObject.SetActive</code>. Chỉ đặt cờ của <em>chính entity này</em> — xem <code>Scene::IsEffectivelyActive</code> (kiến trúc) để biết cách trạng thái cascades qua parent chain. Không tự thêm/gỡ physics body giữa lúc Play — chỉ quyết định có body hay không lúc Play bắt đầu.</p>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">bool</span> <span class="p-name">IsActive</span>()</div></div>
+                    <div class="api-body"><p>Cờ Active của riêng entity này (không cascades qua cha).</p></div>
+                </div>
+
+                <h2>Input <span class="badge badge-2d">2D</span><span class="badge badge-3d">3D</span></h2>
+                <p>Phong cách Unity Input Manager cũ.</p>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig">
+                        <span class="p-type">bool</span> <span class="p-name">GetKey</span>/<span class="p-name">GetKeyDown</span>/<span class="p-name">GetKeyUp</span>(<span class="p-arg">KeyCode key</span>)
+                    </div></div>
+                    <div class="api-body">
+                        <p><code>GetKey</code>: true mọi frame đang giữ. <code>GetKeyDown</code>/<code>GetKeyUp</code>: true đúng 1 frame khi nhấn/thả. <code>KeyCode</code> phủ phím desktop phổ biến (<code>W</code>/<code>A</code>/<code>S</code>/<code>D</code>, mũi tên, <code>Space</code>/<code>Enter</code>/<code>Escape</code>) và nút 3DS (<code>GamepadA</code>/<code>B</code>/<code>X</code>/<code>Y</code>/<code>L</code>/<code>R</code>, <code>GamepadStart</code>/<code>Select</code>, D-Pad) — keycode vô nghĩa trên nền tảng hiện tại luôn đọc là chưa nhấn, không phải lỗi.</p>
+                        <pre><code><span class="tok-kw">if</span> (<span class="tok-fn">GetKeyDown</span>(Duality::KeyCode::Space)) { <span class="tok-com">/* chỉ 1 lần ở frame nhấn */</span> }</code></pre>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">float</span> <span class="p-name">GetAxis</span>(<span class="p-arg">const std::string&amp; axisName</span>)</div></div>
+                    <div class="api-body">
+                        <p>Chỉ nhận <code>"Horizontal"</code>/<code>"Vertical"</code> (không phải hệ mapping tuỳ chỉnh như Input Manager thật của Unity). Desktop: digital ±1 từ WASD/mũi tên. 3DS: analog thật từ Circle Pad — cùng code, giá trị phù hợp từng nền tảng.</p>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">bool</span> <span class="p-name">GetPointerDown</span>()<br><span class="p-type">glm::vec2</span> <span class="p-name">GetPointerPosition</span>()<br><span class="p-type">Screen</span> <span class="p-name">GetPointerScreen</span>()</div></div>
+                    <div class="api-body">
+                        <p>
+                            Chuột trên desktop, cảm ứng trên 3DS. <code>GetPointerPosition()</code>
+                            trả toạ độ pixel <strong>local theo màn</strong> mà
+                            <code>GetPointerScreen()</code> báo — Top (400×240) và Bottom
+                            (320×240) có vùng toạ độ trùng nhau nên bắt buộc phải kiểm tra
+                            <code>GetPointerScreen()</code> trước khi dùng vị trí. Trên 3DS luôn là
+                            <code>Screen::Bottom</code> (cảm ứng chỉ có ở đó — sự thật phần cứng).
+                        </p>
+                        <pre><code><span class="tok-kw">if</span> (<span class="tok-fn">GetPointerDown</span>() &amp;&amp; <span class="tok-fn">GetPointerScreen</span>() == Duality::Screen::Bottom) {
+    glm::vec2 p = <span class="tok-fn">GetPointerPosition</span>(); <span class="tok-com">// toạ độ local trong khung 320x240</span>
+}</code></pre>
+                    </div>
+                </div>
+
+                <h2>Audio</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">void</span> <span class="p-name">PlaySound</span>(<span class="p-arg">const std::string&amp; assetGuid, bool loop = false</span>) <span class="tok-kw">const</span></div></div>
+                    <div class="api-body">
+                        <p><code>assetGuid</code> là GUID từ <code>.meta</code> của một asset <code>.wav</code> (giống field <code>AssetRef</code> bất kỳ). Đọc <strong>Volume</strong> từ <code>AudioImportSettings</code> của chính asset đó mỗi lần gọi — không có tham số volume riêng cho từng lần phát. Chỉ hỗ trợ WAV 16-bit PCM trên 3DS thật (không có decoder nào khác được vendor).</p>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">void</span> <span class="p-name">StopAllSounds</span>() <span class="tok-kw">const</span></div></div>
+                    <div class="api-body"><p>Dừng mọi âm thanh đang phát (không chọn lọc theo asset).</p></div>
+                </div>
+
+                <h2>Logging</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">void</span> <span class="p-name">LogInfo</span>/<span class="p-name">LogWarn</span>/<span class="p-name">LogError</span>(<span class="p-arg">const std::string&amp; message</span>) <span class="tok-kw">const</span></div></div>
+                    <div class="api-body"><p>Hiện trong panel Console của Editor y hệt mọi log line khác của engine, màu theo mức độ.</p></div>
+                </div>
+
+                <h2>Scene transitions</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">void</span> <span class="p-name">LoadScene</span>(<span class="p-arg">const std::string&amp; assetsRelativePath</span>) <span class="tok-kw">const</span></div></div>
+                    <div class="api-body">
+                        <p>Unity's <code>SceneManager.LoadScene</code>. Đường dẫn tương đối tới thư mục <code>Assets/</code> của project (vd <code>"Scenes/Level2.scene"</code> — tạo qua Editor's <strong>File → Save Scene As...</strong>).</p>
+                        <div class="callout warn">Là request <strong>hoãn lại</strong> — việc chuyển scene diễn ra giữa hai frame, không đồng bộ ngay; code chạy sau lời gọi này trong cùng <code>OnUpdate</code> vẫn thấy scene cũ, vì script không thể an toàn tự phá huỷ chính <code>Scene</code> đang chạy nó giữa chừng.</div>
+                    </div>
+                </div>
+
+                <h2>Tìm entity theo tên/màn</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">Entity</span> <span class="p-name">FindEntityInScreen</span>(<span class="p-arg">Screen screen, const std::string&amp; name</span>) <span class="tok-kw">const</span><br><span class="p-type">Entity</span> <span class="p-name">FindEntityInTopScreen</span>/<span class="p-name">FindEntityInBottomScreen</span>(<span class="p-arg">const std::string&amp; name</span>) <span class="tok-kw">const</span></div></div>
+                    <div class="api-body">
+                        <p>Tìm entity theo tên trong subtree của <code>ScreenGroupComponent</code> của màn đó (đệ quy qua children); fallback về tìm theo tên toàn scene nếu màn đó chưa có group nào gắn tag. Trả entity rỗng (falsy) nếu không thấy.</p>
+                    </div>
+                </div>
+
+                <h2>Prefab</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">Entity</span> <span class="p-name">Instantiate</span>(<span class="p-arg">const std::string&amp; prefabAssetGuid</span>) <span class="tok-kw">const</span></div></div>
+                    <div class="api-body">
+                        <p>Unity's <code>Object.Instantiate</code> — spawn một bản copy của asset <code>.prefab</code> làm root entity mới trong Scene của script này. Trả entity rỗng nếu guid không resolve được asset prefab hợp lệ.</p>
+                    </div>
+                </div>
+
+                <h2>ScriptableObject</h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">template&lt;typename T&gt; T*</span> <span class="p-name">LoadScriptableObject</span>(<span class="p-arg">const std::string&amp; assetGuid</span>) <span class="tok-kw">const</span></div></div>
+                    <div class="api-body">
+                        <p>Unity's <code>ScriptableObject</code> — data container tái dùng, sống như một asset project (file <code>.asset</code>) thay vì lặp lại thành field trên mọi entity cần nó. <code>T</code> phải là type GameScripts-side cụ thể do caller cung cấp (engine chỉ trả <code>void*</code> ẩn kiểu qua ABI). Trả <code>nullptr</code> nếu guid rỗng/không resolve được hoặc class chưa đăng ký (GameScripts chưa được (re)load).</p>
+                        <pre><code><span class="tok-kw">auto</span>* settings = <span class="fn">LoadScriptableObject</span>&lt;GameSettingsData&gt;(mySettingsGuid);
+<span class="tok-kw">if</span> (settings) <span class="tok-fn">LogInfo</span>(<span class="tok-str">"Player speed: "</span> + std::to_string(settings-&gt;PlayerSpeed));</code></pre>
+                    </div>
+                </div>
+
+                <h2>Rigidbody velocity/force <span class="badge badge-2d">2D</span><span class="badge badge-3d">3D</span></h2>
+                <p>Xem chi tiết BodyType/Collider ở <a href="physics.html">trang Physics</a>.</p>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig">
+                        <span class="p-type">glm::vec2</span> <span class="p-name">GetVelocity2D</span>() <span class="tok-kw">const</span> · <span class="p-type">void</span> <span class="p-name">SetVelocity2D</span>(<span class="p-arg">const glm::vec2&amp; v</span>) <span class="tok-kw">const</span> · <span class="p-type">void</span> <span class="p-name">AddForce2D</span>(<span class="p-arg">const glm::vec2&amp; f</span>) <span class="tok-kw">const</span><br>
+                        <span class="p-type">glm::vec3</span> <span class="p-name">GetVelocity3D</span>() <span class="tok-kw">const</span> · <span class="p-type">void</span> <span class="p-name">SetVelocity3D</span>(<span class="p-arg">const glm::vec3&amp; v</span>) <span class="tok-kw">const</span> · <span class="p-type">void</span> <span class="p-name">AddForce3D</span>(<span class="p-arg">const glm::vec3&amp; f</span>) <span class="tok-kw">const</span>
+                    </div></div>
+                    <div class="api-body">
+                        <p>Unity's <code>Rigidbody2D.velocity</code>/<code>Rigidbody.velocity</code>/<code>AddForce</code>, thao tác trên <code>Rigidbody2DComponent</code>/<code>Rigidbody3DComponent</code> của chính entity này. Trả vector 0 (Get) hoặc no-op (Set/AddForce) nếu entity không có Rigidbody đúng chiều, hoặc Play chưa chạy.</p>
+                    </div>
+                </div>
+
+                <h2>Raycast <span class="badge badge-2d">2D</span><span class="badge badge-3d">3D</span></h2>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">RaycastHit2D</span> <span class="p-name">Raycast2D</span>(<span class="p-arg">const glm::vec2&amp; origin, const glm::vec2&amp; direction, float maxDistance</span>) <span class="tok-kw">const</span><br><span class="p-type">RaycastHit3D</span> <span class="p-name">Raycast3D</span>(<span class="p-arg">const glm::vec3&amp; origin, const glm::vec3&amp; direction, float maxDistance</span>) <span class="tok-kw">const</span></div></div>
+                    <div class="api-body">
+                        <p>Unity's <code>Physics2D.Raycast</code>/<code>Physics.Raycast</code>. Trả collider gần nhất trúng dọc tia. <code>RaycastHit2D</code>/<code>RaycastHit3D</code> có <code>HitEntity</code> rỗng (falsy) nếu không trúng gì — luôn kiểm tra <code>if (hit)</code> trước khi đọc <code>Point</code>/<code>Normal</code>/<code>Distance</code>. Chỉ hoạt động khi đang Play (cần physics world đang sống).</p>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">bool</span> <span class="p-name">ScreenPointToRay3D</span>(<span class="p-arg">Screen screen, const glm::vec2&amp; screenPoint, glm::vec3&amp; outOrigin, glm::vec3&amp; outDirection</span>) <span class="tok-kw">const</span></div></div>
+                    <div class="api-body">
+                        <p>Đổi một điểm pixel local của <code>screen</code> (vd <code>GetPointerPosition()</code>) thành tia world-space xuất phát từ camera Perspective chính của màn đó — dùng chung với <code>Raycast3D</code> để làm click/chạm-để-chọn vật thể 3D. Trả <code>false</code> nếu màn đó không có camera Perspective chính.</p>
+                        <pre><code><span class="tok-kw">if</span> (<span class="tok-fn">GetPointerDown</span>() &amp;&amp; <span class="tok-fn">GetPointerScreen</span>() == Duality::Screen::Bottom) {
+    glm::vec3 origin, direction;
+    <span class="tok-kw">if</span> (<span class="tok-fn">ScreenPointToRay3D</span>(Duality::Screen::Bottom, <span class="tok-fn">GetPointerPosition</span>(), origin, direction)) {
+        Duality::RaycastHit3D hit = <span class="tok-fn">Raycast3D</span>(origin, direction, <span class="tok-num">2000.0f</span>);
+        <span class="tok-kw">if</span> (hit) <span class="tok-fn">LogInfo</span>(<span class="tok-str">"Trung: "</span> + hit.HitEntity.<span class="tok-fn">GetComponent</span>&lt;Duality::NameComponent&gt;().Name);
+    }
+}</code></pre>
+                        <p>Xem ví dụ chạy thực tế: <code>GameScripts/Source/RaycastDemoBehaviour.cpp</code> (gắn vào entity "RaycastController" trong scene mẫu).</p>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="p-type">Entity</span> <span class="p-name">ResolveEntityRef</span>(<span class="p-arg">EntityRef ref</span>) <span class="tok-kw">const</span> · <span class="p-type">static EntityRef</span> <span class="p-name">MakeEntityRef</span>(<span class="p-arg">Entity entity</span>)</div></div>
+                    <div class="api-body">
+                        <p>
+                            Chuyển đổi giữa field <code>EntityRef</code> (kiểu field reflection cho
+                            "tham chiếu tới entity khác", gán qua kéo-thả entity từ Hierarchy vào
+                            Properties) và <code>Entity</code> thật dùng được. Không có kiểu
+                            "component reference" riêng — giữ một <code>EntityRef</code> rồi gọi
+                            <code>ResolveEntityRef(ref).GetComponent&lt;T&gt;()</code> để lấy đúng
+                            component cần, giống cách Unity's <code>[SerializeField] GameObject</code>
+                            hoạt động.
+                        </p>
+                        <div class="callout warn">
+                            <code>EntityRef</code> <strong>không</strong> sống sót qua một lần
+                            Save/Load scene — luôn về "chưa gán" sau khi load lại, vì handle thô
+                            không ổn định qua reload (entity nhận handle mới theo thứ tự tạo).
+                            Hoạt động đúng trong một phiên Editor/Play.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="page-nav">
+                    <a class="prev" href="architecture.html"><span class="dir">← Trước</span>Kiến trúc: ECS &amp; Scene</a>
+                    <a class="next" href="physics.html"><span class="dir">Tiếp →</span>Physics 2D/3D</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

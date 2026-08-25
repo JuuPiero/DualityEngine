@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DualityEngine Docs</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body data-page="home">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">DualityEngine · Tài liệu kỹ thuật</div>
+                <h1>Engine C++ tự viết cho Nintendo 3DS</h1>
+                <p class="lede">
+                    DualityEngine là một game engine + editor viết 
+                    bằng C++, nhắm tới Nintendo 3DS (devkitARM/devkitPro) và desktop Windows. Trang
+                    này là tài liệu tham khảo đầy đủ cho mọi hệ thống engine hiện có — từ tổng quan
+                    kiến trúc tới chữ ký từng API, sắp xếp từ cao xuống thấp.
+                </p>
+
+                <h2 style="border-top:none;margin-top:0">Bắt đầu từ đâu?</h2>
+                <div class="card-grid">
+                    <a class="card" href="pages/getting-started.html">
+                        <span class="card-icon">⚙️</span>
+                        <div class="card-title">Cài đặt &amp; Build</div>
+                        <div class="card-desc">Cài devkitPro, build Editor trên desktop, build/chạy trên 3DS thật hoặc Citra.</div>
+                    </a>
+                    <a class="card" href="pages/first-game-tutorial.html">
+                        <span class="card-icon">🎮</span>
+                        <div class="card-title">Làm game đầu tiên</div>
+                        <div class="card-desc">Hướng dẫn từng bước: tạo scene, thêm vật lý, viết script, dựng UI, chuyển scene, build ra máy thật.</div>
+                    </a>
+                    <a class="card" href="pages/architecture.html">
+                        <span class="card-icon">🧩</span>
+                        <div class="card-title">Kiến trúc: ECS &amp; Scene</div>
+                        <div class="card-desc">Entity/Component/Scene, hệ thống Reflection, vòng đời Play/Stop, cách engine tổ chức dữ liệu.</div>
+                    </a>
+                </div>
+
+                <h2>Tài liệu API theo hệ thống</h2>
+                <div class="card-grid">
+                    <a class="card" href="pages/scripting-api.html">
+                        <span class="card-icon">📜</span>
+                        <div class="card-title">Scripting API</div>
+                        <div class="card-desc"><code>Behaviour</code>: vòng đời, Input, Physics, Audio, Raycast, DUALITY_PROPERTIES, EntityRef, SceneManager.</div>
+                    </a>
+                    <a class="card" href="pages/physics.html">
+                        <span class="card-icon">🪐</span>
+                        <div class="card-title">Physics 2D/3D</div>
+                        <div class="card-desc">Rigidbody, Collider, BodyType, Collision/Trigger events, Raycast2D/3D (Box2D + Bullet).</div>
+                    </a>
+                    <a class="card" href="pages/rendering.html">
+                        <span class="card-icon">🖼️</span>
+                        <div class="card-title">Rendering &amp; UI</div>
+                        <div class="card-desc">Renderer 2D/3D, Camera, Material/Mesh, hệ UI trong game (Panel/Button).</div>
+                    </a>
+                    <a class="card" href="pages/assets.html">
+                        <span class="card-icon">📦</span>
+                        <div class="card-title">Asset Pipeline</div>
+                        <div class="card-desc">GUID/.meta, Prefab, ScriptableObject, Texture/Audio Import Settings, AssetDatabase.</div>
+                    </a>
+                    <a class="card" href="pages/editor.html">
+                        <span class="card-icon">🛠️</span>
+                        <div class="card-title">Editor Panels</div>
+                        <div class="card-desc">Hierarchy, Properties, Scene, Game, Content Browser, Console, Menu Bar.</div>
+                    </a>
+                    <a class="card" href="pages/build-deploy.html">
+                        <span class="card-icon">🚀</span>
+                        <div class="card-title">Build &amp; Deploy</div>
+                        <div class="card-desc">Build for 3DS/PC, đóng gói .3dsx/.cia, cấu trúc project/romfs.</div>
+                    </a>
+                </div>
+
+                <h2>Engine gồm những gì?</h2>
+                <table>
+                    <tr><th>Thành phần</th><th>Mô tả</th></tr>
+                    <tr><td><code>DualityEngine</code></td><td>Thư viện lõi dùng chung: ECS (EnTT), Reflection, Scene, physics 2D (Box2D) + 3D (Bullet), renderer interface + backend OpenGL/citro2d/citro3d, hệ UI, asset pipeline, scripting registry.</td></tr>
+                    <tr><td><code>DualityEditor</code></td><td>Editor desktop (Dear ImGui) — toàn bộ panel, gizmo, build pipeline, asset inspector.</td></tr>
+                    <tr><td><code>DualityPlayer</code></td><td>Runtime thực thi trên 3DS — link tĩnh với GameScripts, không có UI editor.</td></tr>
+                    <tr><td><code>DualityPlayerDesktop</code></td><td>Runtime desktop độc lập (không Editor) — cùng pipeline Scene/Renderer với 3DS.</td></tr>
+                    <tr><td><code>GameScripts</code></td><td>Code gameplay (<code>Behaviour</code> subclass) — build DLL hot-reload trên desktop, link tĩnh trên 3DS, cùng một bộ source.</td></tr>
+                </table>
+
+                <div class="callout note">
+                    <span class="callout-title">Về tài liệu này</span>
+                    Mọi API mô tả ở đây phản ánh code thực tế trong repo tại thời điểm viết. Nếu thấy
+                    sai lệch với source, source luôn là nguồn đúng — hãy đối chiếu đường dẫn file ghi
+                    kèm mỗi mục API.
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="js/nav.js"></script>
+</body>
+</html>

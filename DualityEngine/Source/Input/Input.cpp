@@ -14,6 +14,7 @@ namespace Duality {
 
         bool s_PointerDown = false;
         glm::vec2 s_PointerPosition{ 0.0f, 0.0f };
+        Screen s_PointerScreen = Screen::Top;
     }
 
     bool Input::GetKey(KeyCode key) {
@@ -43,6 +44,10 @@ namespace Duality {
         return s_PointerPosition;
     }
 
+    Screen Input::GetPointerScreen() {
+        return s_PointerScreen;
+    }
+
     void Input::BeginFrame() {
         s_PreviousKeys = s_CurrentKeys;
     }
@@ -55,9 +60,10 @@ namespace Duality {
         s_Axes[axisName] = value;
     }
 
-    void Input::SetPointer(bool isDown, const glm::vec2& position) {
+    void Input::SetPointer(bool isDown, const glm::vec2& position, Screen screen) {
         s_PointerDown = isDown;
         s_PointerPosition = position;
+        s_PointerScreen = screen;
     }
 
 }

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiến trúc: ECS & Scene — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="architecture">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">Kiến trúc</div>
+                <h1>ECS &amp; Scene</h1>
+                <p class="lede">
+                    Cách engine tổ chức dữ liệu: Entity/Component/Scene, hệ thống Reflection
+                    (đọc/ghi field một cách generic), và vòng đời Play/Stop.
+                </p>
+
+                <h2 style="border-top:none;margin-top:0">Entity, Component, Scene</h2>
+                <p>
+                    Engine dùng <a href="https://github.com/skypjack/entt" target="_blank" rel="noopener">EnTT</a>
+                    làm ECS lõi (registry sparse-set, không tự viết ECS riêng).
+                    <code>Duality::Entity</code> là handle mỏng bọc quanh <code>entt::entity</code> +
+                    con trỏ <code>Scene*</code> sở hữu nó:
+                </p>
+                <pre><code><span class="tok-kw">class</span> Entity {
+<span class="tok-kw">public</span>:
+    <span class="tok-kw">template</span>&lt;<span class="tok-kw">typename</span> T, <span class="tok-kw">typename</span>... Args&gt; T&amp; <span class="tok-fn">AddComponent</span>(Args&amp;&amp;... args);
+    <span class="tok-kw">template</span>&lt;<span class="tok-kw">typename</span> T&gt; T&amp; <span class="tok-fn">GetComponent</span>();
+    <span class="tok-kw">template</span>&lt;<span class="tok-kw">typename</span> T&gt; <span class="tok-type">bool</span> <span class="tok-fn">HasComponent</span>() <span class="tok-kw">const</span>;
+    <span class="tok-kw">template</span>&lt;<span class="tok-kw">typename</span> T&gt; <span class="tok-type">void</span> <span class="tok-fn">RemoveComponent</span>();
+
+    entt::entity <span class="tok-fn">Handle</span>() <span class="tok-kw">const</span>;
+    Scene* <span class="tok-fn">GetScene</span>() <span class="tok-kw">const</span>;
+    <span class="tok-kw">operator</span> <span class="tok-type">bool</span>() <span class="tok-kw">const</span>; <span class="tok-com">// false nếu là entity rỗng/mặc định -- quy ước "falsy" dùng khắp engine</span>
+};</code></pre>
+                <p>
+                    Mọi entity được tạo qua <code>Scene::CreateEntity</code> luôn có 4 component bắt
+                    buộc, tự động thêm sẵn: <code>TransformComponent</code>, <code>NameComponent</code>,
+                    <code>TagComponent</code>, <code>HierarchyComponent</code> (quản lý parent/children),
+                    và <code>ActiveComponent</code>. File scene cũ thiếu key nào trong số này khi load
+                    vẫn tự nhận giá trị mặc định — không cần code migrate.
+                </p>
+
+                <h3>Component là gì trong engine này?</h3>
+                <p>
+                    Một struct C++ thuần (POD-ish), không hành vi (matching quy ước ECS chuẩn: dữ
+                    liệu và logic tách rời — logic nằm ở các hệ thống như <code>SceneRenderer</code>,
+                    <code>Scene::OnRuntimeUpdate</code>, không phải trong component). Ví dụ:
+                </p>
+                <pre><code><span class="tok-kw">struct</span> SpriteRendererComponent {
+    glm::vec2 Size{ <span class="tok-num">32.0f</span>, <span class="tok-num">32.0f</span> };
+    glm::vec4 Color{ <span class="tok-num">1.0f</span>, <span class="tok-num">1.0f</span>, <span class="tok-num">1.0f</span>, <span class="tok-num">1.0f</span> };
+    AssetRef Texture; <span class="tok-com">// tham chiếu asset qua GUID -- xem trang Asset Pipeline</span>
+};</code></pre>
+
+                <h2>Reflection: TypeRegistry + FieldHandle</h2>
+                <p>
+                    Thay vì hand-code UI Properties panel và serialize riêng cho từng loại
+                    component (dễ quên đồng bộ), engine dùng một hệ reflection tự viết
+                    (<strong>không</strong> phải <code>entt::meta</code>, một lựa chọn đơn giản hoá
+                    có chủ đích): mỗi component đăng ký một lần với
+                    <code>TypeRegistry::Register&lt;T&gt;</code>, liệt kê field qua
+                    <code>MakeField</code>:
+                </p>
+                <pre><code><span class="tok-com">// Reflection.cpp -- đăng ký một lần lúc khởi động</span>
+TypeRegistry::Register&lt;SpriteRendererComponent&gt;(<span class="tok-str">"Sprite Renderer"</span>, <span class="tok-kw">false</span>, {
+    <span class="tok-fn">MakeField</span>(<span class="tok-str">"Size"</span>, &amp;SpriteRendererComponent::Size),
+    <span class="tok-fn">MakeColorField</span>(<span class="tok-str">"Color"</span>, &amp;SpriteRendererComponent::Color), <span class="tok-com">// đánh dấu "đây là màu", không phải vec4 thường</span>
+    <span class="tok-fn">MakeField</span>(<span class="tok-str">"Texture"</span>, &amp;SpriteRendererComponent::Texture),
+});</code></pre>
+                <p>
+                    <code>MakeField</code> dùng pointer-to-member, tạo ra một
+                    <code>FieldHandle</code> type-erased (<code>Get(void*) -&gt; FieldValue</code>,
+                    <code>Set(void*, FieldValue)</code>). Từ một lần đăng ký đó, engine tự động có:
+                </p>
+                <ul>
+                    <li><strong>Properties panel</strong> — vẽ đúng widget theo kiểu field (DragFloat, ColorEdit, Combo cho enum, drag-drop cho AssetRef...) mà không cần code riêng cho từng component.</li>
+                    <li><strong>SceneSerializer</strong> — lưu/đọc JSON generic qua <code>FieldValueToJson</code>/<code>JsonToFieldValue</code>.</li>
+                    <li><strong>+ Add Component</strong> — liệt kê mọi type đã đăng ký chưa có trên entity đang chọn.</li>
+                </ul>
+                <p>
+                    <code>FieldValue</code> là một <code>std::variant</code> gồm mọi kiểu field
+                    engine hỗ trợ: <code>int</code>, <code>float</code>, <code>bool</code>,
+                    <code>std::string</code>, <code>glm::vec2/vec3/vec4</code>, <code>Color4</code>,
+                    <code>AssetRef</code>, <code>EntityRef</code>, và các enum riêng của engine
+                    (<code>Screen</code>, <code>ProjectionType</code>, <code>BodyType</code>...).
+                </p>
+
+                <div class="callout">
+                    <span class="callout-title">Vì sao không dùng entt::meta?</span>
+                    Quyết định thiết kế có chủ đích từ đầu dự án — một hệ reflection tự viết đơn
+                    giản, dễ đọc, đủ dùng cho quy mô editor này, thay vì phụ thuộc một hệ
+                    reflection tổng quát nặng hơn nhiều so với nhu cầu thực tế.
+                </div>
+
+                <h2>DUALITY_PROPERTIES — reflection cho script</h2>
+                <p>
+                    <code>BehaviourComponent</code> chỉ biết tên class (chuỗi), không có field
+                    riêng để đăng ký với <code>TypeRegistry</code> theo cách trên (không gắn với
+                    một Entity theo kiểu "component" thông thường). Field public của một
+                    <code>Behaviour</code> hiện lên Properties panel qua macro riêng:
+                </p>
+                <pre><code><span class="tok-kw">class</span> BounceBehaviour : <span class="tok-kw">public</span> Duality::Behaviour {
+<span class="tok-kw">public</span>:
+    <span class="tok-type">float</span> Amplitude = <span class="tok-num">40.0f</span>;
+    <span class="tok-type">float</span> Speed = <span class="tok-num">8.0f</span>;
+    Duality::EntityRef Target;
+
+    DUALITY_PROPERTIES(BounceBehaviour, Amplitude, Speed, Target)
+};</code></pre>
+                <p>
+                    Một dòng macro duy nhất liệt kê tên field đã khai báo, sinh ra
+                    <code>static std::vector&lt;FieldHandle&gt; Fields()</code> qua một FOR_EACH
+                    macro biến thiên (portable, không cần code-generation ngoài) — hoàn toàn tuỳ
+                    chọn, script không có dòng này thì đơn giản là không có field nào hiện ở
+                    Inspector.
+                </p>
+                <div class="callout note">
+                    <span class="callout-title">Vì sao không phải <code>DUALITY_PROPERTY() float speed;</code> trên từng field?</span>
+                    Không khả thi trong C++ thuần không có bước code-generation quét header — một
+                    macro gắn trên một field không có cách nào tự biết tên/kiểu của chính nó hay
+                    với tới danh sách field của cả class. <code>DUALITY_PROPERTIES</code> (lấy ý
+                    tưởng từ thư viện <code>ImReflect</code> trong hệ sinh thái ImGui) đạt cùng mục
+                    tiêu "không cần viết tay <code>MakeField()</code>" bằng một dòng ở cấp class.
+                </div>
+
+                <h2>Vòng đời Play/Stop</h2>
+                <p>
+                    <code>Scene::OnRuntimeStart()</code> tạo body Box2D/Bullet cho mọi
+                    Rigidbody, và khởi tạo (<code>OnCreate()</code>) mọi <code>Behaviour</code>.
+                    <code>Scene::OnRuntimeUpdate(deltaTime)</code> chạy mỗi frame: step physics,
+                    xử lý sự kiện collision/trigger, gọi <code>OnUpdate</code> cho mọi Behaviour
+                    đang active. <code>Scene::OnRuntimeStop()</code> dọn dẹp — gọi
+                    <code>OnDisable</code>/<code>OnDestroy</code> cuối, giải phóng physics world.
+                </p>
+                <p>
+                    Trong Editor, bấm <strong>Play</strong> chụp một snapshot JSON trong bộ nhớ
+                    (<code>SceneSerializer::SerializeToJson</code>) ngay trước
+                    <code>OnRuntimeStart</code>; <strong>Stop</strong> gọi
+                    <code>OnRuntimeStop</code> rồi <code>Scene::Clear()</code> +
+                    <code>DeserializeFromJson(snapshot)</code> để phục hồi <em>chính xác</em> trạng
+                    thái trước Play — mọi thay đổi Transform do script, kết quả vật lý, entity
+                    Instantiate/destroy lúc Play đều bị hoàn tác, giống hệt Unity.
+                </p>
+
+                <h2>Screen: "hai thế giới" Top/Bottom</h2>
+                <p>
+                    3DS có hai màn hình vật lý (Top 400×240 không chạm, Bottom 320×240 có chạm) —
+                    đây là khái niệm hạng nhất trong engine, không phải chi tiết implementation:
+                    <code>enum class Screen { Top, Bottom }</code> xuất hiện trên
+                    <code>CameraComponent::Screen</code>, <code>UIRectComponent::Screen</code>, và
+                    xuyên suốt API script (<code>FindEntityInTopScreen</code>,
+                    <code>ScreenPointToRay3D</code>...). <code>ScreenGroupComponent</code> (tag,
+                    gắn vào entity gốc) phân loại cả subtree thuộc về màn nào; entity không gắn tag
+                    ("Ungrouped") vẫn hiện theo vị trí tương đối camera.
+                </p>
+
+                <div class="page-nav">
+                    <a class="prev" href="first-game-tutorial.html"><span class="dir">← Trước</span>Làm game đầu tiên</a>
+                    <a class="next" href="scripting-api.html"><span class="dir">Tiếp →</span>Scripting API</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

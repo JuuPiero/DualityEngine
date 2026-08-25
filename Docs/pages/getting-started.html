@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cài đặt & Build — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="getting-started">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">Bắt đầu</div>
+                <h1>Cài đặt &amp; Build</h1>
+                <p class="lede">
+                    Dựng môi trường build cho cả desktop (Editor) và Nintendo 3DS thật/Citra, rồi
+                    chạy thử ngay lần đầu.
+                </p>
+
+                <h2 style="border-top:none;margin-top:0">Yêu cầu</h2>
+                <table>
+                    <tr><th>Công cụ</th><th>Dùng để</th></tr>
+                    <tr><td><a href="https://devkitpro.org/wiki/Getting_Started" target="_blank" rel="noopener">devkitPro</a> (devkitARM r68+)</td><td>Toolchain build 3DS: citro2d, citro3d, libctru, 3dstools, 3dslink.</td></tr>
+                    <tr><td>MSYS2 mingw64 (đi kèm devkitPro hoặc cài riêng)</td><td>Toolchain build desktop: g++, CMake, Ninja, GLFW, GLEW.</td></tr>
+                    <tr><td><code>makerom.exe</code> / <code>bannertool.exe</code></td><td>Đóng gói <code>.cia</code> (không bắt buộc — thiếu thì build vẫn ra <code>.3dsx</code>). Đặt vào <code>Tools/</code>, xem link trong <code>README.md</code>.</td></tr>
+                    <tr><td>Citra (Nightly khuyến nghị)</td><td>Chạy thử <code>.3dsx</code>/<code>.cia</code> không cần máy thật.</td></tr>
+                </table>
+
+                <div class="callout note">
+                    <span class="callout-title">Vendor tự chứa</span>
+                    EnTT, GLM, nlohmann/json, Dear ImGui, stb_image, miniaudio, Box2D, Bullet Physics
+                    đều được vendor sẵn dạng source trong <code>Vendor/</code> — không cần tải thêm gì
+                    khác ngoài hai toolchain ở trên. GLFW/GLEW lấy từ package mingw64.
+                </div>
+
+                <h2>Build Editor (desktop)</h2>
+                <pre><code><span class="tok-com"># Từ thư mục gốc repo</span>
+build.bat   <span class="tok-com">REM configure (nếu cần) + build -> build\DualityEditor\DualityEditor.exe</span>
+run.bat     <span class="tok-com">REM chạy Editor</span></code></pre>
+                <p>
+                    <code>build.bat</code> tự thêm mingw64 (đi kèm devkitPro) vào PATH và dùng Ninja
+                    nếu có sẵn. Editor mở project mẫu tại <code>SampleProject/</code> ngay khi khởi
+                    động.
+                </p>
+
+                <h3>Chạy test suite</h3>
+                <pre><code>run-tests.bat   <span class="tok-com">REM build.bat đã build sẵn Tests\DualityEngineTests.exe</span></code></pre>
+                <p>
+                    Bộ test headless (không cần GUI) cho logic engine cốt lõi — ECS/Active-Disable,
+                    physics 2D/3D, collision/trigger, raycast, scene serialization, asset pipeline...
+                    Xem <code>Tests/</code>, chạy tự động trên mỗi push/PR qua
+                    <code>.github/workflows/ci.yml</code>.
+                </p>
+
+                <h2>Build cho 3DS</h2>
+                <pre><code>build-3ds.bat   <span class="tok-com">REM luôn configure sạch từ đầu -> build-3ds\DualityPlayer\*.3dsx / *.cia</span>
+run-3ds.bat     <span class="tok-com">REM chạy .3dsx trong Citra</span></code></pre>
+                <div class="callout warn">
+                    <span class="callout-title">Vì sao luôn clean build?</span>
+                    Tổ hợp CMake + Make của devkitPro có bug tái lập được: reconfigure tại chỗ sau
+                    khi sửa <code>CMakeLists.txt</code> làm hỏng file dependency đã sinh ra
+                    (<code>"multiple target patterns. Stop."</code>). <code>build-3ds.bat</code> né
+                    lỗi này bằng cách luôn xoá sạch <code>build-3ds\</code> trước khi cấu hình lại —
+                    chậm hơn một chút nhưng đáng tin cậy, và toàn bộ quá trình vẫn dưới một phút.
+                </div>
+                <p>
+                    <code>.3dsx</code> dùng để chạy nhanh qua Homebrew Launcher hoặc
+                    <code>3dslink</code> (đẩy qua mạng tới máy thật/Citra). <code>.cia</code> để cài
+                    qua FBI trên máy thật/CFW — cần <code>makerom.exe</code>/<code>bannertool.exe</code>
+                    trong <code>Tools/</code>, thiếu thì build vẫn chạy, chỉ bỏ qua bước đóng gói
+                    <code>.cia</code>.
+                </p>
+
+                <h3>Build ngay từ trong Editor</h3>
+                <p>
+                    Menu <strong>File → Build for 3DS</strong> lưu scene rồi tự chạy
+                    <code>build-3ds.bat</code> ở nền (không block UI) — asset (texture...) được
+                    "cook" qua <code>tex3ds</code>, tìm tự động qua biến môi trường
+                    <code>DEVKITPRO</code>/registry/đường dẫn mặc định, không hardcode.
+                    <strong>File → Build for PC</strong> build lại <code>DualityPlayerDesktop</code>
+                    (không cần bước cook romfs, vì target này đọc thẳng <code>Assets/</code> từ
+                    đĩa) — chạy qua <code>run-desktop-player.bat</code>.
+                </p>
+
+                <h2>Cấu trúc repository</h2>
+                <pre><code><span class="tok-type">DualityEngine/</span>       <span class="tok-com">Lõi dùng chung: ECS, Reflection, Scene, physics 2D/3D,</span>
+                     <span class="tok-com">renderer interface + backend, UI, asset pipeline</span>
+<span class="tok-type">DualityEditor/</span>       <span class="tok-com">Editor desktop (Dear ImGui)</span>
+<span class="tok-type">DualityPlayer/</span>       <span class="tok-com">Runtime thực thi trên 3DS</span>
+<span class="tok-type">DualityPlayerDesktop/</span> <span class="tok-com">Runtime desktop độc lập, không Editor</span>
+<span class="tok-type">GameScripts/</span>         <span class="tok-com">Code gameplay (Behaviour) -- DLL hot-reload desktop,</span>
+                     <span class="tok-com">link tĩnh 3DS, chung 1 bộ source</span>
+<span class="tok-type">Tests/</span>               <span class="tok-com">Test suite headless</span>
+<span class="tok-type">Vendor/</span>              <span class="tok-com">Third-party dependencies (vendor sẵn dạng source)</span>
+<span class="tok-type">SampleProject/</span>       <span class="tok-com">Project mẫu Editor mở khi khởi động</span>
+<span class="tok-type">Docs/</span>                <span class="tok-com">Trang tài liệu này</span></code></pre>
+
+                <div class="page-nav">
+                    <a class="prev" href="../index.html"><span class="dir">← Trước</span>Tổng quan</a>
+                    <a class="next" href="first-game-tutorial.html"><span class="dir">Tiếp →</span>Làm game đầu tiên</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

@@ -6,6 +6,7 @@
 #include <entt.hpp>
 
 #include "DualityEngine/ECS/Entity.h"
+#include "DualityEngine/Physics/RaycastHit.h"
 #include "DualityEngine/Renderer/Screen.h"
 
 namespace Duality {
@@ -79,11 +80,39 @@ namespace Duality {
         // own flag says, matching Unity exactly.
         bool IsEffectivelyActive(Entity entity);
 
+        // Unity's Physics2D.Raycast/Physics.Raycast -- casts a ray from `origin` along
+        // (normalized) `direction` up to `maxDistance`, returning the CLOSEST collider hit (a
+        // falsy/default RaycastHit2D/3D if nothing was, or if physics isn't running -- only
+        // valid between OnRuntimeStart/OnRuntimeStop, same as every other RuntimeBody-reading
+        // API). 2D only ever tests against Box2D colliders, 3D only against Bullet ones --
+        // there's no cross-dimension ray (a 2D scene's colliders have no meaningful 3D
+        // geometry to hit and vice versa).
+        RaycastHit2D Raycast2D(const glm::vec2& origin, const glm::vec2& direction, float maxDistance);
+        RaycastHit3D Raycast3D(const glm::vec3& origin, const glm::vec3& direction, float maxDistance);
+
+        // Converts a point in `screen`'s own local pixel space (top-left origin, Y-down, e.g.
+        // Behaviour::GetPointerPosition()) into a world-space ray from that screen's PRIMARY
+        // camera, for "click/touch a 3D object" gameplay (feed the result straight into
+        // Raycast3D). Returns false (leaving outOrigin/outDirection untouched) if that screen
+        // has no primary camera, or its camera isn't Perspective -- an Orthographic camera's
+        // "ray" would need parallel-projection handling this doesn't attempt.
+        bool ScreenPointToRay3D(Screen screen, const glm::vec2& screenPoint, glm::vec3& outOrigin, glm::vec3& outDirection);
+
         // Runtime (Play mode) lifecycle -- instantiates/updates/destroys
         // every entity's BehaviourComponent, if any.
         void OnRuntimeStart();
         void OnRuntimeUpdate(float deltaTime);
         void OnRuntimeStop();
+
+        // Destroys every entity and resets root-entity bookkeeping, leaving this Scene as if
+        // freshly default-constructed -- used before loading new content into an EXISTING
+        // Scene object (Editor "Load Scene"/opening a different scene, Play->Stop reverting
+        // to the pre-Play snapshot) so old entities don't pile up alongside the newly loaded
+        // ones. A plain `m_Registry.clear()` alone isn't enough -- it would leave
+        // `m_RootEntities` holding dangling handles into now-destroyed entities. Must not be
+        // called between OnRuntimeStart/OnRuntimeStop (the physics worlds are still alive and
+        // reference entities this would invalidate) -- callers stop Play first.
+        void Clear();
 
         entt::registry& Registry() { return m_Registry; }
 

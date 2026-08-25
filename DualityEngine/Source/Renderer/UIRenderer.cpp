@@ -29,6 +29,7 @@ namespace Duality {
     void UpdateUIInteractions(Scene& scene) {
         glm::vec2 pointer = Input::GetPointerPosition();
         bool pointerDown = Input::GetPointerDown();
+        Screen pointerScreen = Input::GetPointerScreen();
 
         auto view = scene.Registry().view<UIRectComponent, UIButtonComponent>();
         for (auto handle : view) {
@@ -41,6 +42,18 @@ namespace Duality {
 
             auto& rect = view.get<UIRectComponent>(handle);
             auto& button = view.get<UIButtonComponent>(handle);
+
+            // Top (400x240) and Bottom (320x240) screen-local pixel ranges overlap, so without
+            // this a button on one screen could hover/click from a pointer actually on the
+            // OTHER screen at the same local position -- Input now tags which screen the
+            // pointer is actually over (see GetPointerScreen's own comment), so this is a real
+            // fix, not just a defensive check.
+            if (rect.Screen != pointerScreen) {
+                button.IsHovered = false;
+                button.IsPressed = false;
+                button.WasClicked = false;
+                continue;
+            }
 
             glm::vec2 topLeft, size;
             ResolveUIRect(rect, topLeft, size);

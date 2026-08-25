@@ -20,7 +20,7 @@ TEST_CASE("A dynamic sphere falls under gravity and lands on a static platform")
 
     Entity ground = scene.CreateEntity("Ground");
     ground.GetComponent<TransformComponent>().Translation = { 0.0f, 150.0f, 0.0f };
-    ground.AddComponent<Rigidbody3DComponent>().IsStatic = true;
+    ground.AddComponent<Rigidbody3DComponent>().Type = BodyType::Static;
     ground.AddComponent<BoxCollider3DComponent>().Size = { 100.0f, 10.0f, 100.0f };
 
     Entity ball = scene.CreateEntity("Ball");
@@ -77,7 +77,7 @@ TEST_CASE("A non-zero collider Offset (compound shape) does not move the body it
     Scene scene;
     Entity box = scene.CreateEntity("OffsetBox");
     box.GetComponent<TransformComponent>().Translation = { -300.0f, 0.0f, 0.0f };
-    box.AddComponent<Rigidbody3DComponent>().IsStatic = true;
+    box.AddComponent<Rigidbody3DComponent>().Type = BodyType::Static;
     auto& collider = box.AddComponent<BoxCollider3DComponent>();
     collider.Offset = { 25.0f, -10.0f, 5.0f };
     collider.Size = { 15.0f, 15.0f, 15.0f };

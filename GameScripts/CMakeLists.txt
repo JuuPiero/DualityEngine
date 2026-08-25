@@ -22,6 +22,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         Source/BounceBehaviour.cpp
         Source/ApiShowcaseBehaviour.cpp
         Source/CollisionLogBehaviour.cpp
+        Source/RaycastDemoBehaviour.cpp
         Source/GameSettingsData.cpp
         Source/PlayerController.cpp
         Source/ScriptModuleExports.cpp
@@ -31,6 +32,7 @@ else()
         Source/BounceBehaviour.cpp
         Source/ApiShowcaseBehaviour.cpp
         Source/CollisionLogBehaviour.cpp
+        Source/RaycastDemoBehaviour.cpp
         Source/GameSettingsData.cpp
         Source/PlayerController.cpp
         Source/ScriptModuleExports.cpp

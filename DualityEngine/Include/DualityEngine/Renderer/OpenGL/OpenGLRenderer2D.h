@@ -44,6 +44,15 @@ namespace Duality {
         // view).
         void BeginCustomView(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, const glm::vec4& clearColor, bool clear = true);
 
+        // Desktop-editor-only, same reasoning as BeginCustomView -- a Unity/Cocos-style Scene
+        // view grid (world-aligned lines every `cellSize` units, plus a red X-axis/green Y-axis
+        // line through the world origin) covering the area BeginCustomView's own center/zoom/
+        // viewport currently frames. Must be called right after BeginCustomView and before any
+        // DrawQuad calls that should render on TOP of the grid (sprites, camera markers) -- like
+        // DrawQuad, this only affects the currently bound render target/projection, it doesn't
+        // set either up itself.
+        void DrawGrid(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, float cellSize);
+
     private:
         std::unordered_map<std::string, uint32_t> m_TextureCache;
         uint32_t m_DrawCallCount = 0;

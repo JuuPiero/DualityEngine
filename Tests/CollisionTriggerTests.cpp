@@ -94,7 +94,7 @@ TEST_CASE("2D trigger collider fires Trigger, not Collision") {
 
     Entity zone = scene.CreateEntity("TriggerZone");
     zone.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
-    zone.AddComponent<Rigidbody2DComponent>().IsStatic = true;
+    zone.AddComponent<Rigidbody2DComponent>().Type = BodyType::Static;
     auto& zoneCollider = zone.AddComponent<BoxCollider2DComponent>();
     zoneCollider.Size = { 20.0f, 20.0f };
     zoneCollider.IsTrigger = true;
@@ -124,7 +124,7 @@ TEST_CASE("3D collision fires via the manual Bullet manifold diff") {
 
     Entity ground = scene.CreateEntity("Ground3D");
     ground.GetComponent<TransformComponent>().Translation = { 0.0f, 50.0f, 0.0f };
-    ground.AddComponent<Rigidbody3DComponent>().IsStatic = true;
+    ground.AddComponent<Rigidbody3DComponent>().Type = BodyType::Static;
     ground.AddComponent<BoxCollider3DComponent>().Size = { 100.0f, 10.0f, 100.0f };
     ground.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
 
@@ -155,7 +155,7 @@ TEST_CASE("3D trigger fires Trigger, not Collision") {
 
     Entity zone = scene.CreateEntity("TriggerZone3D");
     zone.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
-    zone.AddComponent<Rigidbody3DComponent>().IsStatic = true;
+    zone.AddComponent<Rigidbody3DComponent>().Type = BodyType::Static;
     auto& zoneCollider = zone.AddComponent<BoxCollider3DComponent>();
     zoneCollider.Size = { 20.0f, 20.0f, 20.0f };
     zoneCollider.IsTrigger = true;
@@ -185,13 +185,13 @@ TEST_CASE("A non-touching pair never fires any collision/trigger event") {
 
     Entity a = scene.CreateEntity("FarA");
     a.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
-    a.AddComponent<Rigidbody2DComponent>().IsStatic = true;
+    a.AddComponent<Rigidbody2DComponent>().Type = BodyType::Static;
     a.AddComponent<CircleCollider2DComponent>().Radius = 5.0f;
     a.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
 
     Entity b = scene.CreateEntity("FarB");
     b.GetComponent<TransformComponent>().Translation = { 10000.0f, 0.0f, 0.0f }; // nowhere near A
-    b.AddComponent<Rigidbody2DComponent>().IsStatic = true;
+    b.AddComponent<Rigidbody2DComponent>().Type = BodyType::Static;
     b.AddComponent<CircleCollider2DComponent>().Radius = 5.0f;
     b.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
 

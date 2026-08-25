@@ -71,12 +71,17 @@ Chạy `run.bat`. Bạn sẽ thấy:
   `.wav` hiện ra **Import Settings** kiểu Unity/Cocos (Filter Mode/Wrap
   Mode/Mipmap cho texture, Volume cho audio -- lưu vào file `.meta` của asset
   đó, không đụng tới file gốc). Chuột phải vào khoảng trống để **Create ->
-  Material** hoặc **Create -> ScriptableObject -> TênClass** (mục 8).
+  Folder / Material / ScriptableObject -> TênClass** (mục 8); chuột phải vào
+  một file/folder có sẵn để **Rename** (label biến thành ô nhập, Enter hoặc
+  click ra ngoài để lưu, Esc để hủy) hoặc **Delete** (có hỏi xác nhận trước,
+  không có Recycle Bin). Kéo một file thả vào icon folder để di chuyển nó vào
+  đó -- file `.meta` đi theo, GUID vẫn trỏ đúng nên không gì cần sửa lại.
 
 Bấm **Play** (phía trên panel Game) để chạy scene trực tiếp -- physics và script
-bắt đầu hoạt động. **Stop** đưa scene về trạng thái edit (chính xác hơn là về
-trạng thái hiện có trong bộ nhớ -- hiện chưa có snapshot tự động để hoàn tác về
-trước lúc Play, nên hãy save trước nếu muốn giữ các thay đổi).
+bắt đầu hoạt động. **Stop** đưa scene về ĐÚNG trạng thái ngay trước khi bấm Play
+(script sửa Transform, kết quả physics, entity được Instantiate/destroy lúc Play
+-- tất cả đều bị hoàn tác, giống hệt Unity) nhờ một snapshot chụp tự động ngay
+lúc bấm Play, nên không cần save trước khi Play để "giữ chỗ" nữa.
 
 ## 3. Scene đầu tiên
 
@@ -207,6 +212,43 @@ không dùng ngôn ngữ script nhúng, được build thành DLL có thể hot-
    và hot-load vào Editor đang chạy -- không cần khởi động lại. Từ giờ, sửa
    `MyBehaviour.cpp` rồi bấm Reload Scripts là toàn bộ vòng lặp phát triển.
 
+### Field hiện ra ở Properties (Inspector-editable fields)
+
+Field public của script cũng hiện ra ở panel Properties được, giống
+`[SerializeField]` của Unity -- chỉ cần khai báo field bình thường rồi liệt kê
+tên chúng một lần trong macro `DUALITY_PROPERTIES`:
+
+```cpp
+class BounceBehaviour : public Duality::Behaviour {
+public:
+    float Amplitude = 40.0f;
+    float Speed = 8.0f;
+    Duality::EntityRef Target;   // kéo một entity từ Hierarchy thả vào field này
+
+    DUALITY_PROPERTIES(BounceBehaviour, Amplitude, Speed, Target)
+    ...
+};
+```
+
+Macro kiểu `DUALITY_PROPERTY() float speed;` gắn trên từng field riêng lẻ
+(giống `UPROPERTY()` của Unreal) không làm được trong C++ thuần nếu không có
+bước code-generation quét header -- project này không có bước đó, vì một
+macro gắn trên một field không có cách nào biết tên/kiểu của chính nó hay với
+tới danh sách field của cả class. `DUALITY_PROPERTIES` (đặt tên gợi ý từ thư
+viện `ImReflect` trong hệ sinh thái ImGui) giải quyết cùng mục tiêu "không cần
+viết tay `MakeField()`" bằng một dòng duy nhất ở cấp class thay vì per-field.
+Hoàn toàn tùy chọn -- script không có dòng `DUALITY_PROPERTIES` nào thì không
+có field nào hiện ở Inspector, y như trước khi tính năng này tồn tại.
+
+Không có kiểu field riêng cho "tham chiếu đến component khác" -- giữ một
+`Duality::EntityRef` rồi gọi `ResolveEntityRef(ref).GetComponent<T>()` để lấy
+đúng component cần trên entity đó. Sửa field lúc đang Edit (không Play) sẽ
+lưu cùng scene; sửa lúc đang Play chỉ ảnh hưởng object đang sống và mất khi
+bấm Stop . Một giới hạn: field `EntityRef` KHÔNG sống sót qua
+một lần Save/Load scene -- nó luôn về "chưa gán" sau khi load lại, vì handle
+thô của entity không ổn định qua một lần reload (xem mục "Known limitations"
+trong README.md).
+
 `GameScripts/Source/ApiShowcaseBehaviour.cpp` là một ví dụ hoàn chỉnh có thể chạy,
 bao quát các API Input/Audio/Save/DateTime trong một script -- nên đọc từ đầu
 đến cuối một lần sau khi đã nắm được phần cơ bản. Script này được gắn vào cả
@@ -269,8 +311,29 @@ float v = GetAxis("Vertical");   // analog trên 3DS (Circle Pad) -- cùng code,
 
 if (GetPointerDown()) {
     glm::vec2 p = GetPointerPosition(); // chuột trên desktop, cảm ứng trên 3DS
+    // Top (400x240) và Bottom (320x240) có vùng tọa độ local trùng nhau -- GetPointerScreen()
+    // cho biết p đang thuộc màn nào (luôn là Bottom trên 3DS thật, vì cảm ứng chỉ có ở đó).
+    Duality::Screen s = GetPointerScreen();
 }
 ```
+
+**Raycast** -- tương đương `Physics2D.Raycast`/`Physics.Raycast` của Unity, cộng
+thêm `ScreenPointToRay3D` để bắn tia từ một điểm chạm/click trên màn hình (chỉ
+hoạt động khi đang Play, vì cần world vật lý đang sống):
+```cpp
+// Click/chạm vào màn Bottom -> bắn tia 3D từ camera Perspective của màn đó
+if (GetPointerDown() && GetPointerScreen() == Duality::Screen::Bottom) {
+    glm::vec3 origin, direction;
+    if (ScreenPointToRay3D(Duality::Screen::Bottom, GetPointerPosition(), origin, direction)) {
+        Duality::RaycastHit3D hit = Raycast3D(origin, direction, 2000.0f);
+        if (hit) // HitEntity rỗng (falsy) nếu không trúng gì -- luôn kiểm tra trước khi đọc Point/Normal/Distance
+            LogInfo("Trung: " + hit.HitEntity.GetComponent<Duality::NameComponent>().Name);
+    }
+}
+```
+Xem `GameScripts/Source/RaycastDemoBehaviour.cpp` (gắn vào entity
+"RaycastController" trong scene mẫu) để có ví dụ chạy thực tế -- click/chạm vào
+màn Bottom lúc Play rồi xem panel Console.
 
 **Trạng thái Active** -- tương đương `GameObject.SetActive`/`activeSelf` của Unity:
 ```cpp

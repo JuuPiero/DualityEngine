@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -141,6 +142,15 @@ namespace Duality {
         Behaviour* Instance = nullptr;
         void (*Destroy)(Behaviour*) = nullptr;
 
+        // Edit-mode values for whichever DUALITY_PROPERTIES fields ClassName's script
+        // declares (see Reflection/PropertyMacros.h/ScriptRegistry::GetFields) -- keyed by
+        // field name. Not reflected via TypeRegistry (a map isn't a plain FieldValue), so
+        // EntitySerialization.cpp special-cases it alongside "Class", same as
+        // HierarchyComponent's Parent. Applied onto the real Instance right before OnCreate()
+        // at Play start (Scene::OnRuntimeStart); while Instance is alive, the Properties panel
+        // edits it directly instead and this map is left stale until OnRuntimeStop.
+        std::unordered_map<std::string, FieldValue> PropertyOverrides;
+
         // Runtime-only (like RuntimeBody below), not reflected -- lets Scene::OnRuntimeUpdate
         // edge-detect an ActiveComponent transition to fire OnEnable/OnDisable exactly once per
         // flip instead of every frame while active/inactive. Starts false (not matching
@@ -159,7 +169,7 @@ namespace Duality {
     // serialized (TypeRegistry only ever registers the authored fields
     // below, per-field opt-in).
     struct Rigidbody2DComponent {
-        bool IsStatic = false;
+        BodyType Type = BodyType::Dynamic;
         bool FixedRotation = false;
         void* RuntimeBody = nullptr;
     };
@@ -203,7 +213,7 @@ namespace Duality {
     // present; the collider components below don't need their own runtime
     // pointer at all as a result.
     struct Rigidbody3DComponent {
-        bool IsStatic = false;
+        BodyType Type = BodyType::Dynamic;
         void* RuntimeBody = nullptr;
         void* RuntimeCollisionShape = nullptr;
     };

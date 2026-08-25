@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Asset Pipeline — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="assets">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">API Reference</div>
+                <h1>Asset Pipeline</h1>
+                <p class="lede">
+                    Mọi asset (texture, âm thanh, Material, Prefab, ScriptableObject, Scene) đi
+                    qua một quy ước GUID/<code>.meta</code> chung kiểu Unity/Unreal — tham chiếu
+                    asset qua GUID ổn định, không phải đường dẫn dễ vỡ khi đổi tên/di chuyển file.
+                </p>
+
+                <h2 style="border-top:none;margin-top:0">GUID &amp; .meta</h2>
+                <p>
+                    File đầu tiên được Content Browser nhìn thấy sẽ tự sinh một
+                    <code>&lt;tên file&gt;.meta</code> cạnh nó (JSON, GUID 32 hex ngẫu nhiên) —
+                    <code>AssetMeta::EnsureMetaFile</code>, gọi mỗi frame Content Browser liệt kê
+                    thư mục nhưng chỉ ghi file khi chưa tồn tại (rẻ). File <code>.meta</code> tự
+                    ẩn khỏi lưới Content Browser (bookkeeping, không phải asset để chọn).
+                </p>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">struct</span> AssetRef { std::string Guid; }</div></div>
+                    <div class="api-body">
+                        <p>
+                            Kiểu field reflection dùng cho mọi tham chiếu asset (texture, Material,
+                            Mesh, Prefab, âm thanh...) — <code>Guid</code> rỗng nghĩa là "chưa gán".
+                            Dùng trực tiếp được với <code>MakeField&lt;C,T&gt;()</code> như mọi kiểu
+                            field khác, không cần dựng riêng.
+                        </p>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">class</span> AssetDatabase { <span class="tok-type">static std::string</span> ResolvePath(<span class="tok-arg">guid</span>); <span class="tok-type">static void</span> Register(<span class="tok-arg">guid, path</span>); }</div></div>
+                    <div class="api-body"><p>Bảng ánh xạ GUID ↔ đường dẫn thật trên đĩa, nạp lại khi mở project/khi Content Browser duyệt qua thư mục.</p></div>
+                </div>
+
+                <h2>Extension theo loại asset</h2>
+                <table>
+                    <tr><th>Extension</th><th>Loại</th><th>Editable trong Properties?</th></tr>
+                    <tr><td><code>.mat</code></td><td>Material (Color + Texture)</td><td>Có, đầy đủ, auto-save mỗi lần sửa</td></tr>
+                    <tr><td><code>.asset</code></td><td>ScriptableObject</td><td>Có, đầy đủ, auto-save</td></tr>
+                    <tr><td><code>.prefab</code></td><td>Prefab</td><td>Chỉ tóm tắt read-only (số entity, tên root)</td></tr>
+                    <tr><td><code>.scene</code></td><td>Scene</td><td>Chỉ tóm tắt read-only + nút "Open Scene"</td></tr>
+                    <tr><td><code>.png</code>/<code>.jpg</code>/... </td><td>Texture</td><td>Import Settings (Filter/Wrap/Mipmap)</td></tr>
+                    <tr><td><code>.wav</code></td><td>Audio Clip</td><td>Import Settings (Volume)</td></tr>
+                </table>
+                <p>
+                    Dispatch theo extension qua <code>AssetInspectorRegistry</code> (chỉ ở phía
+                    Editor) — cùng cách <code>TypeRegistry</code> dispatch component theo Entity,
+                    chỉ khác là dispatch theo file. Thêm loại asset mới chỉ cần một entry
+                    <code>{Extension, DisplayName, DrawInspector}</code>, không sửa Properties panel.
+                </p>
+
+                <h2>Prefab</h2>
+                <p>Unity's Prefab — một entity + toàn bộ subtree con, lưu thành file <code>.prefab</code> tái dùng được.</p>
+                <ul>
+                    <li>Tạo: chuột phải một entity trong Hierarchy → <strong>Create Prefab from Selection</strong> (ghi ra <code>Assets/Prefabs/&lt;Tên&gt;.prefab</code>).</li>
+                    <li>Đặt vào scene: kéo file <code>.prefab</code> từ Content Browser thả vào khoảng trống Hierarchy, hoặc gọi <code>Behaviour::Instantiate(guid)</code> từ script.</li>
+                </ul>
+                <div class="callout warn">Chưa có link ngược về prefab gốc — một bản instantiate là entity độc lập hoàn toàn sau đó, không có Apply/Revert như Unity.</div>
+
+                <h2>ScriptableObject</h2>
+                <p>Data asset tái dùng, không gắn Entity nào — giống Unity's <code>ScriptableObject</code>.</p>
+                <pre><code><span class="tok-com">// GameSettingsData.h -- ví dụ có sẵn trong repo</span>
+<span class="tok-kw">class</span> GameSettingsData : <span class="tok-kw">public</span> Duality::ScriptableObject {
+<span class="tok-kw">public</span>:
+    <span class="tok-type">float</span> PlayerSpeed = <span class="tok-num">200.0f</span>;
+    <span class="tok-type">float</span> ScorePerCoin = <span class="tok-num">10.0f</span>;
+    std::string GameTitle = <span class="tok-str">"My Game"</span>;
+
+    <span class="tok-kw">static</span> std::vector&lt;Duality::FieldHandle&gt; <span class="tok-fn">Fields</span>() {
+        <span class="tok-kw">return</span> {
+            <span class="tok-fn">MakeField</span>(<span class="tok-str">"Player Speed"</span>, &amp;GameSettingsData::PlayerSpeed),
+            <span class="tok-fn">MakeField</span>(<span class="tok-str">"Score Per Coin"</span>, &amp;GameSettingsData::ScorePerCoin),
+            <span class="tok-fn">MakeField</span>(<span class="tok-str">"Game Title"</span>, &amp;GameSettingsData::GameTitle),
+        };
+    }
+};
+REGISTER_SCRIPTABLE_OBJECT(GameSettingsData) <span class="tok-com">// thay vì REGISTER_BEHAVIOUR</span></code></pre>
+                <p>
+                    Tạo instance qua Content Browser: chuột phải → <strong>Create → ScriptableObject
+                    → GameSettingsData</strong>. Đọc từ script qua
+                    <code>LoadScriptableObject&lt;T&gt;(guid)</code> (xem
+                    <a href="scripting-api.html">Scripting API</a>).
+                </p>
+                <div class="callout note">
+                    Không dùng <code>DUALITY_PROPERTIES</code> ở đây (macro đó cho
+                    <code>Behaviour</code>) — ScriptableObject dùng quy ước
+                    <code>static Fields()</code> hand-written gốc, có trước
+                    <code>DUALITY_PROPERTIES</code> và vẫn được giữ nguyên không migrate.
+                </div>
+
+                <h2>Import Settings</h2>
+                <p>
+                    Lưu trong <code>.meta</code> của chính asset (dưới key <code>"Importer"</code>,
+                    cạnh <code>"guid"</code>) — vì <code>.png</code>/<code>.wav</code> là định dạng
+                    nhị phân ngoại lai engine không sở hữu, không thể nhét field riêng vào file gốc.
+                </p>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">struct</span> TextureImportSettings { FilterMode FilterMode; WrapMode WrapMode; <span class="tok-type">bool</span> GenerateMipmaps; }</div></div>
+                    <div class="api-body">
+                        <p>
+                            <code>FilterMode</code>: <code>Point</code>/<code>Bilinear</code>.
+                            <code>WrapMode</code>: <code>Clamp</code>/<code>Repeat</code>. Desktop áp
+                            dụng FilterMode/WrapMode ngay lúc chỉnh (reload texture cache); 3DS chỉ
+                            nhận thay đổi sau khi bấm lại <strong>Build for 3DS</strong>. Mipmap được
+                            "bake" lúc build (cờ <code>-m box</code> của <code>tex3ds</code>), không
+                            phải runtime.
+                        </p>
+                    </div>
+                </div>
+                <div class="api">
+                    <div class="api-head"><div class="api-sig"><span class="tok-type">struct</span> AudioImportSettings { <span class="tok-type">float</span> Volume; }</div></div>
+                    <div class="api-body"><p>Đúng một field — cố ý, vì đây là setting duy nhất có hành vi engine thật để gắn vào (không âm lượng nào tồn tại trước khi field này được thêm).</p></div>
+                </div>
+
+                <h2>Content Browser</h2>
+                <p>Duyệt <code>&lt;project&gt;/Assets/</code> dạng lưới icon, thumbnail thật cho ảnh.</p>
+                <ul>
+                    <li><strong>Click 1 lần</strong> — chọn (hiện Inspector ở Properties). Bắt trên mouse-<em>release</em>, không phải mouse-down — bắt đầu kéo một asset để thả vào field không còn tự chọn lại nó nữa.</li>
+                    <li><strong>Double-click</strong> — vào thư mục, hoặc mở trực tiếp một file <code>.scene</code> làm scene đang chạy.</li>
+                    <li><strong>Kéo ra</strong> — thả vào field <code>AssetRef</code> ở Properties để gán (theo GUID); thả vào icon thư mục để di chuyển file.</li>
+                    <li><strong>Kéo file từ Explorer vào</strong> — import vào thư mục đang mở.</li>
+                    <li><strong>Chuột phải khoảng trống</strong> — <strong>Create → Folder/Scene/Material/ScriptableObject → &lt;Type&gt;</strong>.</li>
+                    <li><strong>Chuột phải một file/folder</strong> — <strong>Rename</strong> (Enter/click-ra-ngoài lưu, Esc huỷ) / <strong>Delete</strong> (có xác nhận, không Recycle Bin).</li>
+                </ul>
+
+                <div class="page-nav">
+                    <a class="prev" href="rendering.html"><span class="dir">← Trước</span>Rendering &amp; UI</a>
+                    <a class="next" href="editor.html"><span class="dir">Tiếp →</span>Editor Panels</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>
