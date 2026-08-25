@@ -13,7 +13,7 @@ using namespace Duality;
 
 namespace {
     std::string TempScenePath() {
-        return (std::filesystem::temp_directory_path() / "duality_engine_test_scene.json").string();
+        return (std::filesystem::temp_directory_path() / "duality_engine_test_scene.scene").string();
     }
 }
 
@@ -61,5 +61,5 @@ TEST_CASE("SceneSerializer round-trips multiple entities and a parent/child link
 
 TEST_CASE("SceneSerializer::Deserialize fails gracefully for a missing file") {
     Scene scene;
-    CHECK_SOFT(!SceneSerializer(scene).Deserialize("this_scene_file_does_not_exist.json"), "Deserialize returns false for a missing file");
+    CHECK_SOFT(!SceneSerializer(scene).Deserialize("this_scene_file_does_not_exist.scene"), "Deserialize returns false for a missing file");
 }

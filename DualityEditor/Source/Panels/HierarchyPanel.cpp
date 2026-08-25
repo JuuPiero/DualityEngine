@@ -79,10 +79,10 @@ namespace Duality {
         // means once a real tree exists (dropping ON a row instead makes the
         // dragged entity that row's *child*, handled directly in DrawEntityNode).
         // Writes `entity` (+ its full descendant subtree) to a new
-        // "Assets/Prefabs/<EntityName>.prefab.json" file -- same 3-step
+        // "Assets/Prefabs/<EntityName>.prefab" file -- same 3-step
         // Save -> AssetMeta::EnsureMetaFile -> AssetDatabase::Register sequence already
         // established for creating any other custom asset type (see Application.cpp's
-        // TestOrange.material.json setup). ctx.ScenePath is "<AssetsDir>/Scene.json"
+        // TestOrange.mat setup). ctx.ScenePath is "<AssetsDir>/Scene.scene"
         // (see Application.cpp), so its parent directory recovers AssetsDir without
         // EditorContext needing its own dedicated field for it.
         void CreatePrefabFromSelection(EditorContext& ctx, Entity entity) {
@@ -91,7 +91,7 @@ namespace Duality {
             std::filesystem::create_directories(prefabsDir);
 
             std::string entityName = entity.GetComponent<NameComponent>().Name;
-            std::filesystem::path prefabPath = prefabsDir / (entityName + ".prefab.json");
+            std::filesystem::path prefabPath = prefabsDir / (entityName + ".prefab");
 
             if (!PrefabSerializer::Save(entity, prefabPath.string()))
                 return;

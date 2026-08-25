@@ -1,4 +1,4 @@
-// DualityPlayerDesktop -- the desktop equivalent of DualityPlayer: loads the same Scene.json a
+// DualityPlayerDesktop -- the desktop equivalent of DualityPlayer: loads the same Scene.scene a
 // project saves in the Editor and runs it in a real, standalone GLFW window using
 // OpenGLRenderer2D/3D, no ImGui/Editor UI involved at all. This is "export the game as a
 // Windows .exe", the desktop counterpart to DualityPlayer's "run the game on real 3DS
@@ -33,11 +33,14 @@
 #include "DualityEngine/Scene/SceneSerializer.h"
 #include "DualityEngine/Scripting/ScriptModule.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
+#include "DualityEngine/Scripting/ScriptableObjectModule.h"
+#include "DualityEngine/Scripting/ScriptableObjectRegistry.h"
 
 // Linked directly from GameScripts.dll's import library (see this project's own
 // ScriptModuleExports.cpp / DE_SCRIPT_EXPORT) -- same extern "C" declaration DualityPlayer's
 // 3DS Main.cpp uses for its statically-linked equivalent.
 extern "C" __declspec(dllimport) void GetScriptFactories(const Duality::ScriptFactoryEntry** outEntries, int* outCount);
+extern "C" __declspec(dllimport) void GetScriptableObjectFactories(const Duality::ScriptableObjectFactoryEntry** outEntries, int* outCount);
 
 using namespace Duality;
 
@@ -135,6 +138,12 @@ int main() {
     for (int i = 0; i < entryCount; i++)
         ScriptRegistry::Register(entries[i]);
 
+    const ScriptableObjectFactoryEntry* scriptableObjectEntries = nullptr;
+    int scriptableObjectCount = 0;
+    GetScriptableObjectFactories(&scriptableObjectEntries, &scriptableObjectCount);
+    for (int i = 0; i < scriptableObjectCount; i++)
+        ScriptableObjectRegistry::Register(scriptableObjectEntries[i]);
+
     if (!glfwInit()) {
         Log::Error("DualityPlayerDesktop: glfwInit failed");
         return 1;
@@ -163,7 +172,7 @@ int main() {
 
     // Same project/scene the Editor itself opens by default -- a real "export" build would let
     // the user pick which project to bundle; this first pass always runs SampleProject, same
-    // convention as DualityPlayer's own romfs/Scene.json being a manually-copied snapshot for
+    // convention as DualityPlayer's own romfs/Scene.scene being a manually-copied snapshot for
     // now (see that file's own CMakeLists.txt comment).
     std::string repoRoot = GetRepoRoot();
     std::shared_ptr<Project> project = Project::Load(repoRoot + "/SampleProject/SampleProject.dproj");
@@ -174,7 +183,7 @@ int main() {
     AssetDatabase::Refresh(project->GetAssetsDirectory());
 
     Scene scene;
-    SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/Scene.json");
+    SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/Scene.scene");
     scene.OnRuntimeStart();
 
     double lastTime = glfwGetTime();

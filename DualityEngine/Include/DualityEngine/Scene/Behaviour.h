@@ -147,6 +147,21 @@ namespace Duality {
             return Entity(static_cast<entt::entity>(handle), m_Entity.GetScene());
         }
 
+        // Unity's ScriptableObject data-asset lookup -- `assetGuid` is an AssetRef's Guid
+        // pointing at a ".asset" file (see Asset/ScriptableObjectLoader.h). The caller
+        // supplies the concrete GameScripts-side type T (e.g. LoadScriptableObject<GameSettings>
+        // (guid)) since the engine side only ever hands back an opaque void* (same ABI-safety
+        // reasoning as every other m_Services call). Returns nullptr if the guid is empty/
+        // unresolved, the file doesn't parse, or its stored class isn't one GameScripts has
+        // registered (e.g. GameScripts hasn't been (re)loaded yet) -- callers should treat a
+        // null result the same as a missing AssetRef anywhere else in this engine, not an error.
+        template<typename T>
+        T* LoadScriptableObject(const std::string& assetGuid) const {
+            if (!m_Services || assetGuid.empty())
+                return nullptr;
+            return static_cast<T*>(m_Services->LoadScriptableObject(assetGuid.c_str()));
+        }
+
         // Called by Scene right after creating this instance -- not for
         // scripts to call themselves.
         void SetEngineServices(const EngineServices* services) { m_Services = services; }

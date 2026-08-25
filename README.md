@@ -68,18 +68,24 @@ yet, but an existing one can be opened via the File menu.
 - **File menu** (top) -- **Open Project...** (browse for a `.dproj` file;
   swaps the active project/scene/Content Browser root, stopping Play first
   if it's running), **Save Scene** / **Load Scene** (JSON round-trip to
-  `<project>/Assets/Scene.json`), **Save Scene As...** (writes a *snapshot*
+  `<project>/Assets/Scene.scene`), **Save Scene As...** (writes a *snapshot*
   of the current scene to a new file the user picks, without changing which
   scene Save/Load Scene operate on -- this is how a project gets a second
   scene file for `SceneManager`/`Behaviour::LoadScene` to target), and
   **Build for 3DS** (saves the scene, then runs `build-3ds.bat`, see below,
-  so the on-device build always packages the latest scene).
+  so the on-device build always packages the latest scene), and **Build for
+  PC** (saves the scene, then rebuilds `DualityPlayerDesktop` in the
+  existing desktop build tree -- no romfs/asset-cooking step needed, since
+  that target reads a project's `Assets/` directly off disk at its own
+  launch time; run it via `run-desktop-player.bat` once built). Both share
+  one build-status flag, so they can't run concurrently against the same
+  build tools.
 - **Hierarchy** (left) -- lists entities in the scene; click one to select
   it. **Create Entity** adds a new empty entity and selects it. A search box
   filters to a flat scene-wide list of matching entities while it has text
   (tree/drag-drop return once it's cleared). Right-click an entity for
   **Create Child Entity** or **Create Prefab from Selection** (writes
-  `Assets/Prefabs/<Name>.prefab.json`); drag a Prefab asset from the Content
+  `Assets/Prefabs/<Name>.prefab`); drag a Prefab asset from the Content
   Browser onto empty space in this panel to instantiate it.
 - **Properties** (right) -- shows every component on the selected entity,
   fields fully generic (reflection-driven -- adding a new component/field
@@ -87,7 +93,13 @@ yet, but an existing one can be opened via the File menu.
   (Unity's `GameObject.SetActive`) alongside Transform/Name/Tag. Each
   non-mandatory component has a "..." button to remove it; **+ Add
   Component** at the bottom lists every component type not already on the
-  entity.
+  entity. **Lock** (top, Unity-Inspector-style) pins the panel to whatever's
+  currently shown, ignoring further Hierarchy/Scene/Content Browser
+  selections until unlocked -- needed because clicking a Content Browser
+  thumbnail to start dragging it (e.g. a Material/Texture onto an `AssetRef`
+  field here) fires on mouse-down, the same frame the drag begins, which
+  would otherwise swap Properties away from the very field being dragged
+  onto.
 - **Scene** (center, tabbed with Game) -- one free-roam edit camera per
   screen, independent of any in-scene camera, with a **2D | 3D** toggle per
   pane. 2D: middle-drag to pan, wheel to zoom, left-click a sprite to select
@@ -127,7 +139,22 @@ yet, but an existing one can be opened via the File menu.
   an `AssetRef` field in Properties (a texture, a Material, a Prefab, ...)
   to assign it (referenced by its GUID, so renaming/moving the file later
   doesn't break it); drag a file in from Windows Explorer to import it into
-  whatever folder is currently open.
+  whatever folder is currently open. Click a file once to select it --
+  Properties shows the right Inspector for its type, dispatched by file
+  extension through `AssetInspectorRegistry` (`DualityEditor/
+  AssetInspectors.cpp`) the same way `TypeRegistry` dispatches Entity
+  components: `.mat`/`.asset` (Material/ScriptableObject) are fully editable,
+  auto-saving on every change; `.prefab`/`.scene` show a read-only summary
+  (entity count, root/top-level entity names -- editing a Prefab or Scene
+  asset in place isn't built yet, see "Known limitations"); an image or
+  `.wav` shows its **Import Settings** (Filter Mode/Wrap Mode/Generate
+  Mipmaps for a texture, Volume for audio) -- a Unity/Cocos-style importer
+  block written into that asset's own `.meta` file (alongside its existing
+  `"guid"` key) rather than the asset itself, since a `.png`/`.wav` is a
+  foreign binary format this engine doesn't own. Right-click empty space for
+  **Create > Material** or **Create > ScriptableObject > &lt;Type&gt;** (the
+  latter listing every class GameScripts currently has
+  `REGISTER_SCRIPTABLE_OBJECT`'d).
 
 ### Writing gameplay scripts
 
@@ -187,7 +214,10 @@ Inside any lifecycle method, a script can call (all inherited from
   `SpriteRendererComponent::Texture` field) through the same real audio
   backend the engine itself uses (miniaudio on desktop, `ndsp` on 3DS --
   only 16-bit PCM WAV is supported on-device, since there's no vendored
-  decoder for real hardware).
+  decoder for real hardware). Every `PlaySound` call reads that asset's own
+  **Volume** (0-1, `AudioImportSettings` -- select the `.wav` in the Content
+  Browser to edit it) and applies it fresh each time -- there's no separate
+  per-call volume parameter.
 - **Logging**: `LogInfo`/`LogWarn`/`LogError(message)` -- shows up in the
   Editor's Console panel exactly like every other engine log line.
 - **Cross-screen lookup**: `FindEntityInTopScreen`/`FindEntityInBottomScreen
@@ -195,15 +225,28 @@ Inside any lifecycle method, a script can call (all inherited from
   subtree (falls back to a scene-wide by-name search if that screen has no
   tagged group yet).
 - **Scene transitions**: `LoadScene(assetsRelativePath)` (e.g.
-  `"Scenes/Level2.json"`, a file created via the Editor's **Save Scene
+  `"Scenes/Level2.scene"`, a file created via the Editor's **Save Scene
   As...**) -- Unity's `SceneManager.LoadScene`. Deferred: the swap actually
   happens between frames, not synchronously when this returns, since a
   script can't safely tear down the very Scene its own call stack is
   running inside of.
 - **Prefabs**: `Instantiate(prefabAssetGuid) -> Entity` -- Unity's
-  `Object.Instantiate`, spawns a copy of a `.prefab.json` asset (see
+  `Object.Instantiate`, spawns a copy of a `.prefab` asset (see
   "Create Prefab from Selection" above) as a new root entity in this
   script's own Scene.
+- **ScriptableObject data assets**: `LoadScriptableObject<T>(assetGuid) -> T*`
+  -- Unity's `ScriptableObject`, a reusable data container that lives as its
+  own project asset (a `.asset` file, created via the Content Browser's
+  **Create > ScriptableObject > &lt;Type&gt;**) instead of being duplicated as
+  component fields on every entity that needs it. Define a type by
+  subclassing `Duality::ScriptableObject`, declaring a
+  `static std::vector<Duality::FieldHandle> Fields()` (same `MakeField()`
+  calls built-in components use), and registering it with
+  `REGISTER_SCRIPTABLE_OBJECT(YourClassName)` instead of
+  `REGISTER_BEHAVIOUR` -- see `GameScripts/Include/GameSettingsData.h` for
+  the pattern. Returns `nullptr` if the guid is empty/unresolved or
+  GameScripts hasn't been (re)loaded yet, same graceful-degradation
+  convention as every other `AssetRef` lookup in this engine.
 
 Two more APIs don't need `Behaviour` at all, since they're header-only with
 no engine state to synchronize across the DLL boundary:
@@ -220,6 +263,10 @@ spin once a minute, driven by the real clock.
 `GameScripts/Source/CollisionLogBehaviour.cpp` is the equivalent living
 example for the collision/trigger lifecycle -- attach it to any entity with
 a Rigidbody + collider and watch the Console panel as it touches things.
+`GameScripts/Include/GameSettingsData.h` is the `ScriptableObject` demo
+(`PlayerSpeed`/`ScorePerCoin`/`GameTitle`); `SampleProject/Assets/
+GameSettings.asset` is a real instance of it, editable in Properties by
+selecting it in the Content Browser.
 
 ## 3DS: build and run on-device
 
@@ -240,9 +287,21 @@ file -- a full rebuild avoids it and only takes well under a minute).
   `makerom.exe`/`bannertool.exe`, fetched once from their official GitHub
   releases into `Tools/` (see `Tools/` below) -- if they're missing, the
   build still succeeds and just skips `.cia`.
+- The Editor's own "Build for 3DS" button (`BuildPipeline::CookAssets`)
+  needs `tex3ds.exe` to convert project textures to `.t3x` -- located
+  automatically (`FindDevkitProInstallDir`/`FindTex3dsExe` in
+  `BuildPipeline.cpp`), not a hardcoded path: tries the `DEVKITPRO`
+  environment variable first (only if it resolves to a real Windows path --
+  devkitPro's own bundled MSYS2 exports it as a POSIX path like
+  `/opt/devkitpro` on some installs, which a plain Windows process like the
+  Editor can't use directly), then the Windows registry entry
+  `devkitProUpdater` writes on install, then the documented default
+  `C:\devkitPro` -- same 3-step order `devkitpro-path.bat` already used for
+  locating the toolchain itself. If none of those pan out, textures are
+  skipped (logged clearly) but everything else still cooks.
 
 `DualityPlayer` loads whatever scene was last packaged into
-`DualityPlayer/romfs/Scene.json` (copied there automatically by the
+`DualityPlayer/romfs/Scene.scene` (copied there automatically by the
 Editor's "Build for 3DS" button, or by `build-3ds.bat` if you've placed one
 there yourself). `Behaviour` scripts, 2D physics (Box2D), and 3D physics
 (Bullet) all run for real on-device -- `GameScripts` links `STATIC` into
@@ -268,7 +327,8 @@ run-tests.bat   REM runs Tests/DualityEngineTests.exe (build.bat builds it autom
 `Tests/` is a small, permanent, desktop-only test suite for engine-level
 logic -- ECS/Active-Disable lifecycle, 2D/3D collision and trigger events,
 Bullet physics (gravity/landing/rotation), `SceneManager`'s request
-mailbox, and Prefab save/instantiate round-tripping -- linking directly
+mailbox, Prefab/ScriptableObject/Material save-load round-tripping, and
+Texture/AudioImportSettings' `.meta` round-tripping -- linking directly
 against `DualityEngine`'s real compiled code, no mocks. Uses a small
 hand-rolled `TEST_CASE`/`CHECK` harness (`Tests/TestFramework.h`) instead
 of vendoring Catch2/GoogleTest, matching this project's general preference
@@ -294,7 +354,7 @@ Tests/               Automated engine-logic test suite (see "Testing" above)
 Vendor/              Third-party dependencies (vendored as source, see below)
 Tools/               makerom.exe / bannertool.exe (fetched from their own
                      releases -- see "3DS: build and run on-device" above)
-SampleProject/       The Editor's one (for now) project: Assets/, Scene.json
+SampleProject/       The Editor's one (for now) project: Assets/, Scene.scene
 References/          Prior-art repos consulted during development (not built)
 .github/workflows/   CI (desktop build + automated tests on every push/PR)
 ```
@@ -319,12 +379,25 @@ repo (prebuilt binaries).
   `OnTriggerStay` yet), no Raycast API, and no physics joints/constraints
   (hinge, spring, fixed) for either Box2D or Bullet.
 - A Prefab instance has no link back to its source asset -- editing the
-  original `.prefab.json` later does not update entities already
+  original `.prefab` later does not update entities already
   instantiated from it (no "Apply"/"Revert" like Unity's prefab instances).
-- No `ScriptableObject`-equivalent (a reusable, Inspector-editable data
-  asset not tied to any entity) -- would need its own non-Entity-coupled
-  reflection registry alongside `TypeRegistry`, which is fundamentally
-  Entity-coupled today.
+- A `ScriptableObject`/Material asset has no "used by" tracking -- deleting
+  or renaming one doesn't warn about (or fix up) scripts/other assets whose
+  `AssetRef` still points at its old guid, same as every other asset type
+  today. The Content Browser's "Create" menu covers Material and
+  ScriptableObject only; there's no equivalent for Prefab (still created via
+  "Create Prefab from Selection" in the Hierarchy, which needs a source
+  entity to begin with) or Scene.
+- Prefab/Scene assets show a read-only summary in Properties, not an editable
+  one -- editing either in place (outside "Load Scene" for a Scene, or
+  instantiating-then-re-saving for a Prefab) would need either a hidden Scene
+  to stage the edit in, or generalizing the per-entity serialization to work
+  off raw JSON without a live `Entity` at all.
+- Texture import settings' Filter Mode/Wrap Mode only take effect after the
+  texture is next loaded -- editing them in the Properties panel forces an
+  immediate reload on desktop (`UnloadAllTextures()`), but the 3DS build only
+  picks up a changed setting on the next "Build for 3DS" (which re-cooks
+  every texture's `.t3x` from scratch anyway).
 - `TransformComponent::Scale` isn't read by 2D sprite rendering (3D mesh
   rendering does use it as the mesh's own world-space size).
 - The in-game UI system covers Panel/Image and Button widgets only -- no

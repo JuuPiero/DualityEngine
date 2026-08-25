@@ -13,5 +13,8 @@ add_executable(DualityEngineTests
     SceneManagerTests.cpp
     PrefabTests.cpp
     SceneSerializerTests.cpp
+    ScriptableObjectTests.cpp
+    AssetImportSettingsTests.cpp
+    MaterialTests.cpp
 )
 target_link_libraries(DualityEngineTests PRIVATE DualityEngine)

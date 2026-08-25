@@ -8,6 +8,7 @@
 #include <imgui.h>
 #include <imgui_internal.h> // DockBuilder* -- for the initial Unity/Cocos-Creator-style dock layout
 
+#include "DualityEditor/AssetInspectors.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/FileDialogs.h"
 #include "DualityEditor/ScriptEngine.h"
@@ -58,6 +59,7 @@ namespace Duality {
         });
 
         RegisterBuiltinComponents();
+        RegisterBuiltinAssetInspectors();
 
         m_BuildDirectory = GetBuildDirectory();
         m_RepoRoot = m_BuildDirectory.substr(0, m_BuildDirectory.find_last_of("\\/")); // parent of "build-desktop"
@@ -67,7 +69,7 @@ namespace Duality {
         m_Renderer3D.Init();
         AudioEngine::Init();
 
-        m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.json";
+        m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.scene";
         // m_TopSceneView/m_BottomSceneView start unseeded -- ScenePanel seeds each
         // from that screen's real primary CameraComponent on its first render.
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
@@ -97,7 +99,7 @@ namespace Duality {
         // end to end, not just a MeshRendererComponent field.
         std::filesystem::path materialsDir = m_Project->GetAssetsDirectory() + "/Materials";
         std::filesystem::create_directories(materialsDir);
-        std::filesystem::path materialPath = materialsDir / "TestOrange.material.json";
+        std::filesystem::path materialPath = materialsDir / "TestOrange.mat";
         MaterialLoader::Save(materialPath.string(), Material{ { 0.9f, 0.5f, 0.2f, 1.0f }, AssetRef{} });
         std::string materialGuid = AssetMeta::EnsureMetaFile(materialPath);
         AssetDatabase::Register(materialGuid, materialPath.string());
@@ -223,11 +225,11 @@ namespace Duality {
         m_Selected = Entity();
         m_TopSceneView = SceneViewCamera();    // re-seed from the new scene's own cameras
         m_BottomSceneView = SceneViewCamera(); // instead of keeping the old project's pan/zoom
-        m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.json";
+        m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.scene";
         m_ContentBrowserPanel.SetRootDirectory(m_Project->GetAssetsDirectory());
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
 
-        // A brand new project has no Scene.json yet -- Deserialize logs an
+        // A brand new project has no Scene.scene yet -- Deserialize logs an
         // error and leaves m_Scene empty in that case, same as clicking
         // "Load Scene" against a project that hasn't saved one yet.
         SceneSerializer(m_Scene).Deserialize(m_ScenePath);
@@ -237,12 +239,12 @@ namespace Duality {
     // project's own Assets folder), WITHOUT changing m_ScenePath -- unlike Unity's own
     // "Save Scene As...", the newly-written file does not become "the" active scene; this
     // exists specifically so a project can accumulate additional scene files (e.g.
-    // "Level2.json") for Behaviour::LoadScene to target, while "Save Scene"/"Load Scene"
+    // "Level2.scene") for Behaviour::LoadScene to target, while "Save Scene"/"Load Scene"
     // keep operating on the original scene exactly as before. A snapshot/export, not a
     // scene switch.
     void Application::SaveSceneAsFromDialog() {
         std::string assetsDir = m_Project->GetAssetsDirectory();
-        std::string path = FileDialogs::SaveFile(m_Window.GetNativeWindow(), "Duality Scene (*.json)\0*.json\0", assetsDir.c_str());
+        std::string path = FileDialogs::SaveFile(m_Window.GetNativeWindow(), "Duality Scene (*.scene)\0*.scene\0", assetsDir.c_str());
         if (path.empty())
             return;
         SceneSerializer(m_Scene).Serialize(path);
@@ -368,7 +370,7 @@ namespace Duality {
             ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
             EditorContext ctx{
-                m_Scene, m_Selected, m_IsPlaying,
+                m_Scene, m_Selected, m_SelectedAssetPath, m_IsPlaying,
                 m_TopSceneView, m_BottomSceneView, m_ActiveGizmoMode, m_DraggingGizmoAxis, m_DraggingGizmoScreen,
                 m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
@@ -398,7 +400,7 @@ namespace Duality {
             m_GamePanel.OnImGuiRender(ctx);
             m_HierarchyPanel.OnImGuiRender(ctx);
             m_PropertiesPanel.OnImGuiRender(ctx);
-            m_ContentBrowserPanel.OnImGuiRender();
+            m_ContentBrowserPanel.OnImGuiRender(ctx);
             m_ConsolePanel.OnImGuiRender();
 
             m_Window.EndFrame();

@@ -6,10 +6,13 @@
 
 namespace Duality {
 
-    // Loads/saves ".material.json" files -- same std::ifstream/nlohmann::json convention as
+    // Loads/saves ".mat" files -- same std::ifstream/nlohmann::json convention as
     // AssetMeta.cpp and SceneSerializer.cpp, works identically on desktop and 3DS (a Material
     // asset is plain data copied into romfs as-is by BuildPipeline::CookAssets, same as
-    // Scene.json -- no special cooking step needed).
+    // Scene.scene -- no special cooking step needed). Serializes via Material::Fields() +
+    // Reflection/FieldSerialization.h's generic FieldValueToJson/JsonToFieldValue, the same
+    // machinery ScriptableObjectLoader uses -- Material has no per-instance polymorphism to
+    // worry about (unlike ScriptableObject), so this stays a much smaller wrapper.
     class MaterialLoader {
     public:
         // Returns a default Material (white, no texture) if `path` doesn't exist or fails to

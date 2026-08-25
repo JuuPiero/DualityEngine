@@ -1,4 +1,4 @@
-// DualityPlayer -- loads the actual Scene.json authored/saved in
+// DualityPlayer -- loads the actual Scene.scene authored/saved in
 // DualityEditor (packaged into romfs at build time) and renders it through
 // the shared RenderScreen pass, on real citro2d screen targets. This is the
 // "scene built in the editor actually runs on the device" milestone.
@@ -26,10 +26,13 @@
 #include "DualityEngine/Scene/SceneSerializer.h"
 #include "DualityEngine/Scripting/ScriptModule.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
+#include "DualityEngine/Scripting/ScriptableObjectModule.h"
+#include "DualityEngine/Scripting/ScriptableObjectRegistry.h"
 
 // Statically linked into this binary by GameScripts (no dllexport on this
 // platform -- see ScriptModuleExports.cpp's DE_SCRIPT_EXPORT).
 extern "C" void GetScriptFactories(const Duality::ScriptFactoryEntry** outEntries, int* outCount);
+extern "C" void GetScriptableObjectFactories(const Duality::ScriptableObjectFactoryEntry** outEntries, int* outCount);
 
 using namespace Duality;
 
@@ -44,6 +47,12 @@ int main(int argc, char* argv[]) {
     GetScriptFactories(&entries, &entryCount);
     for (int i = 0; i < entryCount; i++)
         ScriptRegistry::Register(entries[i]);
+
+    const ScriptableObjectFactoryEntry* scriptableObjectEntries = nullptr;
+    int scriptableObjectCount = 0;
+    GetScriptableObjectFactories(&scriptableObjectEntries, &scriptableObjectCount);
+    for (int i = 0; i < scriptableObjectCount; i++)
+        ScriptableObjectRegistry::Register(scriptableObjectEntries[i]);
 
     // C3D_Init/Fini and C3D_FrameBegin/FrameEnd are owned here, not inside Citro2DRenderer --
     // citro2d is itself built on top of citro3d, and this process-global GPU-frame bracket
@@ -71,7 +80,7 @@ int main(int argc, char* argv[]) {
     AssetDatabase::LoadManifest("romfs:/AssetManifest.json");
 
     Scene scene;
-    SceneSerializer(scene).Deserialize("romfs:/Scene.json");
+    SceneSerializer(scene).Deserialize("romfs:/Scene.scene");
     scene.OnRuntimeStart();
 
     u64 lastTick = svcGetSystemTick();

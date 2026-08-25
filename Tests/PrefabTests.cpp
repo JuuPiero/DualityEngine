@@ -15,7 +15,7 @@ namespace {
     // SceneSerializer), so this exercises the actual save-then-load round trip rather than
     // an in-memory shortcut.
     std::string TempPrefabPath() {
-        return (std::filesystem::temp_directory_path() / "duality_engine_test_prefab.prefab.json").string();
+        return (std::filesystem::temp_directory_path() / "duality_engine_test_prefab.prefab").string();
     }
 }
 
@@ -98,6 +98,6 @@ TEST_CASE("Instantiate attaches the prefab under the requested live parent") {
 
 TEST_CASE("Instantiate fails gracefully for a nonexistent prefab file") {
     Scene scene;
-    Entity result = PrefabSerializer::Instantiate(scene, "this_file_does_not_exist.prefab.json");
+    Entity result = PrefabSerializer::Instantiate(scene, "this_file_does_not_exist.prefab");
     CHECK_SOFT(!result, "Instantiate returns an empty (falsy) Entity when the file can't be opened");
 }

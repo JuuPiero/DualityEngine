@@ -13,6 +13,8 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/AudioImportSettings.h"
+#include "DualityEngine/Asset/ScriptableObjectLoader.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Input/Input.h"
@@ -254,7 +256,7 @@ namespace Duality {
     static void EngineServices_PlaySound(const char* assetGuid, bool loop) {
         std::string path = AssetDatabase::ResolvePath(assetGuid);
         if (!path.empty())
-            AudioEngine::Play(path, loop);
+            AudioEngine::Play(path, loop, AudioImportSettings::Load(path).Volume);
     }
     static void EngineServices_StopAllSounds() { AudioEngine::StopAll(); }
 
@@ -288,6 +290,13 @@ namespace Duality {
         return true;
     }
 
+    static void* EngineServices_LoadScriptableObject(const char* assetGuid) {
+        std::string path = AssetDatabase::ResolvePath(assetGuid);
+        if (path.empty())
+            return nullptr;
+        return ScriptableObjectLoader::Load(path).Instance;
+    }
+
     static const EngineServices s_EngineServices = {
         &EngineServices_GetKey,
         &EngineServices_GetKeyDown,
@@ -303,6 +312,7 @@ namespace Duality {
         &EngineServices_LogError,
         &EngineServices_RequestLoadScene,
         &EngineServices_Instantiate,
+        &EngineServices_LoadScriptableObject,
     };
 
     Entity Scene::CreateEntity(const std::string& name) {

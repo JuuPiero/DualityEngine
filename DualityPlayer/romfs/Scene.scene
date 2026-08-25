@@ -1,6 +1,9 @@
 {
   "Entities": [
     {
+      "Active": {
+        "Active": true
+      },
       "Name": {
         "Name": "TestButton"
       },
@@ -68,6 +71,9 @@
       }
     },
     {
+      "Active": {
+        "Active": true
+      },
       "Behaviour": {
         "Class": "ApiShowcaseBehaviour"
       },
@@ -110,9 +116,115 @@
       }
     },
     {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Material": "",
+        "Mesh": "",
+        "Primitive": "Sphere"
+      },
+      "Name": {
+        "Name": "PhysicsBall3D"
+      },
+      "Parent": -1,
+      "Rigidbody 3D": {
+        "Is Static": false
+      },
+      "Sphere Collider 3D": {
+        "Density": 1.0,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Radius": 20.0,
+        "Restitution": 0.4000000059604645
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          40.0,
+          40.0,
+          40.0
+        ],
+        "Translation": [
+          80.0,
+          -40.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 3D": {
+        "Density": 1.0,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Restitution": 0.0,
+        "Size": [
+          100.0,
+          10.0,
+          100.0
+        ]
+      },
+      "Mesh Renderer": {
+        "Material": "f88066254862338300d1e7afc9357c8e",
+        "Mesh": "",
+        "Primitive": "Cube"
+      },
+      "Name": {
+        "Name": "PhysicsGround3D"
+      },
+      "Parent": -1,
+      "Rigidbody 3D": {
+        "Is Static": true
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          200.0,
+          20.0,
+          200.0
+        ],
+        "Translation": [
+          0.0,
+          150.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
       "Circle Collider 2D": {
         "Density": 1.0,
         "Friction": 0.5,
+        "Is Trigger": false,
         "Offset": [
           0.0,
           0.0
@@ -163,9 +275,13 @@
       }
     },
     {
+      "Active": {
+        "Active": true
+      },
       "Box Collider 2D": {
         "Density": 1.0,
         "Friction": 0.5,
+        "Is Trigger": false,
         "Offset": [
           0.0,
           0.0
@@ -219,6 +335,9 @@
       }
     },
     {
+      "Active": {
+        "Active": true
+      },
       "Behaviour": {
         "Class": "BounceBehaviour"
       },
@@ -261,6 +380,9 @@
       }
     },
     {
+      "Active": {
+        "Active": true
+      },
       "Name": {
         "Name": "TopQuad"
       },
@@ -300,6 +422,9 @@
       }
     },
     {
+      "Active": {
+        "Active": true
+      },
       "Behaviour": {
         "Class": "ApiShowcaseBehaviour"
       },
@@ -334,6 +459,9 @@
       }
     },
     {
+      "Active": {
+        "Active": true
+      },
       "Camera": {
         "Far Plane": 1000.0,
         "Fov Degrees": 60.0,
@@ -369,6 +497,9 @@
       }
     },
     {
+      "Active": {
+        "Active": true
+      },
       "Camera": {
         "Far Plane": 1000.0,
         "Fov Degrees": 60.0,

@@ -35,6 +35,20 @@ namespace Duality {
         // from a background thread while ConsolePanel reads it on the main one.
         static void BuildFor3DSAsync(const std::string& repoRoot, const std::string& sceneJsonPath);
 
+        // "Build for PC": rebuilds the DualityPlayerDesktop target in the existing desktop
+        // build tree (incremental, not a clean reconfigure like BuildFor3DS -- DualityPlayerDesktop
+        // reads a project's Assets/ directly off disk at its own launch time, unlike the 3DS
+        // build's romfs cook step, so there's no asset-packaging work to do here at all).
+        // buildDirectory: the desktop CMake build tree (e.g. ".../build"), same directory
+        // ScriptEngine already rebuilds GameScripts in.
+        static bool BuildForPC(const std::string& buildDirectory);
+
+        // Same non-blocking/single-build-at-a-time convention as BuildFor3DSAsync, sharing the
+        // same s_Status -- deliberately so a PC build and a 3DS build can't run concurrently and
+        // step on each other (both eventually invoke a build tool against a Ninja-generated
+        // tree, which doesn't tolerate concurrent invocations against the same build dir).
+        static void BuildForPCAsync(const std::string& buildDirectory);
+
         static BuildStatus GetStatus() { return s_Status; }
 
     private:

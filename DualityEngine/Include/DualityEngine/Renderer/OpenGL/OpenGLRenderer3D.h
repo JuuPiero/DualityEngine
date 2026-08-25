@@ -4,6 +4,8 @@
 #include <vector>
 
 #include "DualityEngine/Renderer/IRenderer3D.h"
+#include "DualityEngine/Renderer/OpenGL/GLShaderProgram.h"
+#include "DualityEngine/Renderer/OpenGL/GLVertexArray.h"
 #include "DualityEngine/Renderer/PrimitiveMeshes.h"
 
 namespace Duality {
@@ -34,18 +36,12 @@ namespace Duality {
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
     private:
-        struct PrimitiveGpuMesh {
-            unsigned int Vao = 0;
-            unsigned int Vbo = 0;
-            int VertexCount = 0;
-        };
-
         // Shared by Init()'s 3 built-in primitives and LoadMesh's imported meshes -- uploads
-        // `vertices` to a fresh VAO/VBO using this instance's already-queried attribute
+        // `vertices` to a fresh GLVertexArray using this instance's already-queried attribute
         // locations (m_AttribPosition/m_AttribTexCoord).
-        PrimitiveGpuMesh UploadGpuMesh(const std::vector<MeshVertex>& vertices);
+        GLVertexArray UploadGpuMesh(const std::vector<MeshVertex>& vertices);
 
-        unsigned int m_ShaderProgram = 0;
+        GLShaderProgram m_Shader;
         int m_UniformViewProjection = -1;
         int m_UniformModel = -1;
         int m_UniformColor = -1;
@@ -57,12 +53,12 @@ namespace Duality {
         // uniformly in the shader instead of branching on whether one is bound.
         unsigned int m_WhiteTexture = 0;
 
-        PrimitiveGpuMesh m_Meshes[3]; // indexed by static_cast<int>(MeshPrimitive)
+        GLVertexArray m_Meshes[3]; // indexed by static_cast<int>(MeshPrimitive)
 
         // Same 1-based-handle/0-reserved convention as m_TextureCache below, for LoadMesh-
         // imported meshes (see MeshLoader.h) -- separate from m_Meshes since that one is
         // fixed-size (indexed by MeshPrimitive), while this one grows per distinct imported file.
-        std::vector<PrimitiveGpuMesh> m_ImportedMeshes;
+        std::vector<GLVertexArray> m_ImportedMeshes;
         std::unordered_map<std::string, uint32_t> m_MeshCache;
 
         // Recomputed once per BeginScene, reused by every DrawMesh call in that bracket.

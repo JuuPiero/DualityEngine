@@ -54,9 +54,18 @@ namespace Duality {
         // GetEntity().GetScene() (same per-call-not-baked-in reasoning as
         // FindEntityInScreen above, since Instantiate needs the live Scene the SAME
         // instant it's called, unlike LoadScene's deferred swap). `prefabAssetGuid` is
-        // an AssetRef's Guid (a ".prefab.json" asset). Returns true and fills
+        // an AssetRef's Guid (a ".prefab" asset). Returns true and fills
         // *outHandle with the new root entity's raw handle on success.
         bool (*Instantiate)(void* scene, const char* prefabAssetGuid, unsigned int* outHandle);
+
+        // Unity's ScriptableObject data-asset lookup by AssetRef guid -- the adapter resolves
+        // the guid to a real ".asset" path via AssetDatabase and hands back the cached
+        // instance from ScriptableObjectLoader, same resolve-then-same-binary-call shape as
+        // PlaySound above. Returns an opaque pointer (nullptr if unresolved) rather than a
+        // ScriptableObject* by name -- same no-engine-type-in-the-ABI reasoning as everywhere
+        // else in this struct; Behaviour::LoadScriptableObject<T>() below does the cast, since
+        // only the calling script knows which concrete GameScripts-side type it wants.
+        void* (*LoadScriptableObject)(const char* assetGuid);
     };
 
 }

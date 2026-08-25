@@ -8,7 +8,7 @@
 namespace Duality {
 
     // Saves/instantiates one entity + its full descendant subtree as a reusable JSON
-    // asset (a ".prefab.json" file, same convention as Material's ".material.json") --
+    // asset (a ".prefab" file, same convention as Material's ".mat") --
     // Unity's Prefab. Shares SceneSerializer's own per-entity component
     // serialize/deserialize logic (see EntitySerialization.h) rather than duplicating it,
     // just scoped to one subtree instead of the whole scene.

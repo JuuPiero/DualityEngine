@@ -1,5 +1,7 @@
 #include "DualityEngine/Renderer/N3DS/Citro2DRenderer.h"
 
+#include "DualityEngine/Asset/TextureImportSettings.h"
+
 namespace Duality {
 
     static u32 ToC2DColor(const glm::vec4& color) {
@@ -122,6 +124,20 @@ namespace Duality {
         C2D_SpriteSheet sheet = C2D_SpriteSheetLoad(path.c_str());
         uint32_t textureId = 0;
         if (sheet) {
+            // GenerateMipmaps is baked into the .t3x itself at cook time (BuildPipeline::
+            // CookAssets's tex3ds -m flag) -- FilterMode/WrapMode are plain GPU sampler state,
+            // applied here at runtime instead, via a settings-only ".meta" cooked right next to
+            // this .t3x (see CookAssets's own comment for why there's no way back to the
+            // original Assets/ source .meta from here).
+            TextureImportSettings settings = TextureImportSettings::Load(path);
+            C2D_Image image = C2D_SpriteSheetGetImage(sheet, 0);
+            if (image.tex) {
+                GPU_TEXTURE_FILTER_PARAM filter = settings.FilterMode == TextureFilterMode::Point ? GPU_NEAREST : GPU_LINEAR;
+                GPU_TEXTURE_WRAP_PARAM wrap = settings.WrapMode == TextureWrapMode::Repeat ? GPU_REPEAT : GPU_CLAMP_TO_EDGE;
+                C3D_TexSetFilter(image.tex, filter, filter);
+                C3D_TexSetWrap(image.tex, wrap, wrap);
+            }
+
             m_TextureSheets.push_back(sheet);
             textureId = static_cast<uint32_t>(m_TextureSheets.size()); // 1-based, 0 reserved for "none"
         }

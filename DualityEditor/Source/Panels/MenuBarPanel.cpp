@@ -35,6 +35,17 @@ namespace Duality {
                     SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath); // build packages the last-saved scene
                     BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
                 }
+                // Shares the same `building`/s_Status as "Build for 3DS" above (BuildPipeline
+                // deliberately funnels both through one status flag -- see its own header
+                // comment) so the two can't run concurrently against the same build tools.
+                // DualityPlayerDesktop reads a project's Assets/ directly off disk at its own
+                // launch time (no romfs/manifest cook step like the 3DS build), so this is just
+                // an incremental rebuild of that one target -- saving the scene first still
+                // matters, so the next launch sees the latest edits.
+                if (ImGui::MenuItem(building ? "Build for PC (building...)" : "Build for PC", nullptr, false, !building)) {
+                    SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath);
+                    BuildPipeline::BuildForPCAsync(ctx.BuildDirectory);
+                }
                 ImGui::EndMenu();
             }
             ImGui::EndMenuBar();

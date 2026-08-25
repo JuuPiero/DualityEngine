@@ -45,14 +45,10 @@ namespace Duality {
             return;
         }
         ndspSetOutputMode(NDSP_OUTPUT_STEREO);
-        for (int i = 0; i < ChannelCount; i++) {
+        for (int i = 0; i < ChannelCount; i++)
             ndspChnSetInterp(i, NDSP_INTERP_LINEAR);
-            float mix[12];
-            std::memset(mix, 0, sizeof(mix));
-            mix[0] = 1.0f;
-            mix[1] = 1.0f;
-            ndspChnSetMix(i, mix);
-        }
+        // Per-channel mix (volume) is set fresh on every Play() call below instead of once
+        // here, since it now carries that clip's own AudioImportSettings::Volume.
         s_Initialized = true;
     }
 
@@ -76,7 +72,7 @@ namespace Duality {
         }
     }
 
-    void AudioEngine::Play(const std::string& path, bool loop) {
+    void AudioEngine::Play(const std::string& path, bool loop, float volume) {
         if (!s_Initialized)
             return;
 
@@ -119,6 +115,12 @@ namespace Duality {
 
         ndspChnSetFormat(channel, wav.Channels >= 2 ? NDSP_FORMAT_STEREO_PCM16 : NDSP_FORMAT_MONO_PCM16);
         ndspChnSetRate(channel, static_cast<float>(wav.SampleRate));
+
+        float mix[12];
+        std::memset(mix, 0, sizeof(mix));
+        mix[0] = volume;
+        mix[1] = volume;
+        ndspChnSetMix(channel, mix);
 
         ChannelSlot& slot = s_Channels[channel];
         slot.WaveBuf = ndspWaveBuf{};

@@ -22,6 +22,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         Source/BounceBehaviour.cpp
         Source/ApiShowcaseBehaviour.cpp
         Source/CollisionLogBehaviour.cpp
+        Source/GameSettingsData.cpp
         Source/ScriptModuleExports.cpp
     )
 else()
@@ -29,6 +30,7 @@ else()
         Source/BounceBehaviour.cpp
         Source/ApiShowcaseBehaviour.cpp
         Source/CollisionLogBehaviour.cpp
+        Source/GameSettingsData.cpp
         Source/ScriptModuleExports.cpp
     )
     set_target_properties(GameScripts PROPERTIES PREFIX "")

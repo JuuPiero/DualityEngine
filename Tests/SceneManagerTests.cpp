@@ -16,7 +16,7 @@ namespace {
 
     class LoadSceneBehaviour : public Behaviour {
     public:
-        void OnUpdate(float) override { LoadScene("Scenes/Level2.json"); }
+        void OnUpdate(float) override { LoadScene("Scenes/Level2.scene"); }
     };
 
     void EnsureRegistered() {
@@ -43,10 +43,10 @@ TEST_CASE("SceneManager starts with no pending load") {
 }
 
 TEST_CASE("RequestLoadScene sets a pending load, ConsumePendingLoad clears it") {
-    SceneManager::RequestLoadScene("Scenes/Level2.json");
+    SceneManager::RequestLoadScene("Scenes/Level2.scene");
     CHECK_SOFT(SceneManager::HasPendingLoad(), "a pending load is now set");
     std::string path = SceneManager::ConsumePendingLoad();
-    CHECK_SOFT(path == "Scenes/Level2.json", "ConsumePendingLoad returns the exact requested path");
+    CHECK_SOFT(path == "Scenes/Level2.scene", "ConsumePendingLoad returns the exact requested path");
     CHECK_SOFT(!SceneManager::HasPendingLoad(), "pending flag cleared after consuming");
 }
 
@@ -60,9 +60,9 @@ TEST_CASE("Behaviour::LoadScene forwards through EngineServices into SceneManage
     e.AddComponent<BehaviourComponent>().ClassName = "LoadSceneBehaviour";
 
     scene.OnRuntimeStart();
-    scene.OnRuntimeUpdate(1.0f / 60.0f); // OnUpdate calls LoadScene("Scenes/Level2.json")
+    scene.OnRuntimeUpdate(1.0f / 60.0f); // OnUpdate calls LoadScene("Scenes/Level2.scene")
     scene.OnRuntimeStop();
 
     CHECK_SOFT(SceneManager::HasPendingLoad(), "a script's LoadScene() call left a pending request");
-    CHECK_SOFT(SceneManager::ConsumePendingLoad() == "Scenes/Level2.json", "the pending path matches what the script requested");
+    CHECK_SOFT(SceneManager::ConsumePendingLoad() == "Scenes/Level2.scene", "the pending path matches what the script requested");
 }

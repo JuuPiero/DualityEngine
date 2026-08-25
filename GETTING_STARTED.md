@@ -25,19 +25,27 @@ Chạy `run.bat`. Bạn sẽ thấy:
   (lưu một *bản snapshot* của scene hiện tại ra file mới, không đổi scene mà
   Save/Load Scene đang thao tác -- đây là cách để có file scene thứ hai cho
   `SceneManager`/`Behaviour::LoadScene` nhắm tới, xem mục 8 và 10 bên dưới),
-  Build for 3DS.
+  **Build for 3DS**, và **Build for PC** (build lại `DualityPlayerDesktop`
+  trong build tree desktop có sẵn -- không cần bước cook asset nào vì target
+  đó tự đọc thẳng `Assets/` của project lúc chạy; sau khi build xong, chạy
+  bằng `run-desktop-player.bat`). Hai nút build này dùng chung một cờ trạng
+  thái nên không chạy đồng thời được.
 - **Hierarchy** (bên trái) -- mọi entity trong scene. Bấm vào một entity để chọn;
   **Create Entity** tạo một entity trống mới. Có ô tìm kiếm: gõ vào để lọc ra
   danh sách phẳng mọi entity khớp tên trong toàn scene (cây/kéo-thả trở lại khi
   xóa ô tìm kiếm). Chuột phải vào một entity để **Create Child Entity** hoặc
-  **Create Prefab from Selection** (ghi ra `Assets/Prefabs/<Tên>.prefab.json`);
+  **Create Prefab from Selection** (ghi ra `Assets/Prefabs/<Tên>.prefab`);
   kéo một Prefab asset từ Content Browser thả vào khoảng trống của panel này để
   tạo bản sao (instantiate) vào scene.
 - **Properties** (bên phải) -- mọi component của entity đang chọn, với các field
   có thể chỉnh sửa trực tiếp. Mọi entity đều có checkbox **Active** (tương đương
   `GameObject.SetActive` của Unity) cạnh Transform/Name/Tag. **+ Add Component**
   ở dưới cùng thêm component mới; nút "..." trên các component không bắt buộc sẽ
-  xóa chúng.
+  xóa chúng. Checkbox **Lock** ở trên cùng ghim panel vào entity/asset đang hiện,
+  bỏ qua mọi lần chọn khác ở Hierarchy/Scene/Content Browser cho tới khi bỏ khóa
+  -- bật nó lên trước khi kéo một Material/Texture từ Content Browser vào field
+  `AssetRef` ở đây, nếu không click-để-bắt-đầu-kéo sẽ vô tình đổi luôn nội dung
+  panel đang hiện.
 - **Scene** / **Game** (ở giữa, dạng tab) -- **Scene** chia thành hai pane cạnh
   nhau (màn Top/Bottom), mỗi pane là một camera editor tự do, độc lập với
   camera thật trong scene. Mỗi pane có riêng nút **2D**/**3D** để chuyển cách
@@ -56,7 +64,14 @@ Chạy `run.bat`. Bạn sẽ thấy:
   của project hiện tại, có ô tìm kiếm lọc file theo tên trong thư mục đang mở
   (thư mục vẫn luôn hiện để còn điều hướng được). Kéo asset vào field
   `AssetRef` trong Properties (texture, Material, Prefab, ...) để gán; kéo file
-  từ Explorer vào để import.
+  từ Explorer vào để import. **Click một lần vào file để chọn** -- Properties
+  hiện đúng loại Inspector theo phần đuôi file: `.mat` (Material, edit đầy đủ),
+  `.asset` (ScriptableObject, edit đầy đủ), `.prefab`/`.scene` (tóm tắt
+  read-only: số entity, tên root/entity gốc), ảnh (`.png`/`.jpg`/...) và
+  `.wav` hiện ra **Import Settings** kiểu Unity/Cocos (Filter Mode/Wrap
+  Mode/Mipmap cho texture, Volume cho audio -- lưu vào file `.meta` của asset
+  đó, không đụng tới file gốc). Chuột phải vào khoảng trống để **Create ->
+  Material** hoặc **Create -> ScriptableObject -> TênClass** (mục 8).
 
 Bấm **Play** (phía trên panel Game) để chạy scene trực tiếp -- physics và script
 bắt đầu hoạt động. **Stop** đưa scene về trạng thái edit (chính xác hơn là về
@@ -97,15 +112,13 @@ render qua đúng một pipeline mỗi frame, 2D hoặc 3D, không bao giờ ch�
    khối lập phương trắng (mặc định `Primitive = Cube`; có thể đổi sang `Sphere`
    hoặc `Plane`). Kích thước thật lấy từ `Transform -> Scale`, không có field
    `Size` riêng như Sprite Renderer.
-2. **Tạo Material.** Hiện tại engine chưa có nút "Create Material" trong
-   Content Browser -- tạo thủ công một file `<tên>.material.json` trong
-   `Assets/` (ví dụ `Assets/Materials/Red.material.json`) với nội dung:
-   ```json
-   { "Color": { "r": 0.9, "g": 0.2, "b": 0.2, "a": 1.0 }, "Texture": "" }
-   ```
-   `Texture` là GUID của một ảnh (rỗng = màu phẳng theo `Color`). Sau khi lưu
-   file, mở lại Content Browser (hoặc đợi lần Refresh kế tiếp) để nó nhận GUID,
-   rồi kéo file này vào field **Material** của Mesh Renderer.
+2. **Tạo Material.** Trong Content Browser, chuột phải vào khoảng trống ->
+   **Create -> Material** -- tạo ngay `NewMaterial.mat` (màu trắng, không
+   texture) và tự đăng ký GUID. Click chọn file đó, Properties hiện ra field
+   **Color** và **Texture** để chỉnh trực tiếp (tự động lưu xuống đĩa mỗi khi
+   một field thay đổi, giống hệt component/ScriptableObject) -- kéo một ảnh từ
+   Content Browser vào field Texture nếu muốn dùng ảnh thay vì màu phẳng. Sau
+   đó kéo file `.mat` này vào field **Material** của Mesh Renderer.
 3. **Import mesh riêng (tùy chọn).** Field **Mesh** của Mesh Renderer nhận một
    file `.obj` (Wavefront) kéo từ Content Browser -- khi được gán, nó thay thế
    hẳn `Primitive`. Parser tự viết, không phụ thuộc thư viện ngoài (để chắc
@@ -277,7 +290,7 @@ LogError("Không tìm thấy save file");
 
 **Chuyển scene** -- tương đương `SceneManager.LoadScene` của Unity:
 ```cpp
-LoadScene("Scenes/Level2.json"); // đường dẫn tương đối so với Assets/ của project,
+LoadScene("Scenes/Level2.scene"); // đường dẫn tương đối so với Assets/ của project,
                                   // tạo bằng File -> Save Scene As... (mục 2)
 ```
 Đây là yêu cầu hoãn lại (deferred) -- việc đổi scene thật sự diễn ra giữa hai
@@ -288,8 +301,42 @@ hủy chính cái Scene mà lời gọi của nó đang chạy bên trong.
 ```cpp
 Duality::Entity spawned = Instantiate("<prefab-asset-guid>");
 ```
-Tạo một bản sao mới của asset `.prefab.json` (xem "Create Prefab from
+Tạo một bản sao mới của asset `.prefab` (xem "Create Prefab from
 Selection" ở mục 2) làm entity gốc (root) mới trong scene của chính script này.
+
+**ScriptableObject** -- tương đương `ScriptableObject` của Unity: một asset dữ
+liệu dùng lại được (`.asset`), không gắn vào entity nào cả -- ví dụ một
+"GameSettings" mà nhiều script cùng đọc, chỉnh một chỗ trong Properties là mọi
+nơi đọc thấy ngay, thay vì chép số liệu vào field của từng entity:
+```cpp
+#include "GameSettingsData.h" // class do chính bạn định nghĩa, xem bên dưới
+
+GameSettingsData* settings = LoadScriptableObject<GameSettingsData>("<asset-guid>");
+if (settings)
+    score += settings->ScorePerCoin;
+```
+Trả về `nullptr` nếu guid rỗng/không resolve được, hoặc GameScripts chưa được
+(re)load -- xử lý giống hệt một `AssetRef` chưa gán ở bất kỳ chỗ nào khác trong
+engine. Để định nghĩa một loại `ScriptableObject` mới:
+
+1. Kế thừa `Duality::ScriptableObject`, khai báo field bình thường, và thêm
+   `static std::vector<Duality::FieldHandle> Fields()` liệt kê chúng qua
+   `MakeField()` (giống hệt cách `Reflection.cpp` khai báo field cho các
+   component có sẵn) -- xem `GameScripts/Include/GameSettingsData.h` để có ví
+   dụ đầy đủ.
+2. Đăng ký bằng `REGISTER_SCRIPTABLE_OBJECT(TênClass)` ở cuối file `.cpp`
+   (thay vì `REGISTER_BEHAVIOUR`).
+3. Thêm file nguồn mới vào `GameScripts/CMakeLists.txt`.
+4. Trong Content Browser, chuột phải vào khoảng trống -> **Create ->
+   ScriptableObject -> TênClass** để tạo một file `.asset` mới với giá
+   trị mặc định; click chọn file đó để chỉnh field ngay trong Properties
+   (tự động lưu xuống đĩa mỗi khi một field thay đổi).
+
+`GameScripts/Include/GameSettingsData.h` là ví dụ có sẵn
+(`PlayerSpeed`/`ScorePerCoin`/`GameTitle`), và
+`SampleProject/Assets/GameSettings.asset` là một instance thật của nó --
+mở project mẫu, chọn file này trong Content Browser để xem field hiện ra
+trong Properties.
 
 **Âm thanh** -- phát asset WAV bằng GUID của Content Browser (kéo asset vào một
 field `AssetRef` trước để xem GUID được resolve, hoặc tham chiếu đến GUID của một
@@ -301,7 +348,10 @@ StopAllSounds();
 ```
 Desktop phát được mọi định dạng mà miniaudio giải mã được; bản build 3DS chỉ hỗ
 trợ WAV PCM 16-bit (không có decoder đi kèm trên phần cứng thật) -- hãy dùng WAV
-cho mọi âm thanh cần chạy trên thiết bị.
+cho mọi âm thanh cần chạy trên thiết bị. Mỗi lần `PlaySound` chạy, nó tự đọc
+field **Volume** (0..1) trong Import Settings của chính file `.wav` đó (chọn
+file trong Content Browser để chỉnh) và áp dụng ngay -- không cần tham số
+volume riêng trong code.
 
 **Save/load** -- JSON thuần, không cần method `Behaviour` (gọi trực tiếp class):
 ```cpp
@@ -334,14 +384,17 @@ trước rồi chạy cùng quy trình build. `.3dsx` dùng cho Homebrew Launche
 trong `Tools/` -- nếu thiếu, build vẫn thành công và chỉ bỏ qua `.cia` (kèm cảnh
 báo CMake), chứ không tự tải chúng. Nếu cần output `.cia`, hãy tải cả hai từ
 release chính thức trên GitHub (`3DSGuy/Project_CTR` và
-`carstene1ns/3ds-bannertool`) rồi đặt vào `Tools/` một lần.
+`carstene1ns/3ds-bannertool`) rồi đặt vào `Tools/` một lần. Riêng
+`tex3ds.exe` (dùng để cook texture PNG -> `.t3x` khi bấm Build for 3DS) được
+Editor tự tìm (thử `DEVKITPRO`, rồi registry `devkitProUpdater`, rồi
+`C:\devkitPro`) chứ không hard-code đường dẫn -- không cần cấu hình gì thêm.
 
 ## 10. Xây game hoàn chỉnh đầu tiên
 
 Phần này ghép các mảnh đã học ở trên (di chuyển, va chạm, Active, UI, chuyển
 scene) thành một vòng lặp gameplay thật, nhỏ nhưng đầy đủ: nhặt một đồng xu rồi
 chuyển sang màn "Thắng". Dùng luôn scene mẫu có sẵn (`SampleProject/Assets/
-Scene.json`) thay vì tạo asset mới -- entity "ApiShowcase" đã di chuyển được
+Scene.scene`) thay vì tạo asset mới -- entity "ApiShowcase" đã di chuyển được
 bằng WASD/Circle Pad (xem `ApiShowcaseBehaviour.cpp`), đó chính là "player" của
 chúng ta.
 
@@ -369,7 +422,7 @@ chúng ta.
    void CollectCoinBehaviour::OnTriggerEnter(Duality::Entity other) {
        LogInfo("Đã nhặt coin!");
        SetActive(false);              // ẩn đồng xu đi
-       LoadScene("Scenes/Win.json");  // chuyển sang màn thắng (tạo ở bước 4)
+       LoadScene("Scenes/Win.scene");  // chuyển sang màn thắng (tạo ở bước 4)
    }
 
    REGISTER_BEHAVIOUR(CollectCoinBehaviour)
@@ -381,7 +434,7 @@ chúng ta.
 3. **Thử nhặt coin.** Bấm Play, dùng WASD/mũi tên di chuyển "ApiShowcase" (thực
    ra `ApiShowcaseBehaviour` di chuyển theo input, và pointer nếu bạn giữ chuột/
    chạm) vào vị trí đồng xu. Panel Console sẽ hiện dòng "Đã nhặt coin!" ngay khi
-   hai collider chạm nhau. Vì lúc này chưa có `Scenes/Win.json`, `LoadScene` vẫn
+   hai collider chạm nhau. Vì lúc này chưa có `Scenes/Win.scene`, `LoadScene` vẫn
    sẽ thực hiện việc chuyển scene (không crash) nhưng nạp vào một scene RỖNG
    (Deserialize thất bại chỉ ghi lỗi vào Console, không phục hồi lại scene cũ) --
    bấm Stop rồi **File -> Load Scene** để lấy lại scene gameplay ban đầu trước
@@ -390,27 +443,29 @@ chúng ta.
 4. **Tạo màn "Thắng".** Bấm Stop. Xóa (hoặc tạm giấu) các entity gameplay không
    cần cho màn thắng nếu muốn scene này đơn giản, thêm một entity Sprite Renderer
    màu khác để biết rõ đang ở scene mới (ví dụ đặt tên "WinScreen"). **File ->
-   Save Scene As...**, lưu vào `SampleProject/Assets/Scenes/Win.json` (tạo thư
+   Save Scene As...**, lưu vào `SampleProject/Assets/Scenes/Win.scene` (tạo thư
    mục `Scenes` ngay trong hộp thoại nếu chưa có). Scene đang mở KHÔNG đổi sau
    bước này -- **File -> Load Scene** để quay lại scene gameplay ban đầu trước
    khi tiếp tục.
 
 5. **Chạy lại từ đầu.** Bấm Play, đi tới đồng xu -- lần này `LoadScene
-   ("Scenes/Win.json")` sẽ thật sự chuyển Editor sang màn "Thắng" ngay giữa lúc
+   ("Scenes/Win.scene")` sẽ thật sự chuyển Editor sang màn "Thắng" ngay giữa lúc
    đang Play (không cần bấm Stop), đúng như một scene transition thật trong
-   game. Cùng file `Scene.json`/`Win.json` này chạy y hệt trên `DualityPlayerDesktop`
-   (bấm `run-desktop-player.bat`) và trên 3DS thật (miễn `Scenes/Win.json` nằm
+   game. Cùng file `Scene.scene`/`Win.scene` này chạy y hệt trên `DualityPlayerDesktop`
+   (bấm `run-desktop-player.bat`) và trên 3DS thật (miễn `Scenes/Win.scene` nằm
    trong `Assets/` để được đóng gói vào romfs -- xem mục 9).
 
 Từ đây, những hướng mở rộng tự nhiên: nhiều đồng xu (đếm số lượng bằng một
-field tĩnh hoặc một entity "GameManager" riêng), một UI Text hiện điểm số (UI
-hiện chưa có widget Text, xem `ROADMAP.md`), hoặc dùng `OnCollisionEnter` thay
-vì `OnTriggerEnter` cho một cơ chế "va vào kẻ địch thì thua".
+field tĩnh hoặc một entity "GameManager" riêng), đọc số điểm mỗi đồng xu từ
+một `ScriptableObject` dùng chung (mục 8) thay vì hardcode trong script, một
+UI Text hiện điểm số (UI hiện chưa có widget Text, xem `ROADMAP.md`), hoặc
+dùng `OnCollisionEnter` thay vì `OnTriggerEnter` cho một cơ chế "va vào kẻ
+địch thì thua".
 
 ## Tiếp theo nên xem gì
 
 - `README.md` -- kiến trúc, cấu trúc repository và danh sách đầy đủ các giới hạn
   đã biết, bao gồm cả `Tests/` (bộ test tự động cho logic engine) và CI.
 - `ROADMAP.md` -- mọi thứ đang được lên kế hoạch nhưng chưa xây dựng
-  (ScriptableObject, joints/raycast cho physics, OnCollisionStay/OnTriggerStay,
-  Project Hub và nhiều thứ khác).
+  (joints/raycast cho physics, OnCollisionStay/OnTriggerStay, Project Hub và
+  nhiều thứ khác).

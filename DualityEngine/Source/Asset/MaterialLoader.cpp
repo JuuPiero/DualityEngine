@@ -5,6 +5,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "DualityEngine/Reflection/FieldSerialization.h"
+
 using json = nlohmann::json;
 
 namespace Duality {
@@ -24,11 +26,12 @@ namespace Duality {
             try {
                 json root;
                 file >> root;
-                if (root.contains("Color")) {
-                    auto& c = root["Color"];
-                    material.Color = { c.value("r", 1.0f), c.value("g", 1.0f), c.value("b", 1.0f), c.value("a", 1.0f) };
+                for (auto& field : Material::Fields()) {
+                    if (root.contains(field.Name)) {
+                        FieldValue current = field.Get(&material);
+                        field.Set(&material, JsonToFieldValue(root[field.Name], current));
+                    }
                 }
-                material.Texture.Guid = root.value("Texture", std::string());
             } catch (const json::parse_error&) {
                 // Fall through and cache the default Material below.
             }
@@ -40,8 +43,9 @@ namespace Duality {
 
     bool MaterialLoader::Save(const std::string& path, const Material& material) {
         json root;
-        root["Color"] = { { "r", material.Color.r }, { "g", material.Color.g }, { "b", material.Color.b }, { "a", material.Color.a } };
-        root["Texture"] = material.Texture.Guid;
+        Material temp = material; // FieldHandle::Get takes a plain (non-const) void*
+        for (auto& field : Material::Fields())
+            root[field.Name] = FieldValueToJson(field.Get(&temp));
 
         std::ofstream file(path);
         if (!file)

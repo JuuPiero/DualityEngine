@@ -4,6 +4,7 @@
 
 #include <GL/glew.h>
 
+#include "DualityEngine/Asset/TextureImportSettings.h"
 #include "DualityEngine/Renderer/OpenGL/GLTextureLoader.h"
 
 namespace Duality {
@@ -115,7 +116,7 @@ namespace Duality {
         if (it != m_TextureCache.end())
             return it->second;
 
-        uint32_t texture = GLTextureLoader::LoadTextureFromFile(path);
+        uint32_t texture = GLTextureLoader::LoadTextureFromFile(path, TextureImportSettings::Load(path));
         m_TextureCache[path] = texture;
         return texture;
     }

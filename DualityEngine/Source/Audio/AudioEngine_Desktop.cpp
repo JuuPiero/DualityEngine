@@ -14,14 +14,19 @@ namespace Duality {
         ma_engine s_Engine;
         bool s_Initialized = false;
 
-        // Looping sounds (background music) must stay alive for as long as
-        // they play, unlike one-shot SFX which miniaudio's high-level
-        // ma_engine_play_sound() cleans up on its own once finished.
-        // unique_ptr, not a plain vector<ma_sound>, since miniaudio links a
-        // playing sound into the engine's graph by its own address --
-        // std::vector growing/reallocating would move (and thus corrupt)
-        // any ma_sound already registered with the engine.
-        std::vector<std::unique_ptr<ma_sound>> s_LoopingSounds;
+        // Every playing sound (one-shot SFX and looping music alike) is tracked here now, so
+        // Volume (see AudioImportSettings) can be applied uniformly via ma_sound_set_volume --
+        // the old fire-and-forget ma_engine_play_sound() path had no per-sound handle to set
+        // volume on at all. A one-shot sound is reaped once finished (Update(), below); a
+        // looping one lives until StopAll()/Shutdown(). unique_ptr, not a plain
+        // vector<ma_sound>, since miniaudio links a playing sound into the engine's graph by its
+        // own address -- std::vector growing/reallocating would move (and thus corrupt) any
+        // ma_sound already registered with the engine.
+        struct TrackedSound {
+            std::unique_ptr<ma_sound> Sound;
+            bool Loop;
+        };
+        std::vector<TrackedSound> s_Sounds;
     }
 
     void AudioEngine::Init() {
@@ -36,47 +41,50 @@ namespace Duality {
         if (!s_Initialized)
             return;
 
-        for (auto& sound : s_LoopingSounds) {
-            ma_sound_stop(sound.get());
-            ma_sound_uninit(sound.get());
+        for (auto& tracked : s_Sounds) {
+            ma_sound_stop(tracked.Sound.get());
+            ma_sound_uninit(tracked.Sound.get());
         }
-        s_LoopingSounds.clear();
+        s_Sounds.clear();
 
         ma_engine_uninit(&s_Engine);
         s_Initialized = false;
     }
 
     void AudioEngine::Update() {
-        // No-op on desktop -- miniaudio runs its own callback thread.
+        // Reclaim one-shot sounds that have finished playing -- a looping sound never reaches
+        // ma_sound_at_end() on its own, so this only ever removes sounds that are truly done.
+        for (size_t i = 0; i < s_Sounds.size(); ) {
+            if (!s_Sounds[i].Loop && ma_sound_at_end(s_Sounds[i].Sound.get())) {
+                ma_sound_uninit(s_Sounds[i].Sound.get());
+                s_Sounds.erase(s_Sounds.begin() + static_cast<std::ptrdiff_t>(i));
+            } else {
+                i++;
+            }
+        }
     }
 
-    void AudioEngine::Play(const std::string& path, bool loop) {
+    void AudioEngine::Play(const std::string& path, bool loop, float volume) {
         if (!s_Initialized)
             return;
-
-        if (!loop) {
-            // Fire-and-forget -- the engine owns and cleans this up once
-            // it finishes playing, no handle to track.
-            ma_engine_play_sound(&s_Engine, path.c_str(), nullptr);
-            return;
-        }
 
         auto sound = std::make_unique<ma_sound>();
         if (ma_sound_init_from_file(&s_Engine, path.c_str(), MA_SOUND_FLAG_DECODE, nullptr, nullptr, sound.get()) != MA_SUCCESS) {
             Log::Error("AudioEngine: failed to load '" + path + "'");
             return;
         }
-        ma_sound_set_looping(sound.get(), MA_TRUE);
+        ma_sound_set_volume(sound.get(), volume);
+        ma_sound_set_looping(sound.get(), loop ? MA_TRUE : MA_FALSE);
         ma_sound_start(sound.get());
-        s_LoopingSounds.push_back(std::move(sound));
+        s_Sounds.push_back({ std::move(sound), loop });
     }
 
     void AudioEngine::StopAll() {
-        for (auto& sound : s_LoopingSounds) {
-            ma_sound_stop(sound.get());
-            ma_sound_uninit(sound.get());
+        for (auto& tracked : s_Sounds) {
+            ma_sound_stop(tracked.Sound.get());
+            ma_sound_uninit(tracked.Sound.get());
         }
-        s_LoopingSounds.clear();
+        s_Sounds.clear();
     }
 
 }

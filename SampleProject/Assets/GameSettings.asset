@@ -1,0 +1,8 @@
+{
+    "Class": "GameSettingsData",
+    "Fields": {
+        "PlayerSpeed": 5.0,
+        "ScorePerCoin": 10,
+        "GameTitle": "My Game"
+    }
+}

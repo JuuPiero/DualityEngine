@@ -31,7 +31,10 @@ namespace Duality {
         // guid by the caller, e.g. Scene.cpp's EngineServices adapter) to
         // a WAV file. Fire-and-forget -- no handle returned, matching this
         // pass's "start minimal" scope (see the plan/ROADMAP for why).
-        static void Play(const std::string& path, bool loop);
+        // `volume` (0..1) is that asset's own AudioImportSettings::Volume,
+        // looked up by the caller -- this is the only place volume is
+        // actually applied, there's no separate per-call override yet.
+        static void Play(const std::string& path, bool loop, float volume = 1.0f);
         static void StopAll();
     };
 

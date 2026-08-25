@@ -1,7 +1,5 @@
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer3D.h"
 
-#include <cstdio>
-
 #include <GL/glew.h>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -37,21 +35,6 @@ namespace Duality {
             "    FragColor = texture(u_Texture, v_TexCoord) * u_Color;\n"
             "}\n";
 
-        unsigned int CompileShader(unsigned int type, const char* source) {
-            unsigned int shader = glCreateShader(type);
-            glShaderSource(shader, 1, &source, nullptr);
-            glCompileShader(shader);
-
-            int success = 0;
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-            if (!success) {
-                char log[512];
-                glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
-                std::fprintf(stderr, "OpenGLRenderer3D: shader compile error: %s\n", log);
-            }
-            return shader;
-        }
-
         // T * Rz * Ry * Rx * S -- must match Citro3DRenderer::ComposeWorldMtx's composition
         // order exactly (see that function's own comment), or a multi-axis rotation would look
         // different across platforms even though each backend builds its matrix with its own
@@ -66,51 +49,26 @@ namespace Duality {
         }
     }
 
-    OpenGLRenderer3D::PrimitiveGpuMesh OpenGLRenderer3D::UploadGpuMesh(const std::vector<MeshVertex>& vertices) {
-        PrimitiveGpuMesh mesh;
-        mesh.VertexCount = static_cast<int>(vertices.size());
-        glGenVertexArrays(1, &mesh.Vao);
-        glGenBuffers(1, &mesh.Vbo);
-
-        glBindVertexArray(mesh.Vao);
-        glBindBuffer(GL_ARRAY_BUFFER, mesh.Vbo);
-        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(MeshVertex), vertices.data(), GL_STATIC_DRAW);
-
-        glEnableVertexAttribArray(m_AttribPosition);
-        glVertexAttribPointer(m_AttribPosition, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, Position));
-        glEnableVertexAttribArray(m_AttribTexCoord);
-        glVertexAttribPointer(m_AttribTexCoord, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex), (void*)offsetof(MeshVertex, TexCoord));
-
-        glBindVertexArray(0);
+    GLVertexArray OpenGLRenderer3D::UploadGpuMesh(const std::vector<MeshVertex>& vertices) {
+        GLVertexArray mesh;
+        mesh.Init();
+        mesh.Bind();
+        mesh.SetVertexData(vertices.data(), vertices.size() * sizeof(MeshVertex), static_cast<int>(vertices.size()));
+        mesh.AddFloatAttribute(m_AttribPosition, 3, sizeof(MeshVertex), offsetof(MeshVertex, Position));
+        mesh.AddFloatAttribute(m_AttribTexCoord, 2, sizeof(MeshVertex), offsetof(MeshVertex, TexCoord));
+        mesh.Unbind();
         return mesh;
     }
 
     void OpenGLRenderer3D::Init() {
-        unsigned int vertexShader = CompileShader(GL_VERTEX_SHADER, VertexShaderSource);
-        unsigned int fragmentShader = CompileShader(GL_FRAGMENT_SHADER, FragmentShaderSource);
+        m_Shader.Init(VertexShaderSource, FragmentShaderSource);
 
-        m_ShaderProgram = glCreateProgram();
-        glAttachShader(m_ShaderProgram, vertexShader);
-        glAttachShader(m_ShaderProgram, fragmentShader);
-        glLinkProgram(m_ShaderProgram);
-
-        int success = 0;
-        glGetProgramiv(m_ShaderProgram, GL_LINK_STATUS, &success);
-        if (!success) {
-            char log[512];
-            glGetProgramInfoLog(m_ShaderProgram, sizeof(log), nullptr, log);
-            std::fprintf(stderr, "OpenGLRenderer3D: shader link error: %s\n", log);
-        }
-
-        glDeleteShader(vertexShader);
-        glDeleteShader(fragmentShader);
-
-        m_UniformViewProjection = glGetUniformLocation(m_ShaderProgram, "u_ViewProjection");
-        m_UniformModel = glGetUniformLocation(m_ShaderProgram, "u_Model");
-        m_UniformColor = glGetUniformLocation(m_ShaderProgram, "u_Color");
-        m_UniformTexture = glGetUniformLocation(m_ShaderProgram, "u_Texture");
-        m_AttribPosition = glGetAttribLocation(m_ShaderProgram, "a_Position");
-        m_AttribTexCoord = glGetAttribLocation(m_ShaderProgram, "a_TexCoord");
+        m_UniformViewProjection = m_Shader.GetUniformLocation("u_ViewProjection");
+        m_UniformModel = m_Shader.GetUniformLocation("u_Model");
+        m_UniformColor = m_Shader.GetUniformLocation("u_Color");
+        m_UniformTexture = m_Shader.GetUniformLocation("u_Texture");
+        m_AttribPosition = m_Shader.GetAttribLocation("a_Position");
+        m_AttribTexCoord = m_Shader.GetAttribLocation("a_TexCoord");
 
         for (int i = 0; i < 3; i++) {
             const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(static_cast<MeshPrimitive>(i));
@@ -127,14 +85,10 @@ namespace Duality {
     }
 
     void OpenGLRenderer3D::Shutdown() {
-        for (PrimitiveGpuMesh& mesh : m_Meshes) {
-            glDeleteVertexArrays(1, &mesh.Vao);
-            glDeleteBuffers(1, &mesh.Vbo);
-        }
-        for (PrimitiveGpuMesh& mesh : m_ImportedMeshes) {
-            glDeleteVertexArrays(1, &mesh.Vao);
-            glDeleteBuffers(1, &mesh.Vbo);
-        }
+        for (GLVertexArray& mesh : m_Meshes)
+            mesh.Shutdown();
+        for (GLVertexArray& mesh : m_ImportedMeshes)
+            mesh.Shutdown();
         m_ImportedMeshes.clear();
         m_MeshCache.clear();
         glDeleteTextures(1, &m_WhiteTexture);
@@ -144,8 +98,7 @@ namespace Duality {
         }
         m_TextureCache.clear();
 
-        glDeleteProgram(m_ShaderProgram);
-        m_ShaderProgram = 0;
+        m_Shader.Shutdown();
     }
 
     void OpenGLRenderer3D::BeginScene(Screen /*screen*/, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) {
@@ -194,27 +147,27 @@ namespace Duality {
         // of Citro3DRenderer's own "re-bind everything, assume nothing persists" coexistence
         // rule, just in the opposite direction (3D must clean up after itself instead of before).
         glDisable(GL_DEPTH_TEST);
-        glUseProgram(0);
+        m_Shader.Unbind();
     }
 
     void OpenGLRenderer3D::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
         m_DrawCallCount++;
 
-        glUseProgram(m_ShaderProgram);
+        m_Shader.Bind();
 
         glm::mat4 model = ComposeWorldMtx(translation, rotationDegrees, scale);
-        glUniformMatrix4fv(m_UniformViewProjection, 1, GL_FALSE, &m_ViewProjection[0][0]);
-        glUniformMatrix4fv(m_UniformModel, 1, GL_FALSE, &model[0][0]);
-        glUniform4f(m_UniformColor, color.r, color.g, color.b, color.a);
+        m_Shader.SetUniformMat4(m_UniformViewProjection, m_ViewProjection);
+        m_Shader.SetUniformMat4(m_UniformModel, model);
+        m_Shader.SetUniformVec4(m_UniformColor, color);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureId != 0 ? textureId : m_WhiteTexture);
-        glUniform1i(m_UniformTexture, 0);
+        m_Shader.SetUniformInt(m_UniformTexture, 0);
 
-        const PrimitiveGpuMesh& mesh = (meshHandle != 0) ? m_ImportedMeshes[meshHandle - 1] : m_Meshes[static_cast<int>(primitive)];
-        glBindVertexArray(mesh.Vao);
-        glDrawArrays(GL_TRIANGLES, 0, mesh.VertexCount);
-        glBindVertexArray(0);
+        const GLVertexArray& mesh = (meshHandle != 0) ? m_ImportedMeshes[meshHandle - 1] : m_Meshes[static_cast<int>(primitive)];
+        mesh.Bind();
+        glDrawArrays(GL_TRIANGLES, 0, mesh.GetVertexCount());
+        mesh.Unbind();
 
         glBindTexture(GL_TEXTURE_2D, 0);
     }
@@ -258,10 +211,8 @@ namespace Duality {
     void OpenGLRenderer3D::UnloadAllMeshes() {
         // m_Meshes[3] (the built-in procedural primitives) is untouched -- only
         // m_ImportedMeshes (LoadMesh's own uploads) is ever freed here.
-        for (auto& mesh : m_ImportedMeshes) {
-            if (mesh.Vbo) glDeleteBuffers(1, &mesh.Vbo);
-            if (mesh.Vao) glDeleteVertexArrays(1, &mesh.Vao);
-        }
+        for (auto& mesh : m_ImportedMeshes)
+            mesh.Shutdown();
         m_ImportedMeshes.clear();
         m_MeshCache.clear();
     }

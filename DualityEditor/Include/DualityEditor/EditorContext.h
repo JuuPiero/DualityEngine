@@ -32,6 +32,12 @@ namespace Duality {
     struct EditorContext {
         Scene& SceneRef;
         Entity& Selected;
+        // The currently-selected project asset file (Content Browser), if any -- e.g. a
+        // ScriptableObject ".asset" the Properties panel should inspect instead of an
+        // Entity's components. Mutually exclusive with Selected in practice: ContentBrowserPanel
+        // clears Selected when a file is clicked; PropertiesPanel prioritizes Selected when both
+        // happen to be set, so no other entity-select call site needs to clear this in turn.
+        std::string& SelectedAssetPath;
         bool& IsPlaying;
 
         // Split Scene view: one free-roam edit camera per screen (see

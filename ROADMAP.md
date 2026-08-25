@@ -12,7 +12,7 @@ this file whenever something below actually gets built, or a new deferred item c
       (`CameraComponent::Projection`, never both composited on one screen in the same frame) --
       see `IRenderer3D`/`OpenGLRenderer3D`/`Citro3DRenderer`. Ended up covering more than the
       original scoped-down pass: a `Material` asset (`Asset/Material.h`/`MaterialLoader` --
-      Color + Texture, `.material.json`, referenced by `MeshRendererComponent::Material` via
+      Color + Texture, `.mat`, referenced by `MeshRendererComponent::Material` via
       `AssetRef`, same graceful-fallback convention as every other asset reference) instead of
       embedding Color/Texture directly, a Translate/Rotate/Scale 3D gizmo in the Scene view's 3D
       pane (`ScenePanel.cpp`'s `DrawAndHitTestGizmo3D`, screen-space-projected axis handles --
@@ -25,6 +25,31 @@ this file whenever something below actually gets built, or a new deferred item c
       shader graph on desktop, a simplified fixed-function/TEV-stage model for the 3DS's
       PICA200 GPU) and real lighting remain open, carried over from the earlier
       Polyphase-Engine research.
+- [x] Extracted `OpenGLRenderer3D`'s inline shader compile/link and VAO/VBO mesh-upload
+      boilerplate into two small reusable classes -- `GLShaderProgram`
+      (`DualityEngine/Renderer/OpenGL/GLShaderProgram.h`: compile+link, `GetUniformLocation`/
+      `GetAttribLocation`, `SetUniformMat4/Vec4/Int`) and `GLVertexArray`
+      (`GLVertexArray.h`: VAO+single-VBO, `SetVertexData`, `AddFloatAttribute`) -- user asked
+      why the renderer held all of this inline instead of separate classes. Both use explicit
+      `Init()`/`Shutdown()` rather than a constructor/destructor, matching every other
+      renderer-owned GL resource in this codebase, specifically because `GLVertexArray` is
+      stored BY VALUE in `OpenGLRenderer3D::m_Meshes[3]` and a growing
+      `std::vector<GLVertexArray> m_ImportedMeshes` -- a naive RAII destructor would double-free
+      on every vector reallocation/move. Deliberately does NOT cache uniform locations by name
+      internally (callers look one up once via `GetUniformLocation` and keep the `int`, exactly
+      `OpenGLRenderer3D`'s pre-existing pattern) and does NOT add an index/element buffer (no
+      current consumer uses `glDrawElements`) -- both would be speculative generality with no
+      real use yet. Scoped to the desktop OpenGL renderer only: `Citro2DRenderer`/
+      `Citro3DRenderer` use citro3d's own completely different shader-binary
+      (`shaderProgramInit`/`DVLB_ParseFile`) and `C3D_AttrInfo`/`C3D_BufInfo` APIs, precompiled
+      offline via picasso rather than compiled at runtime -- building a real cross-platform
+      abstraction over both would be a much bigger RHI-style undertaking, not what was asked.
+      The only real duplication left unaddressed (by explicit user choice, offered as a
+      separate option): `LoadTexture`/`UnloadAllTextures`/`m_TextureCache` is still repeated
+      near-identically across all 4 renderers (2D/3D x desktop/3DS). Verified with a real visual
+      check, not just a clean compile: a live Editor screenshot (Scene view, 3D pane) after the
+      refactor shows `TestCube3D` and `PhysicsGround3D` still rendering correctly (orange
+      `TestOrange.mat` color, correct shape/rotation, gizmo and camera frustum overlay intact).
 - [x] Texture rendering on the actual 3DS build (`BuildPipeline::CookAssets`,
       `AssetDatabase::LoadManifest`, `Citro2DRenderer::LoadTexture`/`DrawQuad`) -- every PNG
       under a project's `Assets/` is converted to `.t3x` via `tex3ds` at "Build for 3DS" time
@@ -151,6 +176,20 @@ this file whenever something below actually gets built, or a new deferred item c
       works. Console: filters displayed log lines by substring, alongside the existing
       per-level checkboxes. All three use the same small case-insensitive-substring
       local helper, not a shared utility (one line of logic each).
+- [x] Properties panel "Lock" toggle (`PropertiesPanel::m_Locked`/`m_LockedEntity`/
+      `m_LockedAssetPath`) -- Unity-Inspector-style: pins the panel to whatever was
+      selected at the moment it was checked, ignoring further Hierarchy/Scene/Content
+      Browser selections until unchecked. User-reported real bug this fixes: dragging a
+      Material/Texture from the Content Browser onto an `AssetRef` field starts with a
+      plain mouse-down over the thumbnail, and `ContentBrowserPanel`'s click-to-select
+      (added for the Asset Inspector work above) fires on that same mouse-down frame --
+      so starting the drag immediately swapped Properties away from the very entity/field
+      being dragged onto, before the drag distance threshold was even reached. Auto-
+      unlocks if the locked `Entity` stops being valid in the current scene (checked via
+      `entt::registry::valid()`, documented safe to call on any handle regardless of which
+      scene "generation" produced it) -- covers a scene swap happening while locked,
+      mirroring this codebase's existing accepted stale-Entity-across-scene-swap risk
+      class rather than adding new never-before-attempted protection.
 - [x] Split Scene view (`DualityEditor/Source/Panels/ScenePanel.cpp`) -- two side-by-side
       panes, one per screen, each its own free-roam `SceneViewCamera` (pan/zoom) seeded
       once from that screen's real primary `CameraComponent` so the initial view looks
@@ -184,6 +223,35 @@ this file whenever something below actually gets built, or a new deferred item c
       live reference. Not handled: closing the Editor mid-build leaves the build-3ds.bat
       child process tree to finish or get cleaned up on its own (no job-object-based process
       tracking) -- an accepted, rare edge case.
+- [x] "Build for PC" menu item, right below "Build for 3DS" (`BuildPipeline::BuildForPC`/
+      `BuildForPCAsync`) -- user asked for it directly. Saves the scene, then rebuilds the
+      `DualityPlayerDesktop` target incrementally in the existing desktop build tree; no romfs/
+      asset-cooking step like the 3DS build needs, since `DualityPlayerDesktop` already reads a
+      project's `Assets/` directly off disk at its own launch time. Shares `BuildFor3DSAsync`'s
+      same `s_Status` flag on purpose, so a PC build and a 3DS build can't run concurrently
+      against the same Ninja-generated build tree. Uses a plain `std::system()` call (not
+      `RunCommand`'s extra quote-wrap) since `cmake --build "<dir>" --target X` starts with an
+      unquoted word (`cmake`), which never triggers the cmd.exe `/c` quoting quirk `RunCommand`
+      exists to work around (that quirk only fires when the command *itself* begins with a
+      quote character) -- same shape `ScriptEngine::Reload`'s own `cmake --build` call for
+      GameScripts already uses successfully.
+- [x] Removed the hardcoded `E:\App\devkitPro\tools\bin\tex3ds.exe` path in
+      `BuildPipeline::CookAssets` -- user asked "is this OK, is there a more flexible way to
+      auto-find the path". Replaced with `FindDevkitProInstallDir`/`FindTex3dsExe`
+      (`BuildPipeline.cpp`), reimplementing `devkitpro-path.bat`'s own already-proven 3-step
+      resolution order in C++: (1) `DEVKITPRO` env var, only if it resolves to a real Windows
+      path (confirmed empirically on this machine that it does NOT -- devkitPro's installer
+      sets it Windows-wide to a POSIX-style value, `/opt/devkitpro`, meaningless to a plain
+      Windows process); (2) the Windows registry entry `devkitProUpdater` writes on install
+      (`HKLM\...\Uninstall\devkitProUpdater`, value `InstallLocation`, checking both the
+      WOW6432Node and native views); (3) the documented default `C:\devkitPro`. No hardcoded
+      fallback at the end -- an unresolvable install logs a clear one-time warning and skips
+      texture cooking for that run rather than silently trying a path that doesn't exist.
+      Verified two ways: the registry lookup independently confirmed via PowerShell to resolve
+      to the real `E:\App\devkitPro` on this machine, and a scratch program linking directly
+      against the real `BuildPipeline.cpp` that called the actual (public) `BuildFor3DS` end to
+      end -- including the full `build-3ds.bat` step afterward -- confirming the auto-detected
+      path produces a working `.t3x`/build exactly like the old hardcoded path did.
 - [x] Renderer stats overlay (Game panel) -- `IRenderer2D::GetDrawCallCount()` (exact, not
       estimated: both backends are unbatched, one `DrawQuad` == one real draw call), reset
       each `BeginFrame`. FPS is exponentially smoothed in `Application::Run()`. The draw-call
@@ -211,9 +279,9 @@ this file whenever something below actually gets built, or a new deferred item c
       GUID->path index are currently populated lazily as the Content Browser is
       browsed into each folder, not scanned ahead of time.
 - [x] Prefab system (`DualityEngine/Include/DualityEngine/Scene/PrefabSerializer.h`,
-      `Behaviour::Instantiate`) -- Unity's Prefab. A `.prefab.json` asset (same
+      `Behaviour::Instantiate`) -- Unity's Prefab. A `.prefab` asset (same
       GUID/`.meta`/`AssetDatabase` convention as any other custom asset type, e.g.
-      `.material.json`) holding one entity + its full descendant subtree, reusing
+      `.mat`) holding one entity + its full descendant subtree, reusing
       `SceneSerializer`'s own per-entity component (de)serialization logic (extracted
       into `Source/Scene/EntitySerialization.{h,cpp}` specifically so the two don't
       duplicate the same `FieldValueToJson`/`JsonToFieldValue` dispatch tables) rather
@@ -223,7 +291,7 @@ this file whenever something below actually gets built, or a new deferred item c
       copy and attaches its root under a caller-chosen live parent (`Entity{}` = scene
       root) via the existing `Scene::SetParent`. Editor UX: Hierarchy panel's per-node
       context menu gained "Create Prefab from Selection" (writes to
-      `<project>/Assets/Prefabs/<EntityName>.prefab.json`); dragging a Prefab asset onto
+      `<project>/Assets/Prefabs/<EntityName>.prefab`); dragging a Prefab asset onto
       the Hierarchy panel's empty-space drop zone instantiates it at the scene root.
       Script-facing `Behaviour::Instantiate(prefabAssetGuid) -> Entity`, same
       `EngineServices` bridge shape as `FindEntityInScreen`. Verified against a headless
@@ -235,6 +303,120 @@ this file whenever something below actually gets built, or a new deferred item c
       ever actually serialized -- fixed there, not worked around. Scope cut: no
       prefab-instance link -- an instantiated copy is fully independent afterward, no
       "apply changes back to the prefab" support.
+- [x] ScriptableObject (`DualityEngine/Include/DualityEngine/Scripting/ScriptableObject.h`,
+      `ScriptableObjectRegistry`, `Asset/ScriptableObjectLoader.h`) -- Unity's
+      ScriptableObject: a reusable, Inspector-editable data asset (`.asset`) not
+      attached to any Entity. Needed its own non-Entity-coupled reflection path, unlike
+      `TypeRegistry` (whose `Has`/`GetPtr`/`AddDefault`/`Remove` are all `Entity`-shaped) --
+      solved by noticing `FieldHandle::Get`/`Set` (`Reflection/Field.h`) already operate on
+      a plain `void*`, so nothing about the reflection primitives themselves needed to
+      change, only a second, `Entity`-free registry (`ScriptableObjectFactoryEntry`:
+      `Name`/`Create`/`Destroy`/`Fields`) alongside `TypeRegistry`. A subclass declares its
+      own `static std::vector<FieldHandle> Fields()` (same `MakeField()` calls
+      `Reflection.cpp` uses for built-in components) and self-registers with
+      `REGISTER_SCRIPTABLE_OBJECT` instead of `REGISTER_BEHAVIOUR` -- same
+      GameScripts-self-registers/host-reads-it-back-out shape as `ScriptFactoryEntry`, via
+      a second exported `GetScriptableObjectFactories()` alongside `GetScriptFactories()`.
+      `FieldValueToJson`/`JsonToFieldValue` (previously local to
+      `EntitySerialization.cpp`) were extracted into a shared `Reflection/
+      FieldSerialization.{h,cpp}` so `ScriptableObjectLoader` reuses the identical
+      per-`FieldValue`-alternative dispatch instead of a third copy; the Properties
+      panel's own per-field-widget `std::visit` block was extracted the same way, into
+      `DualityEditor/FieldEditorWidget.h`, so the new asset inspector (Content Browser:
+      click a `.asset` to select it, Properties panel shows its fields, auto-saving
+      to disk on every edit) draws identically to a component's fields. Script-facing
+      `Behaviour::LoadScriptableObject<T>(assetGuid) -> T*` resolves the guid and hands
+      back an opaque pointer the caller `static_cast`s to its own concrete type (same
+      no-engine-type-across-the-DLL-ABI rule every other `EngineServices` call follows).
+      Content Browser gained a "Create > ScriptableObject > &lt;Type&gt;" right-click menu,
+      listing whatever's currently registered. One real lifetime bug caught before it
+      shipped: `ScriptEngine::Shutdown()` used to `FreeLibrary` the GameScripts DLL before
+      dropping any state -- harmless for `ScriptRegistry`/`ScriptableObjectRegistry` (they
+      only ever drop raw function pointers, never call through them), but a
+      `ScriptableObjectLoader` cache genuinely OWNS live instances and must destroy them
+      (via each entry's own `Destroy` pointer) *before* the DLL that pointer lives in is
+      unloaded -- fixed by adding `ScriptableObjectLoader::UnloadAll()` as the first thing
+      `Shutdown()` does. Demo type: `GameScripts/Include/GameSettingsData.h`
+      (`PlayerSpeed`/`ScorePerCoin`/`GameTitle`), with a real instance checked in at
+      `SampleProject/Assets/GameSettings.asset`. Verified via `Tests/
+      ScriptableObjectTests.cpp` (type registration, Create-writes-defaults, a save then
+      `UnloadAll()` then reload that forces an actual disk re-parse rather than just
+      handing back the in-memory object, and graceful failure for a missing file / an
+      unregistered class) and a live Editor smoke test (GameScripts load log line reports
+      the registered ScriptableObject count). Scope cuts: no "used by" tracking on
+      delete/rename, and no `OnEnable`-style lifecycle hook (Unity's ScriptableObject has
+      one for editor load/unload bookkeeping; this one is a pure data container for now).
+- [x] Unified Asset Inspector + Unity/Cocos-style `.meta` importer settings + real per-type
+      extensions (`DualityEditor/AssetInspectorRegistry.h`, `AssetInspectors.cpp`) -- user:
+      "nên có 1 class Asset base... để tất cả các loại file tài nguyên... hiển thị đúng cho
+      từng loại, và file .meta sẽ lưu data như unity hay cocos, và mấy file tài nguyên đang
+      trùng dạng json... nên đặt 1 extension riêng". Three parts:
+      - **Extension rename**: every custom JSON asset type now has its own real, single-token
+        extension instead of all sharing the ambiguous `.json` (Unity/Cocos convention) --
+        Material `.material.json` -> `.mat`, Prefab `.prefab.json` -> `.prefab`,
+        ScriptableObject `.asset.json` -> `.asset`, and Scene `Scene.json` -> `Scene.scene`
+        (the biggest-blast-radius rename: touched `BuildPipeline`'s romfs copy, both
+        `DualityPlayer`/`DualityPlayerDesktop` load paths, "Save Scene As..."'s file dialog
+        filter, and every sample/romfs file). Clean break, no back-compat loader for the old
+        extensions -- consistent with this project's own "no migration shims for internal
+        format changes with zero external consumers" precedent (e.g. the earlier Name/Tag
+        split).
+      - **AssetInspectorRegistry** (`DualityEditor`-only, NOT `DualityEngine` -- unlike
+        `TypeRegistry`, there's no engine-side non-UI consumer for "how to draw this asset's
+        Inspector," only the Editor needs it): one `{Extension, DisplayName, DrawInspector}`
+        entry per recognized extension, looked up by `PropertiesPanel` when
+        `ctx.SelectedAssetPath` is set and `ctx.Selected` is empty (Entity selection still
+        wins when both are set). Material and ScriptableObject are fully editable (Material
+        gained its own `static std::vector<FieldHandle> Fields()`, so `MaterialLoader` was
+        refactored onto the same generic `FieldValueToJson`/`JsonToFieldValue` +
+        `DrawFieldWidget` machinery ScriptableObjectLoader already used -- `FieldHandle::Get`/
+        `Set` already take a plain `void*`, not an `Entity`, so nothing in the reflection
+        system itself needed to change). Prefab/Scene get a read-only summary (entity count +
+        root/top-level entity names, parsed directly from their shared `{"Entities": [...]}`
+        shape) -- full in-place editing would need a way to run Entity-based field reflection
+        against raw JSON with no live `Entity`/`Scene` at all, a bigger feature saved for
+        later. `DualityEditor/FieldEditorWidget.h`'s `DrawFieldWidget` (extracted from
+        PropertiesPanel's own per-field `std::visit` block) is what lets Material's and
+        ScriptableObject's inspectors render identically to a component's fields, with zero
+        duplicated widget code. Content Browser gained a "Create > Material" menu item
+        alongside the existing "Create > ScriptableObject > <Type>".
+      - **Texture/Audio import settings** (`DualityEngine/Asset/{Texture,Audio}ImportSettings.h`)
+        -- Unity's TextureImporter/AudioImporter equivalent, stored in the asset's own
+        `.meta` under a new `"Importer"` key (preserving the existing `"guid"` key
+        untouched) rather than in the asset file itself, since a `.png`/`.wav` is a foreign
+        binary format this engine doesn't own. `TextureImportSettings` (FilterMode: Point/
+        Bilinear, WrapMode: Clamp/Repeat, GenerateMipmaps) replaces what `GLTextureLoader` had
+        hardcoded (GL_LINEAR + GL_CLAMP_TO_EDGE, no mipmaps -- chosen as this struct's
+        defaults so an untouched `.meta` changes nothing). `AudioImportSettings` has exactly
+        one field, Volume -- deliberately the ONLY one added, since it's the sole setting with
+        real, already-existing engine behavior to hook into (no volume control existed
+        anywhere before this); resisted inventing e.g. a "force mono" flag with no real
+        consumer, per this project's own "no half-finished/speculative fields" rule.
+        Desktop applies both fully at runtime (`GLTextureLoader`, and `AudioEngine::Play` --
+        which required unifying its old special-cased fire-and-forget/looping miniaudio paths
+        into one tracked-`ma_sound` path so `ma_sound_set_volume` has something to act on,
+        with one-shot sounds now reaped in `Update()` via `ma_sound_at_end` instead of being
+        untracked). **3DS is the interesting case**: `Citro2DRenderer::LoadTexture`/
+        `AudioEngine::Play` only ever see the cooked romfs path, with no way back to the
+        original `Assets/` source file's `.meta` -- solved by having `BuildPipeline::
+        CookAssets` cook a settings-only `.meta` (just the `"Importer"` block, no `"guid"`)
+        right next to each `.t3x`/copied `.wav` in romfs, so the on-device code calls the
+        *exact same* `TextureImportSettings::Load`/`AudioImportSettings::Load` the desktop
+        build does, no special-cased format. GenerateMipmaps is the one setting baked in at
+        BUILD time instead (tex3ds's `-m box` flag, confirmed via `tex3ds --help` that mipmaps
+        are opt-in/absent by default, so an unedited texture's cook command is byte-for-byte
+        unchanged); FilterMode/WrapMode apply at RUNTIME via `C3D_TexSetFilter`/
+        `C3D_TexSetWrap` on the `C3D_Tex` inside the loaded `C2D_Image`.
+      - Verified via `Tests/MaterialTests.cpp` (save/load round-trip + default-on-missing-file)
+        and `Tests/AssetImportSettingsTests.cpp` (both settings types round-trip through Save/
+        Load and don't clobber an existing guid), plus a real content-level check (not just
+        generic-logic unit tests): a throwaway scratch program loaded the actual renamed
+        `SampleProject/Assets/Materials/TestOrange.mat` and `Scene.scene` against the real
+        built engine library and confirmed the Color value and all 11 entities came back
+        correctly -- this specifically caught that the renamed Material's on-disk shape
+        (Color as a `{r,g,b,a}` object) needed migrating to the new generic array shape
+        `[r,g,b,a]`, not just a file rename. Full suite (30 tests) and both `build.bat`/
+        `build-3ds.bat` clean afterward.
 - [ ] Live asset watching / hot-reload for changed textures/materials while the Editor is
       open -- only `GameScripts` hot-reloads today (`ScriptEngine`); editing a texture file
       externally needs an Editor restart (or at least a manual Content Browser refresh) to
@@ -337,7 +519,11 @@ this file whenever something below actually gets built, or a new deferred item c
       Enable-Disable cascading + lifecycle, 2D/3D collision and trigger events, Bullet
       gravity/landing/offset-collider/rotation-round-trip), now a standing, permanent
       suite instead of a one-off script -- plus SceneManager's request-mailbox contract
-      and Prefab's save/instantiate round-trip, added once those features existed.
+      and Prefab's save/instantiate round-trip, added once those features existed, and
+      later `ScriptableObjectLoader`'s Create/Save/Load round-trip (including a real
+      disk re-parse after `UnloadAll()`, not just an in-memory cache hit), plus
+      Material's own save/load round-trip and both Texture/AudioImportSettings' `.meta`
+      round-trip (`Tests/MaterialTests.cpp`, `Tests/AssetImportSettingsTests.cpp`).
       Already caught one real bug on its own: `Tests/Main.cpp` initially never called
       `RegisterBuiltinComponents()`, so `TypeRegistry::All()` was silently empty and
       Prefab/scene serialization tests were round-tripping nothing -- exactly the kind

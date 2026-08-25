@@ -8,6 +8,9 @@ add_executable(DualityEditor
     Source/ScriptEngine.cpp
     Source/BuildPipeline.cpp
     Source/SceneGizmo.cpp
+    Source/FieldEditorWidget.cpp
+    Source/AssetInspectorRegistry.cpp
+    Source/AssetInspectors.cpp
     Source/Panels/MenuBarPanel.cpp
     Source/Panels/HierarchyPanel.cpp
     Source/Panels/PropertiesPanel.cpp

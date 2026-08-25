@@ -3,12 +3,18 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <string>
 
 #include <imgui.h>
 
+#include "DualityEditor/EditorContext.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
+#include "DualityEngine/Asset/Material.h"
+#include "DualityEngine/Asset/MaterialLoader.h"
+#include "DualityEngine/Asset/ScriptableObjectLoader.h"
 #include "DualityEngine/Core/Log.h"
+#include "DualityEngine/Scripting/ScriptableObjectRegistry.h"
 
 namespace Duality {
 
@@ -20,6 +26,41 @@ namespace Duality {
         auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
             [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
         return it != haystack.end();
+    }
+
+    // Writes a brand-new default `className` instance to "<directory>/<className>[ (N)].asset"
+    // (numbered suffix added only if the plain name is already taken, so repeat clicks don't
+    // silently clobber an existing asset) and registers it the same 3-step
+    // Create -> EnsureMetaFile -> Register sequence used everywhere else a custom asset type is
+    // created (Prefab, and Material's own setup) -- the Content Browser's "Create ScriptableObject" flow.
+    static void CreateScriptableObjectAsset(const std::filesystem::path& directory, const std::string& className) {
+        std::filesystem::path path = directory / (className + ".asset");
+        for (int suffix = 1; std::filesystem::exists(path); suffix++)
+            path = directory / (className + " (" + std::to_string(suffix) + ").asset");
+
+        ScriptableObjectLoader::Loaded loaded = ScriptableObjectLoader::Create(path.string(), className);
+        if (!loaded.Instance) {
+            Log::Error("ContentBrowserPanel: failed to create ScriptableObject '" + className + "'");
+            return;
+        }
+        std::string guid = AssetMeta::EnsureMetaFile(path);
+        AssetDatabase::Register(guid, path.string());
+    }
+
+    // Writes a brand-new default (white, no texture) Material to "<directory>/NewMaterial[
+    // (N)].mat" -- same numbered-suffix/3-step-registration shape as CreateScriptableObjectAsset
+    // above, the Content Browser's "Create Material" flow.
+    static void CreateMaterialAsset(const std::filesystem::path& directory) {
+        std::filesystem::path path = directory / "NewMaterial.mat";
+        for (int suffix = 1; std::filesystem::exists(path); suffix++)
+            path = directory / ("NewMaterial (" + std::to_string(suffix) + ").mat");
+
+        if (!MaterialLoader::Save(path.string(), Material{})) {
+            Log::Error("ContentBrowserPanel: failed to create Material at '" + path.string() + "'");
+            return;
+        }
+        std::string guid = AssetMeta::EnsureMetaFile(path);
+        AssetDatabase::Register(guid, path.string());
     }
 
     static void DrawFolderIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max) {
@@ -71,7 +112,7 @@ namespace Duality {
             Log::Info("Imported asset: " + destination.string());
     }
 
-    void ContentBrowserPanel::OnImGuiRender() {
+    void ContentBrowserPanel::OnImGuiRender(EditorContext& ctx) {
         ImGui::Begin("Content Browser");
 
         if (m_CurrentDirectory != m_RootDirectory) {
@@ -127,6 +168,7 @@ namespace Duality {
             ImVec2 iconMax(iconMin.x + thumbnailSize, iconMin.y + thumbnailSize);
             ImGui::InvisibleButton("##thumb", ImVec2(thumbnailSize, thumbnailSize));
             bool doubleClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+            bool clicked = ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
             if (!isDirectory && !guid.empty() && ImGui::BeginDragDropSource()) {
                 ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
@@ -152,14 +194,50 @@ namespace Duality {
 
             ImGui::EndGroup();
 
-            if (doubleClicked && isDirectory)
+            // Selection highlight, drawn as an outline after the icon/label so it reads clearly
+            // on top of either -- a filled background would need the item's bounds known BEFORE
+            // drawing the icon, which BeginGroup/EndGroup's own layout doesn't provide.
+            if (!isDirectory && !guid.empty() && path.string() == ctx.SelectedAssetPath) {
+                ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                    IM_COL32(80, 160, 255, 255), 3.0f, 0, 2.0f);
+            }
+
+            if (doubleClicked && isDirectory) {
                 m_CurrentDirectory = path;
+            } else if (clicked && !isDirectory) {
+                ctx.SelectedAssetPath = path.string();
+                ctx.Selected = Entity{};
+            }
 
             ImGui::PopID();
             ImGui::NextColumn();
         }
 
         ImGui::Columns(1);
+
+        // Right-click empty space (NoOpenOverItems lets a future per-item context menu take
+        // precedence over a row) for Unity's "Create > ScriptableObject > <Type>" -- lists
+        // whatever GameScripts currently has REGISTER_SCRIPTABLE_OBJECT'd; empty until GameScripts
+        // has been (re)loaded at least once.
+        if (ImGui::BeginPopupContextWindow("ContentBrowserContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+            if (ImGui::BeginMenu("Create")) {
+                if (ImGui::MenuItem("Material"))
+                    CreateMaterialAsset(m_CurrentDirectory);
+                if (ImGui::BeginMenu("ScriptableObject")) {
+                    const auto& types = ScriptableObjectRegistry::All();
+                    if (types.empty())
+                        ImGui::TextDisabled("(none -- load GameScripts first)");
+                    for (auto& type : types) {
+                        if (ImGui::MenuItem(type.Name))
+                            CreateScriptableObjectAsset(m_CurrentDirectory, type.Name);
+                    }
+                    ImGui::EndMenu();
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndPopup();
+        }
+
         ImGui::End();
     }
 

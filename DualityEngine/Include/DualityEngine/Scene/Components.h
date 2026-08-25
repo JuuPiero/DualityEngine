@@ -67,7 +67,7 @@ namespace Duality {
     struct MeshRendererComponent {
         // Used only when Mesh (below) is empty/unresolved.
         MeshPrimitive Primitive = MeshPrimitive::Cube;
-        // Guid of a ".material.json" asset (see Asset/Material.h), resolved via MaterialLoader
+        // Guid of a ".mat" asset (see Asset/Material.h), resolved via MaterialLoader
         // at render time -- an empty/unresolved guid falls back to a default white material,
         // matching every other AssetRef's own graceful-degradation convention.
         AssetRef Material;

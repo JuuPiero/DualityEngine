@@ -4,10 +4,15 @@ add_library(DualityEngine STATIC
     Source/Asset/AssetDatabase.cpp
     Source/Asset/MaterialLoader.cpp
     Source/Asset/MeshLoader.cpp
+    Source/Asset/ScriptableObjectLoader.cpp
+    Source/Asset/TextureImportSettings.cpp
+    Source/Asset/AudioImportSettings.cpp
     Source/Input/Input.cpp
     Source/Reflection/TypeRegistry.cpp
     Source/Reflection/Reflection.cpp
+    Source/Reflection/FieldSerialization.cpp
     Source/Scripting/ScriptRegistry.cpp
+    Source/Scripting/ScriptableObjectRegistry.cpp
     Source/Scene/Scene.cpp
     Source/Scene/SceneSerializer.cpp
     Source/Scene/EntitySerialization.cpp
@@ -66,6 +71,8 @@ else()
         Source/Renderer/OpenGL/OpenGLRenderer2D.cpp
         Source/Renderer/OpenGL/OpenGLRenderer3D.cpp
         Source/Renderer/OpenGL/GLTextureLoader.cpp
+        Source/Renderer/OpenGL/GLShaderProgram.cpp
+        Source/Renderer/OpenGL/GLVertexArray.cpp
         Source/Audio/AudioEngine_Desktop.cpp
     )
     target_compile_definitions(DualityEngine PUBLIC DE_PLATFORM_DESKTOP)
