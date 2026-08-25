@@ -87,6 +87,10 @@ namespace Duality {
             MakeColorField("Pressed Color", &UIButtonComponent::PressedColor),
         });
 
+        TypeRegistry::Register<UITextComponent>("UI Text", false, {
+            MakeField("Text", &UITextComponent::Text),
+        });
+
         TypeRegistry::Register<Rigidbody2DComponent>("Rigidbody 2D", false, {
             MakeField("Body Type", &Rigidbody2DComponent::Type),
             MakeField("Fixed Rotation", &Rigidbody2DComponent::FixedRotation),

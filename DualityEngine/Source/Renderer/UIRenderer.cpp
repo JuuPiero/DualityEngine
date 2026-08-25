@@ -5,25 +5,34 @@
 
 namespace Duality {
 
-    void ResolveUIRect(const UIRectComponent& rect, glm::vec2& outTopLeft, glm::vec2& outSize) {
-        float screenWidth = (rect.Screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
-        float screenHeight = (rect.Screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
-        outSize = rect.Size;
+    void ResolveUIRect(Scene& scene, Entity entity, glm::vec2& outTopLeft, glm::vec2& outSize) {
+        auto& rect = entity.GetComponent<UIRectComponent>();
 
+        glm::vec2 parentTopLeft{ 0.0f, 0.0f };
+        glm::vec2 parentSize;
+        Entity parent = entity.GetComponent<HierarchyComponent>().Parent;
+        if (parent && parent.HasComponent<UIRectComponent>()) {
+            ResolveUIRect(scene, parent, parentTopLeft, parentSize); // recursive -- see this function's own doc comment
+        } else {
+            parentSize.x = (rect.Screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
+            parentSize.y = (rect.Screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
+        }
+
+        outSize = rect.Size;
         float x, y;
         switch (rect.Anchor) {
-            case UIAnchor::TopCenter:    x = screenWidth * 0.5f + rect.Offset.x - outSize.x * 0.5f; y = rect.Offset.y; break;
-            case UIAnchor::TopRight:     x = screenWidth - rect.Offset.x - outSize.x; y = rect.Offset.y; break;
-            case UIAnchor::MiddleLeft:   x = rect.Offset.x; y = screenHeight * 0.5f + rect.Offset.y - outSize.y * 0.5f; break;
-            case UIAnchor::MiddleCenter: x = screenWidth * 0.5f + rect.Offset.x - outSize.x * 0.5f; y = screenHeight * 0.5f + rect.Offset.y - outSize.y * 0.5f; break;
-            case UIAnchor::MiddleRight:  x = screenWidth - rect.Offset.x - outSize.x; y = screenHeight * 0.5f + rect.Offset.y - outSize.y * 0.5f; break;
-            case UIAnchor::BottomLeft:   x = rect.Offset.x; y = screenHeight - rect.Offset.y - outSize.y; break;
-            case UIAnchor::BottomCenter: x = screenWidth * 0.5f + rect.Offset.x - outSize.x * 0.5f; y = screenHeight - rect.Offset.y - outSize.y; break;
-            case UIAnchor::BottomRight:  x = screenWidth - rect.Offset.x - outSize.x; y = screenHeight - rect.Offset.y - outSize.y; break;
+            case UIAnchor::TopCenter:    x = parentSize.x * 0.5f + rect.Offset.x - outSize.x * 0.5f; y = rect.Offset.y; break;
+            case UIAnchor::TopRight:     x = parentSize.x - rect.Offset.x - outSize.x; y = rect.Offset.y; break;
+            case UIAnchor::MiddleLeft:   x = rect.Offset.x; y = parentSize.y * 0.5f + rect.Offset.y - outSize.y * 0.5f; break;
+            case UIAnchor::MiddleCenter: x = parentSize.x * 0.5f + rect.Offset.x - outSize.x * 0.5f; y = parentSize.y * 0.5f + rect.Offset.y - outSize.y * 0.5f; break;
+            case UIAnchor::MiddleRight:  x = parentSize.x - rect.Offset.x - outSize.x; y = parentSize.y * 0.5f + rect.Offset.y - outSize.y * 0.5f; break;
+            case UIAnchor::BottomLeft:   x = rect.Offset.x; y = parentSize.y - rect.Offset.y - outSize.y; break;
+            case UIAnchor::BottomCenter: x = parentSize.x * 0.5f + rect.Offset.x - outSize.x * 0.5f; y = parentSize.y - rect.Offset.y - outSize.y; break;
+            case UIAnchor::BottomRight:  x = parentSize.x - rect.Offset.x - outSize.x; y = parentSize.y - rect.Offset.y - outSize.y; break;
             case UIAnchor::TopLeft:
             default:                     x = rect.Offset.x; y = rect.Offset.y; break;
         }
-        outTopLeft = { x, y };
+        outTopLeft = { parentTopLeft.x + x, parentTopLeft.y + y };
     }
 
     void UpdateUIInteractions(Scene& scene) {
@@ -56,7 +65,7 @@ namespace Duality {
             }
 
             glm::vec2 topLeft, size;
-            ResolveUIRect(rect, topLeft, size);
+            ResolveUIRect(scene, Entity(handle, &scene), topLeft, size);
             bool inside = pointer.x >= topLeft.x && pointer.x <= topLeft.x + size.x &&
                           pointer.y >= topLeft.y && pointer.y <= topLeft.y + size.y;
 
@@ -82,7 +91,7 @@ namespace Duality {
             auto& image = view.get<UIImageComponent>(handle);
 
             glm::vec2 topLeft, size;
-            ResolveUIRect(rect, topLeft, size);
+            ResolveUIRect(scene, Entity(handle, &scene), topLeft, size);
 
             // A UIButtonComponent's own current interaction color takes over from
             // UIImageComponent::Color -- see UIButtonComponent's own comment.

@@ -109,13 +109,22 @@ namespace Duality {
             return it != haystack.end();
         }
 
+        bool IsInSubtree(Scene& scene, Entity entity, Entity root) {
+            while (entity && scene.Registry().valid(entity.Handle())) {
+                if (entity == root)
+                    return true;
+                entity = entity.GetComponent<HierarchyComponent>().Parent;
+            }
+            return false;
+        }
+
         // A search box over a tree with drag-drop reparenting either has to hide/show
         // whole subtrees (auto-expanding ancestors of any match) or fall back to a
         // simpler flat list while searching -- this takes the flat-list route: while the
         // search box has text, every matching entity in the WHOLE scene is listed (no
         // tree structure, no drag-drop), still clickable to select. Empty search box
         // shows the normal full tree UI, completely unchanged.
-        void DrawFilteredFlatList(EditorContext& ctx, const std::string& filter) {
+        void DrawFilteredFlatList(EditorContext& ctx, const std::string& filter, Entity& pendingRemoval) {
             for (auto handle : ctx.SceneRef.Registry().view<NameComponent>()) {
                 Entity entity(handle, &ctx.SceneRef);
                 const std::string& name = entity.GetComponent<NameComponent>().Name;
@@ -126,6 +135,11 @@ namespace Duality {
                 bool selected = (entity == ctx.Selected);
                 if (ImGui::Selectable(name.c_str(), selected))
                     ctx.Selected = entity;
+                if (ImGui::BeginPopupContextItem()) {
+                    if (ImGui::MenuItem("Remove", "Delete"))
+                        pendingRemoval = entity;
+                    ImGui::EndPopup();
+                }
                 ImGui::PopID();
             }
         }
@@ -138,7 +152,7 @@ namespace Duality {
             }
         }
 
-        void DrawEntityNode(Entity entity, EditorContext& ctx) {
+        void DrawEntityNode(Entity entity, EditorContext& ctx, Entity& pendingRemoval) {
             auto& hierarchy = entity.GetComponent<HierarchyComponent>();
             const std::string& name = entity.GetComponent<NameComponent>().Name;
 
@@ -196,6 +210,8 @@ namespace Duality {
                     ctx.SceneRef.SetParent(child, entity);
                     ctx.Selected = child;
                 }
+                if (ImGui::MenuItem("Remove", "Delete"))
+                    pendingRemoval = entity;
                 ImGui::Separator();
                 if (ImGui::MenuItem("Create Prefab from Selection"))
                     CreatePrefabFromSelection(ctx, entity);
@@ -211,7 +227,7 @@ namespace Duality {
                 // were iterating that vector directly.
                 std::vector<Entity> children = hierarchy.Children;
                 for (Entity child : children)
-                    DrawEntityNode(child, ctx);
+                    DrawEntityNode(child, ctx, pendingRemoval);
                 ImGui::TreePop();
             }
 
@@ -237,65 +253,62 @@ namespace Duality {
         // see DrawFilteredFlatList's own comment for why (a tree with drag-drop
         // reparenting doesn't have an obvious cheap way to hide/show whole subtrees).
         if (m_SearchBuffer[0] != '\0') {
-            DrawFilteredFlatList(ctx, m_SearchBuffer);
-            ImGui::End();
-            return;
-        }
+            DrawFilteredFlatList(ctx, m_SearchBuffer, m_PendingRemoval);
+        } else {
+            // Copy, same reasoning as DrawEntityNode's own Children copy -- a drop
+            // during this pass can reparent a root entity elsewhere mid-iteration.
+            // Split into 3 stacked sections by each ROOT's own resolved screen (see
+            // TryResolveRootScreen) -- an entity nested under a Top/Bottom-tagged root
+            // shows up only in that section, matching what was asked; anything that
+            // hasn't been tagged (or isn't a camera) goes to "Ungrouped" rather than
+            // being silently hidden from the Hierarchy entirely. Root order (and thus
+            // drag-reorder/reparent) is still one flat list underneath (Scene::
+            // m_RootEntities) -- this split is a display filter over it, not a second
+            // data structure, so dragging a root across a section boundary via the
+            // sibling gap (as opposed to dropping it directly onto a node to reparent)
+            // reorders it in that flat list without necessarily landing in the section
+            // the gap visually belonged to; dropping ON a node always works correctly.
+            std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
+            std::vector<Entity> topRoots, bottomRoots, ungroupedRoots;
+            for (Entity entity : roots) {
+                Screen screen;
+                if (TryResolveRootScreen(entity, screen))
+                    (screen == Screen::Top ? topRoots : bottomRoots).push_back(entity);
+                else
+                    ungroupedRoots.push_back(entity);
+            }
 
-        // Copy, same reasoning as DrawEntityNode's own Children copy -- a drop
-        // during this pass can reparent a root entity elsewhere mid-iteration.
-        // Split into 3 stacked sections by each ROOT's own resolved screen (see
-        // TryResolveRootScreen) -- an entity nested under a Top/Bottom-tagged root
-        // shows up only in that section, matching what was asked; anything that
-        // hasn't been tagged (or isn't a camera) goes to "Ungrouped" rather than
-        // being silently hidden from the Hierarchy entirely. Root order (and thus
-        // drag-reorder/reparent) is still one flat list underneath (Scene::
-        // m_RootEntities) -- this split is a display filter over it, not a second
-        // data structure, so dragging a root across a section boundary via the
-        // sibling gap (as opposed to dropping it directly onto a node to reparent)
-        // reorders it in that flat list without necessarily landing in the section
-        // the gap visually belonged to; dropping ON a node always works correctly.
-        std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
-        std::vector<Entity> topRoots, bottomRoots, ungroupedRoots;
-        for (Entity entity : roots) {
-            Screen screen;
-            if (TryResolveRootScreen(entity, screen))
-                (screen == Screen::Top ? topRoots : bottomRoots).push_back(entity);
-            else
-                ungroupedRoots.push_back(entity);
-        }
-
-        // Each header is also a drop target for moving an entity INTO that section
+            // Each header is also a drop target for moving an entity INTO that section
         // (AcceptSectionDrop) -- separate from dropping directly onto a row inside
         // a section, which still means "become that row's child" (DrawEntityNode).
-        bool topOpen = ImGui::CollapsingHeader("Top Screen", ImGuiTreeNodeFlags_DefaultOpen);
-        if (ImGui::BeginDragDropTarget()) {
+            bool topOpen = ImGui::CollapsingHeader("Top Screen", ImGuiTreeNodeFlags_DefaultOpen);
+            if (ImGui::BeginDragDropTarget()) {
             Screen top = Screen::Top;
             AcceptSectionDrop(ctx, &top);
             ImGui::EndDragDropTarget();
-        }
-        if (topOpen)
+            }
+            if (topOpen)
             for (Entity entity : topRoots)
-                DrawEntityNode(entity, ctx);
+                DrawEntityNode(entity, ctx, m_PendingRemoval);
 
-        bool bottomOpen = ImGui::CollapsingHeader("Bottom Screen", ImGuiTreeNodeFlags_DefaultOpen);
-        if (ImGui::BeginDragDropTarget()) {
+            bool bottomOpen = ImGui::CollapsingHeader("Bottom Screen", ImGuiTreeNodeFlags_DefaultOpen);
+            if (ImGui::BeginDragDropTarget()) {
             Screen bottom = Screen::Bottom;
             AcceptSectionDrop(ctx, &bottom);
             ImGui::EndDragDropTarget();
-        }
-        if (bottomOpen)
+            }
+            if (bottomOpen)
             for (Entity entity : bottomRoots)
-                DrawEntityNode(entity, ctx);
+                DrawEntityNode(entity, ctx, m_PendingRemoval);
 
-        bool ungroupedOpen = ImGui::CollapsingHeader("Ungrouped", ImGuiTreeNodeFlags_DefaultOpen);
-        if (ImGui::BeginDragDropTarget()) {
+            bool ungroupedOpen = ImGui::CollapsingHeader("Ungrouped", ImGuiTreeNodeFlags_DefaultOpen);
+            if (ImGui::BeginDragDropTarget()) {
             AcceptSectionDrop(ctx, nullptr);
             ImGui::EndDragDropTarget();
-        }
-        if (ungroupedOpen)
+            }
+            if (ungroupedOpen)
             for (Entity entity : ungroupedRoots)
-                DrawEntityNode(entity, ctx);
+                DrawEntityNode(entity, ctx, m_PendingRemoval);
 
         // Drop target filling the remaining panel space below the tree -- same as
         // dropping directly onto the "Ungrouped" header above. InvisibleButton
@@ -330,6 +343,22 @@ namespace Duality {
                 ctx.Selected = ctx.SceneRef.CreateEntity("Entity");
             ImGui::EndPopup();
         }
+        }
+
+        // Only react while this panel has keyboard focus, and never turn a
+        // Delete keypress intended for the search box into an entity removal.
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete) &&
+            ctx.Selected && ctx.SceneRef.Registry().valid(ctx.Selected.Handle())) {
+            m_PendingRemoval = ctx.Selected;
+        }
+
+        if (m_PendingRemoval && ctx.SceneRef.Registry().valid(m_PendingRemoval.Handle())) {
+            if (IsInSubtree(ctx.SceneRef, ctx.Selected, m_PendingRemoval))
+                ctx.Selected = Entity{};
+            ctx.SceneRef.DestroyEntity(m_PendingRemoval);
+        }
+        m_PendingRemoval = Entity{};
 
         ImGui::End();
     }

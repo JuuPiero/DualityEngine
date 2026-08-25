@@ -5,6 +5,89 @@
         "Active": true
       },
       "Name": {
+        "Name": "Ball"
+      },
+      "Parent": -1,
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Size": [
+          32.0,
+          32.0
+        ],
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Camera": {
+        "Far Plane": 1000.0,
+        "Fov Degrees": 60.0,
+        "Near Plane": 0.10000000149011612,
+        "Primary": true,
+        "Projection": "Orthographic",
+        "Screen": "Top",
+        "Zoom": 1.0
+      },
+      "Name": {
+        "Name": "Camera"
+      },
+      "Parent": -1,
+      "Screen Group": {
+        "Screen": "Top"
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
         "Name": "Entity"
       },
       "Parent": -1,
@@ -74,21 +157,22 @@
       "Active": {
         "Active": true
       },
-      "Camera": {
-        "Far Plane": 1000.0,
-        "Fov Degrees": 60.0,
-        "Near Plane": 0.10000000149011612,
-        "Primary": true,
-        "Projection": "Orthographic",
-        "Screen": "Top",
-        "Zoom": 1.0
-      },
       "Name": {
-        "Name": "Camera"
+        "Name": "Ground"
       },
       "Parent": -1,
-      "Screen Group": {
-        "Screen": "Top"
+      "Sprite Renderer": {
+        "Color": [
+          0.5689655542373657,
+          0.5689655542373657,
+          0.5689655542373657,
+          1.0
+        ],
+        "Size": [
+          360.0,
+          32.0
+        ],
+        "Texture": ""
       },
       "Tag": {
         "Tag": "Untagged"
@@ -106,7 +190,7 @@
         ],
         "Translation": [
           0.0,
-          0.0,
+          73.0,
           0.0
         ]
       }

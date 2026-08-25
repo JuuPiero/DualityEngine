@@ -315,4 +315,14 @@ namespace Duality {
         bool WasClicked = false; // true for exactly one frame: pointer released while still over the button
     };
 
+    // A text label's string content (pair with UIRectComponent for a <Text> widget, see
+    // UIDocument.h). Data-only for now, deliberately -- there is no font/glyph rendering system
+    // on either backend yet (citro2d has one built in on 3DS; desktop's OpenGLRenderer2D is
+    // legacy fixed-function with no font atlas at all), so UIRenderer.cpp does not draw this
+    // Text anywhere yet. Exists now so UIDocument markup can already author/round-trip text
+    // content ahead of that renderer work, rather than the two being coupled into one big change.
+    struct UITextComponent {
+        std::string Text;
+    };
+
 }
