@@ -97,6 +97,7 @@ namespace Duality {
         ImGui::GetStyle().ScaleAllSizes(UiScale);
 
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
         ImGui_ImplGlfw_InitForOpenGL(m_Handle, true);
         ImGui_ImplOpenGL3_Init("#version 130");
     }
@@ -157,6 +158,15 @@ namespace Duality {
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+            // Rendering secondary viewports makes their GL context current, so restore ours afterward.
+            GLFWwindow* backupContext = glfwGetCurrentContext();
+            ImGui::UpdatePlatformWindows();
+            ImGui::RenderPlatformWindowsDefault();
+            glfwMakeContextCurrent(backupContext);
+        }
 
         glfwSwapBuffers(m_Handle);
     }

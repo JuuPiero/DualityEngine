@@ -26,8 +26,18 @@ namespace Duality {
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("Reload Scripts"))
+        if (ImGui::Button("Reload Scripts")) {
+            // Reloading while Playing would free GameScripts.dll out from under every live
+            // BehaviourComponent::Instance/Destroy still pointing into it (Scene::OnRuntimeUpdate
+            // or OnRuntimeStop would then call through dangling function pointers) -- stop first,
+            // same teardown the "Stop" button above does, so nothing is left referencing the
+            // module being unloaded.
+            if (ctx.IsPlaying) {
+                ctx.IsPlaying = false;
+                ctx.SceneRef.OnRuntimeStop();
+            }
             ScriptEngine::Reload(ctx.BuildDirectory);
+        }
 
         // Stats overlay -- FPS (Editor frame rate, smoothed) and draw calls (the
         // real dual-screen render pass below, both backends are unbatched so this
