@@ -136,12 +136,15 @@ namespace Duality {
             MakeField("Is Trigger", &SphereCollider3DComponent::IsTrigger),
         });
 
-        // Per-script public fields (Inspector-editable, like Unity's
-        // [SerializeField]) need an Overrides map so Edit-mode edits survive
-        // Play/Stop -- not implemented yet, only which class is attached.
-        TypeRegistry::Register<BehaviourComponent>("Behaviour", false, {
-            MakeField("Class", &BehaviourComponent::ClassName),
-        });
+        // Registered with zero reflected fields -- BehaviourComponent now holds a vector of
+        // script slots (BehaviourComponent::Scripts), not a single ClassName/PropertyOverrides
+        // pair, so it can't ride the generic single-FieldValue-per-field TypeRegistry rendering
+        // any more. Still registered so the Properties panel's generic type.Has(selected) check
+        // finds it and draws its "Scripts" section, and so it's excluded from the flat
+        // Add-Component list the same way any other 0-field marker type would be -- but
+        // PropertiesPanel.cpp and EntitySerialization.cpp both special-case DisplayName ==
+        // "Scripts" for the real per-slot rendering/serialization.
+        TypeRegistry::Register<BehaviourComponent>("Scripts", false, {});
     }
 
 }

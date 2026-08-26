@@ -40,32 +40,26 @@ namespace Duality {
             ImGui::PopID();
         }
 
-        // The script's own DUALITY_PROPERTIES fields, drawn right below BehaviourComponent's
-        // "Class" field -- mirrors Unity showing a MonoBehaviour's public fields right below
-        // its script reference. While Play is running, `behaviour.Instance` is a live object;
-        // edits go straight to it (and are lost on Stop, matching Unity's own semantics for
-        // editing fields during Play). In Edit mode there's no live instance to read/write
+        // One script slot's own DUALITY_PROPERTY fields, drawn inside its own card in the
+        // Scripts section below -- mirrors Unity showing a MonoBehaviour's public fields right
+        // below its script reference. While Play is running, `script.Instance` is a live
+        // object; edits go straight to it (and are lost on Stop, matching Unity's own semantics
+        // for editing fields during Play). In Edit mode there's no live instance to read/write
         // through FieldHandle::Get/Set, so a scratch instance is created just for this frame,
         // seeded from PropertyOverrides, rendered, and destroyed -- edits are captured back
         // into PropertyOverrides instead.
-        void DrawScriptProperties(EditorContext& ctx, BehaviourComponent& behaviour) {
-            if (behaviour.ClassName.empty())
-                return;
-            const std::vector<FieldHandle>& fields = ScriptRegistry::GetFields(behaviour.ClassName);
+        void DrawScriptFields(EditorContext& ctx, ScriptInstance& script) {
+            const std::vector<FieldHandle>& fields = ScriptRegistry::GetFields(script.ClassName);
             if (fields.empty())
                 return;
 
-            ImGui::Spacing();
-            ImGui::TextDisabled("Script Properties");
-            ImGui::PushID("ScriptProperties");
-
-            Behaviour* target = behaviour.Instance;
+            Behaviour* target = script.Instance;
             Behaviour* scratch = nullptr;
             void (*destroyScratch)(Behaviour*) = nullptr;
-            if (!target && ScriptRegistry::TryCreate(behaviour.ClassName, &scratch, &destroyScratch)) {
+            if (!target && ScriptRegistry::TryCreate(script.ClassName, &scratch, &destroyScratch)) {
                 for (auto& field : fields) {
-                    auto it = behaviour.PropertyOverrides.find(field.Name);
-                    if (it != behaviour.PropertyOverrides.end())
+                    auto it = script.PropertyOverrides.find(field.Name);
+                    if (it != script.PropertyOverrides.end())
                         field.Set(scratch, it->second);
                 }
                 target = scratch;
@@ -74,14 +68,51 @@ namespace Duality {
             if (target) {
                 for (auto& field : fields) {
                     if (DrawFieldWidget(field, target, &ctx.SceneRef))
-                        behaviour.PropertyOverrides[field.Name] = field.Get(target);
+                        script.PropertyOverrides[field.Name] = field.Get(target);
                 }
             }
 
             if (scratch)
                 destroyScratch(scratch);
+        }
 
-            ImGui::PopID();
+        // Renders BehaviourComponent's "Scripts" section -- one collapsible card per attached
+        // script slot (own header, own "..." Remove Script popup), instead of the single
+        // generic header/fields/remove flow every other TypeRegistry component gets, since one
+        // entity can now carry several different scripts at once (see BehaviourComponent's own
+        // comment). Erasing the last slot removes the whole BehaviourComponent too, so this
+        // section disappears cleanly once empty rather than leaving a vestigial empty header.
+        void DrawScriptsSection(Entity selected, BehaviourComponent& behaviour, EditorContext& ctx) {
+            if (!ImGui::CollapsingHeader("Scripts", ImGuiTreeNodeFlags_DefaultOpen))
+                return;
+
+            int removeIndex = -1;
+            for (int i = 0; i < static_cast<int>(behaviour.Scripts.size()); i++) {
+                ScriptInstance& script = behaviour.Scripts[i];
+                ImGui::PushID(i);
+
+                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap;
+                bool open = ImGui::CollapsingHeader(script.ClassName.c_str(), flags);
+                ImGui::SameLine(ImGui::GetContentRegionAvail().x - 24.0f);
+                if (ImGui::Button("...", ImVec2(24.0f, 0.0f)))
+                    ImGui::OpenPopup("ScriptSettings");
+                if (ImGui::BeginPopup("ScriptSettings")) {
+                    if (ImGui::MenuItem("Remove Script"))
+                        removeIndex = i;
+                    ImGui::EndPopup();
+                }
+
+                if (open)
+                    DrawScriptFields(ctx, script);
+
+                ImGui::PopID();
+            }
+
+            if (removeIndex >= 0) {
+                behaviour.Scripts.erase(behaviour.Scripts.begin() + removeIndex);
+                if (behaviour.Scripts.empty())
+                    selected.RemoveComponent<BehaviourComponent>();
+            }
         }
     }
 
@@ -135,6 +166,16 @@ namespace Duality {
             ImGui::PushID(type.DisplayName.c_str());
 
             void* component = type.GetPtr(selected);
+
+            // "Scripts" (BehaviourComponent) gets its own multi-card rendering instead of the
+            // generic single-header/fields/remove flow below -- see DrawScriptsSection's own
+            // comment for why.
+            if (type.DisplayName == "Scripts") {
+                DrawScriptsSection(selected, *static_cast<BehaviourComponent*>(component), ctx);
+                ImGui::PopID();
+                continue;
+            }
+
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap;
             bool open = ImGui::CollapsingHeader(type.DisplayName.c_str(), flags);
 
@@ -162,9 +203,6 @@ namespace Duality {
                 for (auto& field : type.Fields)
                     DrawFieldWidget(field, component, &ctx.SceneRef);
                 ImGui::PopID(); // matches PushID("Fields") above
-
-                if (type.DisplayName == "Behaviour")
-                    DrawScriptProperties(ctx, *static_cast<BehaviourComponent*>(component));
             }
 
             ImGui::PopID();
@@ -178,8 +216,30 @@ namespace Duality {
             ImGui::OpenPopup("AddComponentPopup");
         if (ImGui::BeginPopup("AddComponentPopup")) {
             for (auto& type : TypeRegistry::All()) {
+                // "Scripts" isn't a single addable thing -- the "Add Script" submenu below picks
+                // which script class to attach instead (an entity can carry several at once).
+                if (type.DisplayName == "Scripts")
+                    continue;
                 if (!type.Has(selected) && ImGui::MenuItem(type.DisplayName.c_str()))
                     type.AddDefault(selected);
+            }
+
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Add Script")) {
+                std::vector<std::string> classNames = ScriptRegistry::GetAllClassNames();
+                std::sort(classNames.begin(), classNames.end()); // stable order -- the registry's own map has none
+                if (classNames.empty())
+                    ImGui::TextDisabled("<no scripts registered>");
+                for (auto& className : classNames) {
+                    if (ImGui::MenuItem(className.c_str())) {
+                        BehaviourComponent& behaviour = selected.HasComponent<BehaviourComponent>()
+                            ? selected.GetComponent<BehaviourComponent>()
+                            : selected.AddComponent<BehaviourComponent>();
+                        behaviour.Scripts.push_back(ScriptInstance{ className });
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                ImGui::EndMenu();
             }
             ImGui::EndPopup();
         }

@@ -157,88 +157,89 @@ render qua đúng một pipeline mỗi frame, 2D hoặc 3D, không bao giờ ch�
 ## 5. Tạo (hoặc mở) project
 
 Editor luôn có một project đang mở -- ở lần khởi chạy đầu tiên, nó tự động tạo
-`SampleProject/` cạnh file executable. **File -> Open Project...** mở trình duyệt
-project để chọn file `.dproj`; khi mở project khác, scene đang dùng sẽ được thay
-đổi, Play sẽ dừng nếu đang chạy, và Content Browser sẽ trỏ đến thư mục `Assets/`
-của project đó.
+`SampleProject/` cạnh file executable. **File -> New Project...** mở hộp thoại Save
+(dùng chung với "Save Scene As...") để chọn vị trí + tên -- ví dụ chọn
+`F:\Projects\MyGame.dproj` sẽ tạo `F:\Projects\MyGame\MyGame.dproj` +
+`F:\Projects\MyGame\Assets\` (một thư mục project riêng chứa `.dproj` ở gốc, giống
+cấu trúc `SampleProject/` hiện có, và giống cách Unity tạo `location/name/` khi New
+Project). **File -> Open Project...** mở trình duyệt project để chọn file `.dproj`
+có sẵn; khi mở/tạo project khác, scene đang dùng sẽ được thay đổi, Play sẽ dừng nếu
+đang chạy, và Content Browser sẽ trỏ đến thư mục `Assets/` của project đó.
 
-Hiện chưa có wizard "New Project" (xem `ROADMAP.md`) -- để tự tạo project thứ hai,
-hãy copy cấu trúc thư mục của `SampleProject/` (`Assets/` + file `.dproj`) sang vị
-trí mới rồi mở file `.dproj` đó.
+Chưa có Project Hub / danh sách project gần đây (xem `ROADMAP.md`) -- New/Open
+Project chỉ là hộp thoại file thuần túy, không nhớ lịch sử.
 
 ## 6. Viết script đầu tiên
 
-Script nằm trong `GameScripts/` và kế thừa từ `Duality::Behaviour` -- C++ thuần,
-không dùng ngôn ngữ script nhúng, được build thành DLL có thể hot-reload cho chế
-độ Play-in-Editor trên desktop và được link tĩnh trực tiếp vào bản build 3DS
-(cùng một bộ source, không cần thay đổi code giữa hai nền tảng).
+Script kế thừa từ `Duality::Behaviour` -- C++ thuần, không dùng ngôn ngữ script
+nhúng, compile chung vào một module `GameScripts` build thành DLL có thể
+hot-reload cho chế độ Play-in-Editor trên desktop, và link tĩnh trực tiếp vào
+bản build 3DS (cùng một bộ source, không cần thay đổi code giữa hai nền tảng).
 
-1. **Tạo header**, `GameScripts/Include/MyBehaviour.h`:
-   ```cpp
-   #pragma once
-   #include "DualityEngine/Scene/Behaviour.h"
+**Cách nhanh nhất (script của riêng project bạn)**: chuột phải trong Content
+Browser (trong `Assets/Scripts/` hoặc bất kỳ đâu dưới `Assets/` của project) ->
+**Create > Script**. Editor tự tạo sẵn một cặp `.h`/`.cpp` (`NewBehaviour`,
+`NewBehaviour1`, ... nếu tên trống đã bị dùng -- khác với `"NewScene (1)"` của
+Scene/Material, tên file phải là một identifier C++ hợp lệ vì nó cũng chính là
+tên class) kèm sẵn `REGISTER_BEHAVIOUR`, đổi tên/class tùy ý rồi viết logic vào
+`OnCreate`/`OnUpdate`. Không cần sửa `GameScripts/CMakeLists.txt` -- mọi file
+`.cpp` trong `Assets/Scripts/` của project đang mở tự động được gộp vào lần
+**Reload Scripts** tiếp theo.
 
-   class MyBehaviour : public Duality::Behaviour {
-   public:
-       void OnCreate() override;
-       void OnUpdate(float deltaTime) override;
-   };
-   ```
-2. **Tạo source**, `GameScripts/Source/MyBehaviour.cpp`:
-   ```cpp
-   #include "MyBehaviour.h"
-   #include "DualityEngine/Scene/Components.h"
-   #include "ScriptRegistration.h"
+**Cách thủ công (script dùng chung, đi kèm engine)**: hợp lý cho một script mẫu
+muốn ship kèm engine (như `BounceBehaviour`) chứ không thuộc riêng project nào
+-- tạo `GameScripts/Include/MyBehaviour.h` + `GameScripts/Source/MyBehaviour.cpp`
+theo đúng khuôn `BounceBehaviour.h`/`.cpp`, rồi tự thêm dòng
+`Source/MyBehaviour.cpp` vào `GameScripts/CMakeLists.txt`'s danh sách hiện có.
 
-   void MyBehaviour::OnCreate() {
-       // Chạy một lần, ngay khi Play bắt đầu (hoặc khi entity được tạo
-       // trong lúc game đang chạy).
-   }
+Dù theo cách nào:
 
-   void MyBehaviour::OnUpdate(float deltaTime) {
-       auto& transform = GetComponent<Duality::TransformComponent>();
-       transform.Translation.x += 50.0f * deltaTime; // trôi sang phải với tốc độ 50 units/giây
-   }
-
-   REGISTER_BEHAVIOUR(MyBehaviour)
-   ```
-3. **Thêm cả hai file vào `GameScripts/CMakeLists.txt`** (đặt
-   `Source/MyBehaviour.cpp` cạnh các entry hiện có -- header không cần liệt kê,
-   chỉ cần source).
-4. Trong Editor, chọn một entity, **+ Add Component -> Behaviour**, rồi nhập
-   `MyBehaviour` vào field **Class** (được tìm theo tên lúc Play, giống việc chọn
-   một MonoBehaviour trong Unity -- không bind lúc compile).
-5. Bấm **Reload Scripts** (trên toolbar của panel Game) để build lại `GameScripts`
-   và hot-load vào Editor đang chạy -- không cần khởi động lại. Từ giờ, sửa
+1. Override các lifecycle method cần dùng (xem bên dưới).
+2. Gọi `REGISTER_BEHAVIOUR(MyBehaviour)` ở cuối file `.cpp` (đã có sẵn nếu tạo
+   qua Content Browser).
+3. Bấm **Reload Scripts** (trên toolbar của panel Game) để build lại
+   `GameScripts` và hot-load vào Editor đang chạy -- không cần khởi động lại.
+   Chạy nền (nút đổi thành "Reload Scripts (reloading...)" và mờ đi lúc đang
+   build), nên Editor không bị đứng trong lúc chờ build xong. Từ giờ, sửa
    `MyBehaviour.cpp` rồi bấm Reload Scripts là toàn bộ vòng lặp phát triển.
+4. Chọn một entity, **+ Add Component -> Add Script**, rồi chọn `MyBehaviour`
+   trong submenu (mọi class đã `REGISTER_BEHAVIOUR` đều tự hiện ở đây -- script
+   của project hay script dùng chung đều như nhau, không phân biệt sau khi đã
+   build). Một entity có thể gắn bao nhiêu script khác nhau tùy ý (hoặc gắn
+   cùng một script nhiều lần) -- giống một GameObject trong Unity mang nhiều
+   MonoBehaviour cùng lúc; mỗi script hiện thành một thẻ riêng trong
+   Properties, với nút "..." > Remove Script của riêng nó.
 
 ### Field hiện ra ở Properties (Inspector-editable fields)
 
 Field public của script cũng hiện ra ở panel Properties được, giống
-`[SerializeField]` của Unity -- chỉ cần khai báo field bình thường rồi liệt kê
-tên chúng một lần trong macro `DUALITY_PROPERTIES`:
+`[SerializeField]` của Unity -- một attribute thật trên từng field, kiểu
+`UPROPERTY()` của Unreal:
 
 ```cpp
 class BounceBehaviour : public Duality::Behaviour {
 public:
-    float Amplitude = 40.0f;
-    float Speed = 8.0f;
-    Duality::EntityRef Target;   // kéo một entity từ Hierarchy thả vào field này
+    DUALITY_PROPERTY() float Amplitude = 40.0f;
+    DUALITY_PROPERTY() float Speed = 8.0f;
+    DUALITY_PROPERTY() Duality::EntityRef Target;   // kéo một entity từ Hierarchy thả vào field này
 
-    DUALITY_PROPERTIES(BounceBehaviour, Amplitude, Speed, Target)
+    DUALITY_PROPERTIES_AUTO()
     ...
 };
 ```
 
-Macro kiểu `DUALITY_PROPERTY() float speed;` gắn trên từng field riêng lẻ
-(giống `UPROPERTY()` của Unreal) không làm được trong C++ thuần nếu không có
-bước code-generation quét header -- project này không có bước đó, vì một
-macro gắn trên một field không có cách nào biết tên/kiểu của chính nó hay với
-tới danh sách field của cả class. `DUALITY_PROPERTIES` (đặt tên gợi ý từ thư
-viện `ImReflect` trong hệ sinh thái ImGui) giải quyết cùng mục tiêu "không cần
-viết tay `MakeField()`" bằng một dòng duy nhất ở cấp class thay vì per-field.
-Hoàn toàn tùy chọn -- script không có dòng `DUALITY_PROPERTIES` nào thì không
-có field nào hiện ở Inspector, y như trước khi tính năng này tồn tại.
+`DUALITY_PROPERTY()` đánh dấu một field; `DUALITY_PROPERTIES_AUTO()` (một dòng,
+không tham số) khai báo method `Fields()` của class. Cả hai hoàn toàn tùy chọn --
+script không dùng dòng nào thì không có field nào hiện ở Inspector, y như trước
+khi tính năng này tồn tại. Phần *định nghĩa* thật của `Fields()` được sinh ra bởi
+`GameScripts/CodeGen/generate_fields.py`, một bước chạy trước khi build (gắn vào
+`GameScripts/CMakeLists.txt`) quét mọi header trong `GameScripts/Include/` tìm
+marker `DUALITY_PROPERTY()` rồi xuất ra
+`GameScripts/Generated/ScriptFields.generated.cpp` -- đúng cách Unreal Header
+Tool và tầng scripting C# của Polyphase-Engine giải quyết bài toán này (một
+macro gắn trên một field không có cách nào tự biết tên/kiểu của chính nó qua
+preprocessor thuần, nên cần một bước code-generation thật sự quét source, không
+có cách nào khác).
 
 Không có kiểu field riêng cho "tham chiếu đến component khác" -- giữ một
 `Duality::EntityRef` rồi gọi `ResolveEntityRef(ref).GetComponent<T>()` để lấy
@@ -490,9 +491,9 @@ chúng ta.
 
    REGISTER_BEHAVIOUR(CollectCoinBehaviour)
    ```
-   Thêm cả hai file vào `GameScripts/CMakeLists.txt`, gán `CollectCoinBehaviour`
-   vào field **Class** của một `Behaviour` component trên entity "Coin", bấm
-   **Reload Scripts**.
+   Thêm cả hai file vào `GameScripts/CMakeLists.txt`, chọn entity "Coin",
+   **+ Add Component -> Add Script -> CollectCoinBehaviour**, bấm **Reload
+   Scripts**.
 
 3. **Thử nhặt coin.** Bấm Play, dùng WASD/mũi tên di chuyển "ApiShowcase" (thực
    ra `ApiShowcaseBehaviour` di chuyển theo input, và pointer nếu bạn giữ chuột/

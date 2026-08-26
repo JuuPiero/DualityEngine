@@ -30,6 +30,14 @@ namespace Duality {
         return static_cast<int>(Map().size());
     }
 
+    std::vector<std::string> ScriptRegistry::GetAllClassNames() {
+        std::vector<std::string> names;
+        names.reserve(Map().size());
+        for (auto& [name, entry] : Map())
+            names.push_back(name);
+        return names;
+    }
+
     const std::vector<FieldHandle>& ScriptRegistry::GetFields(const std::string& className) {
         static const std::vector<FieldHandle> empty;
         auto it = Map().find(className);

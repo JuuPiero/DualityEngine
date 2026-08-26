@@ -77,7 +77,11 @@
                     Không cần build lại executable để thử code gameplay: sửa
                     <code>GameScripts/*.cpp</code>, bấm <strong>Reload Scripts</strong> (panel
                     Game) — chỉ <code>GameScripts.dll</code> được rebuild + hot-reload vào Editor
-                    đang chạy. Trên desktop, <code>GameScripts</code> build dạng <code>SHARED</code>
+                    đang chạy. Giống <code>BuildFor3DSAsync</code>/<code>BuildForPCAsync</code> ở
+                    trên, việc rebuild chạy trên một thread nền riêng
+                    (<code>ScriptEngine::ReloadAsync</code>) — UI Editor không đứng hình trong lúc
+                    build, nút chỉ đổi thành "Reload Scripts (reloading...)" và tự disable tới khi
+                    xong. Trên desktop, <code>GameScripts</code> build dạng <code>SHARED</code>
                     (DLL); trên 3DS, cùng bộ source build dạng <code>STATIC</code>, link thẳng vào
                     <code>DualityPlayer</code> (không có dynamic loading trên phần cứng).
                 </p>

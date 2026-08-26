@@ -103,6 +103,13 @@ namespace Duality {
         bool (*ScreenPointToRay3D)(void* scene, int screen, float screenX, float screenY,
                                     float* outOriginX, float* outOriginY, float* outOriginZ,
                                     float* outDirX, float* outDirY, float* outDirZ);
+
+        // Unity UI Toolkit-style declarative UI -- `uiDocumentAssetGuid` is an AssetRef's Guid
+        // pointing at a ".uidoc" markup asset (see UI/UIDocument.h). Same per-call-not-baked-in
+        // `scene` reasoning as Instantiate/FindEntityInScreen above. `screen` is a Duality::
+        // Screen cast to int. Returns true and fills *outHandle with the new root entity's raw
+        // handle on success.
+        bool (*InstantiateUIDocument)(void* scene, const char* uiDocumentAssetGuid, int screen, unsigned int* outHandle);
     };
 
 }

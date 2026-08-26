@@ -1,0 +1,50 @@
+{
+  "Entities": [
+    {
+      "Active": {
+        "Active": true
+      },
+      "Behaviour": {
+        "Class": "BallTest",
+        "PropertyOverrides": null
+      },
+      "Name": {
+        "Name": "Ball"
+      },
+      "Parent": -1,
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Size": [
+          32.0,
+          32.0
+        ],
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          -171.0,
+          0.0
+        ]
+      }
+    }
+  ]
+}

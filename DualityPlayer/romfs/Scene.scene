@@ -5,9 +5,54 @@
         "Active": true
       },
       "Name": {
-        "Name": "Entity"
+        "Name": "Ground"
       },
       "Parent": -1,
+      "Sprite Renderer": {
+        "Color": [
+          0.5689655542373657,
+          0.5689655542373657,
+          0.5689655542373657,
+          1.0
+        ],
+        "Size": [
+          360.0,
+          32.0
+        ],
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          73.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "Button"
+      },
+      "Parent": -1,
+      "Screen Group": {
+        "Screen": "Bottom"
+      },
       "Tag": {
         "Tag": "Untagged"
       },
@@ -81,7 +126,7 @@
         "Primary": true,
         "Projection": "Orthographic",
         "Screen": "Top",
-        "Zoom": 1.0
+        "Zoom": 0.30000001192092896
       },
       "Name": {
         "Name": "Camera"
@@ -107,6 +152,52 @@
         "Translation": [
           0.0,
           0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Behaviour": {
+        "Class": "BallTest",
+        "PropertyOverrides": null
+      },
+      "Name": {
+        "Name": "Ball"
+      },
+      "Parent": -1,
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Size": [
+          32.0,
+          32.0
+        ],
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          -171.0,
           0.0
         ]
       }

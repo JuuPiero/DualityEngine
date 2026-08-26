@@ -60,13 +60,13 @@ TEST_CASE("2D dynamic-vs-dynamic collision fires Enter then Exit on both sides")
     a.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
     a.AddComponent<Rigidbody2DComponent>();
     a.AddComponent<CircleCollider2DComponent>().Radius = 10.0f;
-    a.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    a.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     Entity b = scene.CreateEntity("BallB");
     b.GetComponent<TransformComponent>().Translation = { 5.0f, 0.0f, 0.0f }; // overlapping A already
     b.AddComponent<Rigidbody2DComponent>();
     b.AddComponent<CircleCollider2DComponent>().Radius = 10.0f;
-    b.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    b.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     scene.OnRuntimeStart();
     scene.OnRuntimeUpdate(1.0f / 60.0f);
@@ -98,13 +98,13 @@ TEST_CASE("2D trigger collider fires Trigger, not Collision") {
     auto& zoneCollider = zone.AddComponent<BoxCollider2DComponent>();
     zoneCollider.Size = { 20.0f, 20.0f };
     zoneCollider.IsTrigger = true;
-    zone.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    zone.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     Entity mover = scene.CreateEntity("Mover");
     mover.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f }; // already inside the zone
     mover.AddComponent<Rigidbody2DComponent>();
     mover.AddComponent<CircleCollider2DComponent>().Radius = 5.0f;
-    mover.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    mover.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     scene.OnRuntimeStart();
     scene.OnRuntimeUpdate(1.0f / 60.0f);
@@ -126,13 +126,13 @@ TEST_CASE("3D collision fires via the manual Bullet manifold diff") {
     ground.GetComponent<TransformComponent>().Translation = { 0.0f, 50.0f, 0.0f };
     ground.AddComponent<Rigidbody3DComponent>().Type = BodyType::Static;
     ground.AddComponent<BoxCollider3DComponent>().Size = { 100.0f, 10.0f, 100.0f };
-    ground.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    ground.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     Entity ball = scene.CreateEntity("Ball3D");
     ball.GetComponent<TransformComponent>().Translation = { 0.0f, 30.0f, 0.0f }; // overlapping ground (top at Y=40)
     ball.AddComponent<Rigidbody3DComponent>();
     ball.AddComponent<SphereCollider3DComponent>().Radius = 15.0f;
-    ball.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    ball.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     scene.OnRuntimeStart();
     bool sawEnter = false;
@@ -159,14 +159,14 @@ TEST_CASE("3D trigger fires Trigger, not Collision") {
     auto& zoneCollider = zone.AddComponent<BoxCollider3DComponent>();
     zoneCollider.Size = { 20.0f, 20.0f, 20.0f };
     zoneCollider.IsTrigger = true;
-    zone.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    zone.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     Entity mover = scene.CreateEntity("Mover3D");
     mover.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
     mover.AddComponent<Rigidbody3DComponent>(); // dynamic (default) -- Bullet's broadphase
     // skips static-vs-static pairs entirely, so at least one side here must be dynamic.
     mover.AddComponent<SphereCollider3DComponent>().Radius = 5.0f;
-    mover.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    mover.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     scene.OnRuntimeStart();
     scene.OnRuntimeUpdate(1.0f / 60.0f);
@@ -187,13 +187,13 @@ TEST_CASE("A non-touching pair never fires any collision/trigger event") {
     a.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
     a.AddComponent<Rigidbody2DComponent>().Type = BodyType::Static;
     a.AddComponent<CircleCollider2DComponent>().Radius = 5.0f;
-    a.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    a.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     Entity b = scene.CreateEntity("FarB");
     b.GetComponent<TransformComponent>().Translation = { 10000.0f, 0.0f, 0.0f }; // nowhere near A
     b.AddComponent<Rigidbody2DComponent>().Type = BodyType::Static;
     b.AddComponent<CircleCollider2DComponent>().Radius = 5.0f;
-    b.AddComponent<BehaviourComponent>().ClassName = "RecorderBehaviour";
+    b.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RecorderBehaviour" });
 
     scene.OnRuntimeStart();
     for (int i = 0; i < 10; i++)

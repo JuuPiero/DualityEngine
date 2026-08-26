@@ -45,6 +45,7 @@ namespace Duality {
         void OnEvent(Event& e);
         void SetupDemoScene();
         void OpenProjectFromDialog();
+        void NewProjectFromDialog();
         void SaveSceneAsFromDialog();
 
         // Declaration order matters here: m_Window must exist before any
@@ -74,6 +75,8 @@ namespace Duality {
         bool m_Running = true;
         bool m_DockLayoutInitialized = false;
         bool m_RequestOpenProject = false;
+        // Set by MenuBarPanel's "New Project...", same request-flag convention.
+        bool m_RequestNewProject = false;
         // Set by MenuBarPanel's "Save Scene As...", same request-flag convention as
         // m_RequestOpenProject above -- see SaveSceneAsFromDialog's own comment for why
         // this does NOT change m_ScenePath (unlike Unity's own Save As).

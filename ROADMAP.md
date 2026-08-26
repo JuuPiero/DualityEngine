@@ -286,9 +286,27 @@ this file whenever something below actually gets built, or a new deferred item c
       "Parent: X" row or "Unparent" button in the Properties panel, and inserting a dragged
       entity as the very first sibling (only "insert after" is supported -- still fully
       expressive, just requires moving the other item down instead in that one case).
+- [x] "New Project..." menu item, right above "Open Project..." -- `Project::New(directory,
+      name)` (`DualityEngine/Project/Project.h`) already existed and did everything needed
+      (creates the directory + `Assets/`, writes the `.dproj`) but had never been wired up to
+      any Editor UI. Reused `FileDialogs::SaveFile` (the same native dialog "Save Scene As..."
+      already uses) instead of adding a new folder-picker dialog -- the chosen path's filename
+      (minus extension) becomes both the project's Name and a same-named subfolder created
+      under its parent folder, e.g. picking `F:\Projects\MyGame.dproj` creates
+      `F:\Projects\MyGame\MyGame.dproj` + `F:\Projects\MyGame\Assets\`, matching
+      `SampleProject`'s own existing layout (a dedicated project folder with the `.dproj` at
+      its own root) and mirroring how Unity's own "New Project" dialog asks for a location +
+      name and creates `location/name/` as the root. `Application::NewProjectFromDialog`
+      mirrors `OpenProjectFromDialog`'s body almost exactly (same Play-stop/Scene-reset/
+      Scene-view-camera-reseed/`ContentBrowserPanel::SetRootDirectory`/`AssetDatabase::Refresh`
+      sequence), including keeping the trailing `SceneSerializer(...).Deserialize(...)` call
+      even though a brand new project's `Assets/` is always empty -- it's a harmless no-op
+      (logs a normal "could not open" error) and keeps the two functions' shape symmetric
+      rather than needing a special case.
 - [ ] Project Hub / recent-projects list, as its own separate window (or its own
       subfolder in this repo) -- explicitly deferred until "everything else" is more
-      finished. Right now "Open Project" is a plain file-browse dialog only.
+      finished. "New Project"/"Open Project" are plain native file dialogs, no recent-project
+      history.
 - [ ] Inline thumbnail preview on Properties panel asset fields (texture/etc.) --
       currently just shows the resolved filename + a Clear button.
 - [ ] Undo/redo.
@@ -437,6 +455,23 @@ this file whenever something below actually gets built, or a new deferred item c
       exists to work around (that quirk only fires when the command *itself* begins with a
       quote character) -- same shape `ScriptEngine::Reload`'s own `cmake --build` call for
       GameScripts already uses successfully.
+- [x] Async "Reload Scripts" (`DualityEditor/ScriptEngine.h`'s `ReloadAsync`/`ReloadStatus`) --
+      user reported clicking it made the Editor "look like it closed". Root cause: `Reload`
+      called `std::system(...)` synchronously on the UI thread, freezing the whole ImGui loop
+      for the rebuild's duration (confirmed DualityEditor is a console-subsystem app, no
+      `WIN32` on its `add_executable` -- so no separate console window pops up during the
+      freeze; the freeze itself was the whole problem). Mirrors `BuildFor3DSAsync`'s existing
+      detached-thread + `std::atomic<Status>` pattern exactly rather than inventing a second
+      one. `GamePanel`'s button relabels to "Reload Scripts (reloading...)" and disables while
+      running, same as the Build menu items. Cross-guarded both ways against `BuildPipeline`'s
+      own status, since `ScriptEngine::Reload` and `BuildForPC` both run `cmake --build`
+      against the exact same Ninja tree (`GameScripts`/`DualityPlayerDesktop` targets) --
+      mirrors how `BuildFor3DSAsync`/`BuildForPCAsync` already share one status flag for the
+      same "one background build task at a time" reason, even though a 3DS build and a PC
+      build target different trees. Play must already be stopped synchronously on the main
+      thread before the background thread starts (`Reload`'s `FreeLibrary` would otherwise
+      yank `GameScripts.dll` out from under a live `Behaviour*` mid-`OnRuntimeUpdate`) --
+      `GamePanel`'s existing `StopPlaying(ctx)` call stays exactly where it was for this reason.
 - [x] Removed the hardcoded `E:\App\devkitPro\tools\bin\tex3ds.exe` path in
       `BuildPipeline::CookAssets` -- user asked "is this OK, is there a more flexible way to
       auto-find the path". Replaced with `FindDevkitProInstallDir`/`FindTex3dsExe`
@@ -700,6 +735,121 @@ this file whenever something below actually gets built, or a new deferred item c
       overrides apply before `OnCreate` sees them, no-override entities keep their compiled-in
       defaults, and a full `SceneSerializer` round trip preserving float/bool overrides while
       confirming `EntityRef` always reloads unset) plus a clean `build.bat`/`build-3ds.bat`.
+- [x] **Superseded the entry above**: `DUALITY_PROPERTIES(ClassName, field1, ...)` still made
+      every field's name get typed twice (once in the member declaration, once in the macro's
+      argument list) and didn't read like a real per-field attribute -- user asked again for
+      something closer to Unreal's `UPROPERTY()`. Revisited the earlier "not achievable in
+      plain C++" conclusion: it's still true that a bare macro can't see its own attached
+      declaration on its own, but a *real code-generation pass* (exactly what Unreal Header
+      Tool does, and what Polyphase-Engine's own C# scripting layer does via a Roslyn
+      source-rewriter -- confirmed by reading both) solves it properly. Chose this over an
+      X-Macro alternative (single-source-of-truth field list, no new build tooling, but an
+      unfamiliar syntax) when asked. Built `GameScripts/CodeGen/generate_fields.py` -- a
+      deliberately plain regex/line scanner, NOT a real C++ parser (every `FieldValue`-
+      supported type is a single token with no embedded spaces, so this is fully reliable) --
+      that scans every header under `GameScripts/Include/` for `DUALITY_PROPERTY() <Type>
+      <Name> [= <Default>];` and emits `GameScripts/Generated/ScriptFields.generated.cpp`
+      (one `ClassName::Fields()` definition per class, `#include`-ing only the headers that
+      had a match). `PropertyMacros.h` now defines just `DUALITY_PROPERTY()` (a real no-op at
+      compile time) and `DUALITY_PROPERTIES_AUTO()` (a bare `static std::vector<FieldHandle>
+      Fields();` declaration the generated `.cpp` then defines out-of-class) -- the old
+      FOR_EACH macro machinery was deleted outright rather than kept alongside it. Wired into
+      `GameScripts/CMakeLists.txt` as an `add_custom_command` pre-build step, both build
+      modes. **Real environment gotcha hit and fixed**: the desktop build (`build.bat`, plain
+      cmd.exe) finds a normal `python.exe` via PATH with zero extra config, but devkitPro's own
+      bundled MSYS2 (which `build-3ds.bat`'s Makefile-generator configure uses) has no Python
+      on ITS PATH at all -- `find_program(... NAMES python python3 PATHS
+      "E:/App/Python/Python312")` searches PATH first, falling back to this machine's
+      known-good install location, the same "hardcode the one known-good path" lesson this
+      file's own devkitPro-path notes already established. Confirmed working end-to-end on
+      both `build.bat` and `build-3ds.bat` -- the generated file's content inspected directly
+      and matches exactly what a human would have hand-written.
+- [x] Multiple scripts per entity, Unity-style Add Component -- `BehaviourComponent` used to be
+      a single EnTT component type holding one `ClassName`/`Instance` pair, capping an entity
+      at exactly one script; user wanted each registered script class to show up as its own
+      addable entry, with an entity able to run several different scripts (or the same one
+      twice) at once. Chose to keep `BehaviourComponent` as ONE EnTT component type wrapping a
+      `std::vector<ScriptInstance>` (each slot = what the old component's fields used to be)
+      rather than building true dynamic per-class EnTT component types -- EnTT has no
+      first-class support for runtime-registered component types, and this project's
+      reflection is built around compile-time pointer-to-member anyway (unlike scripts' own
+      already-type-erased `FieldHandle`), so the dynamic-types route would have been a much
+      larger, riskier change for the same user-visible result. `TypeRegistry` entry renamed
+      "Behaviour" -> "Scripts" (zero reflected fields of its own now -- fully special-cased in
+      `PropertiesPanel.cpp`/`EntitySerialization.cpp`, same "reflected fields + opaque runtime
+      state" split `Rigidbody2DComponent`'s `RuntimeBody` already established, just covering
+      the whole struct this time). Properties panel renders each slot as its own card (own
+      header, own "..." > Remove Script); the Add Component popup gained a nested "Add Script"
+      submenu listing `ScriptRegistry::GetAllClassNames()` (new -- the registry previously had
+      no enumeration method, only lookup-by-name). One-time on-disk schema break (`"Behaviour"`
+      JSON key -> a `"Scripts"` array) for existing saved scenes, same accepted precedent as
+      the earlier Name/Tag split -- self-corrects on next Save. Verified via
+      `Tests/MultiScriptTests.cpp` (two different scripts on one entity fire
+      OnCreate/OnUpdate/OnDestroy independently with genuinely separate instances; the same
+      class attached twice also runs as two independent instances) plus a live Editor smoke
+      test (two-script entity showing two separate cards in Properties).
+- [x] Per-project gameplay scripts -- every script used to live in ONE shared top-level
+      `GameScripts/` folder, hand-listed in `GameScripts/CMakeLists.txt`; adding a script for
+      `SampleProject/` specifically meant editing engine-repo files that had nothing to do
+      with that project. Gave each `Project` its own `Assets/Scripts/` folder (new
+      `ProjectConfig::ScriptsDirectory` field, default `"Scripts"`, matching
+      `AssetsDirectory`'s own existing string-concat pattern -- `Project::GetScriptsDirectory()`),
+      matching Unity's own convention, compiled into the SAME `GameScripts` module alongside the
+      engine's shared/demo scripts rather than a second DLL/target (one `ScriptRegistry`, one
+      flat class-name namespace -- two modules would mean two registries, two
+      `GetScriptFactories()` exports, for no real benefit). `GameScripts/CMakeLists.txt` gained
+      a `DUALITY_PROJECT_SCRIPTS_DIR` cache variable (set via `-D` by `ScriptEngine::Reload`/
+      `BuildPipeline::BuildFor3DS`, sourced from `Project::GetActive()`) feeding a guarded
+      `file(GLOB_RECURSE)` alongside the existing hand-listed sources -- the one deliberate
+      GLOB-based compiled source list in this project (every other target hand-lists files),
+      justified since the whole point is "no manual file-list editing for project scripts."
+      `generate_fields.py` (see the `DUALITY_PROPERTY()` entry above) now scans TWO directories
+      -- `GameScripts/Include/` and the active project's own `Scripts/` -- so a project's own
+      `DUALITY_PROPERTY()` fields get identical generated-`Fields()` treatment; reshaped its CLI
+      from `<include_dir> <output>` to `<output> <scan_dir_1> [scan_dir_2 ...]` and switched its
+      `#include` lines to always use each header's full absolute path (works regardless of which
+      directories are on `GameScripts`' own include path -- project scripts deliberately live
+      flat, `.h` next to `.cpp`, resolved via the compiler's own same-directory quoted-include
+      search rather than adding a second include directory). `ScriptEngine::Reload` now
+      reconfigures (`cmake -B <dir> -D...`, no `-S` needed -- an already-configured tree reads
+      its stored source dir back out of its own `CMakeCache.txt`) before building, since CMake's
+      build graph is fixed at configure time but the active Project is only known at Editor
+      runtime; `Application::OpenProjectFromDialog`/`NewProjectFromDialog` both call
+      `ScriptEngine::ReloadAsync` right after switching projects so the new project's scripts
+      compile+load with no extra click (safe to be async even though `Deserialize` runs right
+      after -- it only stores `ScriptInstance::ClassName` strings, doesn't need `ScriptRegistry`
+      to already know the class until Play actually starts). New Content Browser **"Create >
+      Script"** (`ContentBrowserPanel::CreateScriptAsset`) writes a ready-to-edit `.h`/`.cpp`
+      pair with the `REGISTER_BEHAVIOUR` boilerplate already in place -- deliberately NOT the
+      same `"NewScene (1).scene"`-style numbered suffix every other Create-asset flow uses,
+      since a script's filename has to stay a valid C++ identifier (it's also the class name):
+      `NewBehaviour`, `NewBehaviour1`, `NewBehaviour2`, ... instead. No `AssetMeta`/
+      `AssetDatabase` registration -- scripts are looked up by class name, never referenced by
+      GUID like a real asset.
+      **Two real, non-obvious build-environment bugs found and fixed** (both confirmed via
+      direct `cmake -P`/manual-configure experiments, not guessed): (1) declaring
+      `DUALITY_PROJECT_SCRIPTS_DIR` as `CACHE PATH` (the obviously-correct-looking type for "this
+      holds a directory") silently corrupted the value under the MSYS-hosted `cmake.exe` the 3DS
+      configure uses (`build-3ds.bat`'s own comments explain why it must be that one) -- a
+      `PATH`-typed cache variable set via `-D` gets validated/normalized as a path, and that
+      cmake's Cygwin/MSYS internals don't recognize a Windows-style `"F:/..."` value as
+      already-absolute, so it got the repo source dir silently prepended onto it (confirmed:
+      `"/f/.../DualityEngine/F:/..."`). Fixed by declaring it `CACHE STRING` instead, which
+      CMake never normalizes. (2) Even with a clean STRING value, `file(GLOB_RECURSE)` and
+      `EXISTS` themselves ALSO silently fail (return nothing / false, no error) against a
+      Windows-style drive-letter path under that same MSYS-hosted cmake, for the identical
+      Cygwin-path-semantics reason -- fixed by deriving a second, MSYS-mount-notation copy
+      (`"F:/Workspace/..."` -> `"/f/Workspace/..."`, the exact transform `build-3ds.bat`'s own
+      `DKP_MSYS` derivation already uses for `DEVKITPRO`) inside `GameScripts/CMakeLists.txt`
+      itself, gated to `CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS"` so the already-correctly-behaving
+      desktop (mingw64-native) cmake is untouched, used only for the `file(GLOB)`/`EXISTS` calls
+      -- `generate_fields.py`'s own invocation keeps the original Windows-style path unchanged,
+      since it runs through a native Windows `python.exe` that needs that form, not MSYS
+      notation. Verified end-to-end: a real project script with a `DUALITY_PROPERTY()` field,
+      created via the live Content Browser "Create > Script" flow, confirmed compiling into
+      both the desktop `GameScripts.dll` AND the STATIC 3DS-linked `GameScripts` library, its
+      generated `Fields()` entry inspected directly, and a live Play-mode run showing its
+      `OnCreate()` log line in the Console.
 - [ ] Coroutines / a delayed-call helper (`Invoke`/`WaitForSeconds`-equivalent) -- right now
       a script can only act every frame from `OnUpdate`, with no built-in way to schedule
       "do X after N seconds" without hand-rolling a timer field.

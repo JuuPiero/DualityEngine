@@ -36,7 +36,39 @@
                     <code>EngineServices</code> trực tiếp.
                 </div>
 
-                <h2 style="border-top:none;margin-top:0">Vòng đời (Lifecycle)</h2>
+                <h2 style="border-top:none;margin-top:0">Tạo script mới</h2>
+                <p>
+                    Cách khuyến khích, cho script <strong>riêng của project</strong> đang mở: mở
+                    Content Browser, chuột phải bên trong <code>Assets/Scripts/</code> (quy ước,
+                    giống Unity — nhưng chỗ nào dưới <code>Assets/</code> cũng được) →
+                    <strong>Create → Script</strong>. Ghi sẵn một cặp <code>.h</code>/<code>.cpp</code>
+                    với khung <code>REGISTER_BEHAVIOUR(...)</code> đã điền (tên mặc định
+                    <code>NewBehaviour</code>, trùng thì <code>NewBehaviour1</code>,
+                    <code>NewBehaviour2</code>...) — chỉ việc mở file, đổi tên class (+ tên file +
+                    tham số <code>REGISTER_BEHAVIOUR</code> cho khớp) rồi điền
+                    <code>OnCreate</code>/<code>OnUpdate</code>. Bấm <strong>Reload Scripts</strong>
+                    (panel Game, xem <a href="editor.html">Editor Panels</a>) để build + hot-load,
+                    rồi <strong>+ Add Component → Add Script → &lt;TênClass&gt;</strong> để gắn vào
+                    entity. Không cần sửa <code>GameScripts/CMakeLists.txt</code> — mọi
+                    <code>.cpp</code> dưới <code>Assets/Scripts/</code> của project đang mở tự biên
+                    dịch chung vào <code>GameScripts</code> (một <code>ScriptRegistry</code> duy
+                    nhất, dùng chung namespace tên class với script của engine) ở lần Reload
+                    Scripts kế tiếp — kể cả khi vừa tạo project mới hoặc vừa mở project khác, vì
+                    <strong>File → Open Project...</strong>/<strong>New Project...</strong> tự
+                    trigger reload này.
+                </p>
+                <div class="callout note">
+                    <span class="callout-title">Script dùng chung cấp engine</span>
+                    Muốn một script có sẵn cho <strong>mọi</strong> project thay vì riêng một
+                    project — vẫn theo cách cũ: thêm tay <code>GameScripts/Include/&lt;Tên&gt;.h</code>
+                    + <code>GameScripts/Source/&lt;Tên&gt;.cpp</code> (đúng khuôn
+                    <code>REGISTER_BEHAVIOUR</code> như trên), rồi thêm 2 file đó vào danh sách
+                    source trong <code>GameScripts/CMakeLists.txt</code> — bước tay duy nhất vẫn
+                    còn cần trong hai cách. <code>BounceBehaviour</code>,
+                    <code>RaycastDemoBehaviour</code>... có sẵn trong repo là script kiểu này.
+                </div>
+
+                <h2>Vòng đời (Lifecycle)</h2>
                 <table>
                     <tr><th>Method</th><th>Khi nào chạy</th></tr>
                     <tr><td><code>OnCreate()</code></td><td>Một lần khi Play bắt đầu (giống <code>Awake</code> Unity) — chạy kể cả khi entity bắt đầu ở trạng thái inactive.</td></tr>

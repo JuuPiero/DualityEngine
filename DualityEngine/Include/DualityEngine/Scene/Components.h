@@ -132,19 +132,19 @@ namespace Duality {
         float FarPlane = 1000.0f; // Perspective only
     };
 
-    // Which Behaviour subclass is attached, looked up by name at Play time
-    // via ScriptRegistry -- not a compile-time binding, so the Inspector can
-    // show/edit it as plain text (like Unity picking a MonoBehaviour by
-    // class) and so a hot-reloaded script DLL can supply a new instance
-    // without the entity needing to change.
-    struct BehaviourComponent {
+    // One attached script -- which Behaviour subclass, looked up by name at Play time via
+    // ScriptRegistry (not a compile-time binding, so a hot-reloaded script DLL can supply a new
+    // instance without the entity needing to change). An entity can hold many of these at once
+    // (see BehaviourComponent::Scripts below), matching Unity letting one GameObject carry many
+    // different MonoBehaviours.
+    struct ScriptInstance {
         std::string ClassName;
         Behaviour* Instance = nullptr;
         void (*Destroy)(Behaviour*) = nullptr;
 
-        // Edit-mode values for whichever DUALITY_PROPERTIES fields ClassName's script
-        // declares (see Reflection/PropertyMacros.h/ScriptRegistry::GetFields) -- keyed by
-        // field name. Not reflected via TypeRegistry (a map isn't a plain FieldValue), so
+        // Edit-mode values for whichever DUALITY_PROPERTY fields ClassName's script declares
+        // (see Reflection/PropertyMacros.h/ScriptRegistry::GetFields) -- keyed by field name.
+        // Not reflected via TypeRegistry (a map isn't a plain FieldValue), so
         // EntitySerialization.cpp special-cases it alongside "Class", same as
         // HierarchyComponent's Parent. Applied onto the real Instance right before OnCreate()
         // at Play start (Scene::OnRuntimeStart); while Instance is alive, the Properties panel
@@ -160,6 +160,16 @@ namespace Duality {
         // An entity that starts inactive never transitions away from false, so it correctly
         // never gets an OnEnable/OnDisable pair at all until something actually activates it.
         bool WasActiveLastFrame = false;
+    };
+
+    // Holds every script attached to one entity. Deliberately still ONE EnTT component type
+    // (not one type per script class -- EnTT has no first-class support for runtime-registered
+    // component types, and this engine's reflection is built around compile-time
+    // pointer-to-member anyway) wrapping a vector of slots instead, so an entity can run several
+    // different scripts (or the same one more than once, like Unity allows) simultaneously. The
+    // Properties panel renders each slot as its own visually distinct card.
+    struct BehaviourComponent {
+        std::vector<ScriptInstance> Scripts;
     };
 
     // Box2D-backed 2D physics (classic v2.4 API, b2World owned by Scene).

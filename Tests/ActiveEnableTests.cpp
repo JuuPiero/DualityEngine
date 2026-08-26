@@ -59,7 +59,7 @@ TEST_CASE("OnEnable/OnDisable fire exactly once per transition") {
     g_Counters = &counters;
 
     Entity e = scene.CreateEntity("Scripted");
-    e.AddComponent<BehaviourComponent>().ClassName = "CountingBehaviour";
+    e.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "CountingBehaviour" });
 
     scene.OnRuntimeStart();
     CHECK(counters.OnCreate == 1);
@@ -73,7 +73,7 @@ TEST_CASE("OnEnable/OnDisable fire exactly once per transition") {
     CHECK_SOFT(counters.OnEnable == 1, "OnEnable still only fired once after a second normal tick");
     CHECK_SOFT(counters.OnUpdate == 2, "OnUpdate ran again");
 
-    auto* instance = static_cast<CountingBehaviour*>(e.GetComponent<BehaviourComponent>().Instance);
+    auto* instance = static_cast<CountingBehaviour*>(e.GetComponent<BehaviourComponent>().Scripts[0].Instance);
     instance->SetActive(false);
     scene.OnRuntimeUpdate(1.0f / 60.0f);
     CHECK_SOFT(counters.OnDisable == 1, "OnDisable fired exactly once right after SetActive(false)");
@@ -100,7 +100,7 @@ TEST_CASE("An entity that starts inactive never gets OnEnable/OnDisable") {
 
     Entity e = scene.CreateEntity("NeverActive");
     e.GetComponent<ActiveComponent>().Active = false;
-    e.AddComponent<BehaviourComponent>().ClassName = "CountingBehaviour";
+    e.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "CountingBehaviour" });
 
     scene.OnRuntimeStart();
     CHECK_SOFT(counters.OnCreate == 1, "OnCreate still fires even for an entity that starts inactive");

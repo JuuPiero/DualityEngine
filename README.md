@@ -62,12 +62,17 @@ run-tests.bat           REM runs the automated engine-logic test suite (see "Tes
 ### Using the Editor
 
 On launch, the Editor opens (creating if needed) a fixed sample project at
-`SampleProject/` next to the executable. There is no "New Project" dialog
-yet, but an existing one can be opened via the File menu.
+`SampleProject/` next to the executable. A different project can be created
+or opened via the File menu.
 
-- **File menu** (top) -- **Open Project...** (browse for a `.dproj` file;
-  swaps the active project/scene/Content Browser root, stopping Play first
-  if it's running), **Save Scene** / **Load Scene** (JSON round-trip to
+- **File menu** (top) -- **New Project...** (pick a location + name via a
+  native Save dialog -- e.g. choosing `F:\Projects\MyGame.dproj` creates
+  `F:\Projects\MyGame\MyGame.dproj` + `F:\Projects\MyGame\Assets\`, a
+  dedicated project folder with the `.dproj` at its own root, matching
+  Unity's own "New Project" flow), **Open Project...** (browse for a
+  `.dproj` file; swaps the active project/scene/Content Browser root,
+  stopping Play first if it's running), **Save Scene** / **Load Scene**
+  (JSON round-trip to
   `<project>/Assets/Scene.scene` -- Load Scene clears the current scene
   first, then loads: it used to just add every loaded entity alongside
   whatever was already there, a real reported bug), **Open Scene...**
@@ -144,7 +149,10 @@ yet, but an existing one can be opened via the File menu.
   **Reload Scripts** rebuilds `GameScripts` and hot-reloads it into the
   running Editor without restarting (stopping -- and reverting -- Play
   first if it's running) -- edit a script's `.cpp`, click this, see the
-  change immediately. Clicking/touching either screen's image here (while
+  change immediately. Runs on a background thread (the button relabels to
+  "Reload Scripts (reloading...)" and grays out, same as Build for
+  3DS/PC), so the Editor's UI stays responsive during the rebuild instead
+  of freezing for its duration. Clicking/touching either screen's image here (while
   Playing) is correctly resolved to that screen's own local pixel
   coordinates, so `Behaviour::GetPointerPosition()`/`ScreenPointToRay3D`
   work the same in Play-in-Editor as they do on `DualityPlayerDesktop` or a
@@ -192,49 +200,78 @@ yet, but an existing one can be opened via the File menu.
 
 ### Writing gameplay scripts
 
-Scripts live in `GameScripts/` -- built as a hot-reloadable DLL for desktop
-Play-in-Editor, or linked statically straight into `DualityPlayer` for the
-3DS build (same source files, no code changes either way). To add one:
+Scripts compile into one `GameScripts` module either way -- a hot-reloadable
+DLL for desktop Play-in-Editor, or linked statically straight into
+`DualityPlayer` for the 3DS build (same source files, no code changes either
+way) -- from two possible locations:
 
-1. Add a class deriving from `Duality::Behaviour` (see
-   `GameScripts/Include/BounceBehaviour.h`/`Source/BounceBehaviour.cpp` for
-   the pattern), overriding whichever lifecycle methods it needs (see below).
+- **A project's own scripts** (the common case): right-click in the Content
+  Browser (inside `Assets/Scripts/` or anywhere else under the project's
+  `Assets/`) and pick **Create > Script**. Writes a ready-to-edit `.h`/`.cpp`
+  pair (`NewBehaviour`, `NewBehaviour1`, ... if the plain name is taken --
+  unlike Scene/Material's `"NewScene (1)"` numbering, a script's filename has
+  to stay a valid C++ identifier, since it also becomes the class name) with
+  the `REGISTER_BEHAVIOUR` boilerplate already in place. No `CMakeLists.txt`
+  editing needed -- every `.cpp` under the active project's own
+  `Assets/Scripts/` (recursively) is picked up automatically the next time
+  **Reload Scripts** runs, alongside the engine's own shared scripts below.
+- **A shared engine-level script** (for something meant to ship as an
+  example/demo alongside the engine itself, like `BounceBehaviour`): add a
+  class deriving from `Duality::Behaviour` under `GameScripts/Include/` +
+  `Source/` by hand (see `BounceBehaviour.h`/`.cpp` for the pattern), then
+  add the new source file to `GameScripts/CMakeLists.txt`'s explicit list.
+
+Either way:
+
+1. Override whichever lifecycle methods the script needs (see below).
 2. Register it with `REGISTER_BEHAVIOUR(YourClassName)` at the bottom of its
-   `.cpp` file.
-3. Add the new source file to `GameScripts/CMakeLists.txt`.
-4. In the Editor, set an entity's `BehaviourComponent` "Class" field to the
-   class name (a plain string, matched by name -- like picking a
-   MonoBehaviour in Unity), then click **Reload Scripts**.
+   `.cpp` file (already there if created via Content Browser).
+3. In the Editor, select an entity, click **+ Add Component > Add Script**,
+   and pick the class from the submenu (every `REGISTER_BEHAVIOUR`'d class
+   shows up there automatically -- project-owned and engine-shared scripts
+   both, no distinction once compiled), then click **Reload Scripts**. One
+   entity can carry any number of different scripts at once (or the same one
+   more than once), matching Unity letting one GameObject carry many
+   MonoBehaviours -- each gets its own card in the Properties panel, with
+   its own "..." > Remove Script.
 
 ### Inspector-editable fields
 
 A script's own public fields can show up in the Properties panel, like
-Unity's `[SerializeField]`:
+Unity's `[SerializeField]` -- a real per-field attribute, Unreal
+`UPROPERTY()`-style:
 
 ```cpp
 class BounceBehaviour : public Duality::Behaviour {
 public:
-    float Amplitude = 40.0f;
-    float Speed = 8.0f;
-    Duality::EntityRef Target;   // drag an entity from the Hierarchy onto this field
+    DUALITY_PROPERTY() float Amplitude = 40.0f;
+    DUALITY_PROPERTY() float Speed = 8.0f;
+    DUALITY_PROPERTY() Duality::EntityRef Target;   // drag an entity from the Hierarchy onto this field
 
-    DUALITY_PROPERTIES(BounceBehaviour, Amplitude, Speed, Target)
+    DUALITY_PROPERTIES_AUTO()
     ...
 };
 ```
 
-One `DUALITY_PROPERTIES(ClassName, field1, field2, ...)` line lists
-already-declared field names once (no per-field macro, no repeated
-`MakeField()` calls) -- entirely optional, a script with no such line just
-has no Inspector fields, exactly like before this feature existed. There's
-no separate "component reference" field type: hold an `EntityRef` and call
-`ResolveEntityRef(ref).GetComponent<T>()` to reach a specific component on
-whatever entity it points at. Edits made in Edit mode are saved with the
-scene; edits made while Play is running affect the live object only and are
-lost on Stop (matching Unity's own behavior). One limitation: an `EntityRef`
-field does NOT survive a scene save/load round trip -- it always reloads as
-unset, since a raw handle isn't stable across a reload (see "Known
-limitations").
+`DUALITY_PROPERTY()` marks a field; `DUALITY_PROPERTIES_AUTO()` (one line,
+no arguments) declares the class's `Fields()` method. Both are entirely
+optional -- a script with neither just has no Inspector fields, exactly like
+before this feature existed. The actual `Fields()` *definition* is
+generated by `GameScripts/CodeGen/generate_fields.py`, a small pre-build
+step (wired into `GameScripts/CMakeLists.txt`) that scans every header
+under `GameScripts/Include/` for the `DUALITY_PROPERTY()` marker and emits
+`GameScripts/Generated/ScriptFields.generated.cpp` -- the same real
+code-generation approach Unreal Header Tool and Polyphase-Engine's own C#
+scripting layer use, since a bare per-field marker macro genuinely can't
+see its own attached declaration's name/type through the preprocessor
+alone. There's no separate "component reference" field type: hold an
+`EntityRef` and call `ResolveEntityRef(ref).GetComponent<T>()` to reach a
+specific component on whatever entity it points at. Edits made in Edit mode
+are saved with the scene; edits made while Play is running affect the live
+object only and are lost on Stop (matching Unity's own behavior). One
+limitation: an `EntityRef` field does NOT survive a scene save/load round
+trip -- it always reloads as unset, since a raw handle isn't stable across a
+reload (see "Known limitations").
 
 ### Lifecycle
 
@@ -460,9 +497,10 @@ repo (prebuilt binaries).
 
 ## Known limitations
 
-- No "New Project" flow yet, and no Project Hub / recent-projects list --
-  Open Project is a plain file-browse dialog for now.
-- `Entity` handles held across a "Load Scene"/"Open Project" click (e.g. the
+- No Project Hub / recent-projects list -- New Project/Open Project are
+  plain native file dialogs for now, no recent-project history.
+- `Entity` handles held across a "Load Scene"/"Open Project"/"New Project"
+  click (e.g. the
   current selection) can go stale, since either replaces the whole registry
   -- `SceneManager.LoadScene` handles this correctly for itself (resets
   `ctx.Selected`), but a script holding an `Entity` from before a scene

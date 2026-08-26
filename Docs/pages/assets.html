@@ -93,10 +93,11 @@ REGISTER_SCRIPTABLE_OBJECT(GameSettingsData) <span class="tok-com">// thay vì R
                     <a href="scripting-api.html">Scripting API</a>).
                 </p>
                 <div class="callout note">
-                    Không dùng <code>DUALITY_PROPERTIES</code> ở đây (macro đó cho
+                    Không dùng <code>DUALITY_PROPERTY()</code>/<code>DUALITY_PROPERTIES_AUTO()</code>
+                    ở đây (cặp macro đó, cộng bước code-generation phía sau, chỉ cho
                     <code>Behaviour</code>) — ScriptableObject dùng quy ước
-                    <code>static Fields()</code> hand-written gốc, có trước
-                    <code>DUALITY_PROPERTIES</code> và vẫn được giữ nguyên không migrate.
+                    <code>static Fields()</code> hand-written gốc, có trước cặp macro này và vẫn
+                    được giữ nguyên không migrate.
                 </div>
 
                 <h2>Import Settings</h2>
@@ -130,7 +131,23 @@ REGISTER_SCRIPTABLE_OBJECT(GameSettingsData) <span class="tok-com">// thay vì R
                     <li><strong>Double-click</strong> — vào thư mục, hoặc mở trực tiếp một file <code>.scene</code> làm scene đang chạy.</li>
                     <li><strong>Kéo ra</strong> — thả vào field <code>AssetRef</code> ở Properties để gán (theo GUID); thả vào icon thư mục để di chuyển file.</li>
                     <li><strong>Kéo file từ Explorer vào</strong> — import vào thư mục đang mở.</li>
-                    <li><strong>Chuột phải khoảng trống</strong> — <strong>Create → Folder/Scene/Material/ScriptableObject → &lt;Type&gt;</strong>.</li>
+                    <li><strong>Chuột phải khoảng trống</strong> — <strong>Create → Folder/Scene/UIDocument/Script/Material/ScriptableObject → &lt;Type&gt;</strong>.</li>
+                    <li>
+                        <strong>Create → Script</strong> — ghi sẵn một cặp <code>.h</code>/<code>.cpp</code>
+                        với khung <code>REGISTER_BEHAVIOUR(...)</code> đã điền, tên mặc định
+                        <code>NewBehaviour</code> (trùng thì <code>NewBehaviour1</code>,
+                        <code>NewBehaviour2</code>... — <strong>không</strong> theo kiểu
+                        <code>"NewScene (1).scene"</code> như những asset khác ở trên, vì tên file
+                        script còn phải là một tên class C++ hợp lệ, dùng thẳng trong
+                        <code>REGISTER_BEHAVIOUR(...)</code>). Không sinh <code>.meta</code>/đăng
+                        ký <code>AssetDatabase</code> — script được tra theo tên class, không theo
+                        GUID như asset thật. Đặt trong <code>Assets/Scripts/</code> (quy ước, giống
+                        Unity — nhưng chỗ nào dưới <code>Assets/</code> của project đang mở cũng
+                        được) là tự biên dịch chung vào <code>GameScripts</code> cùng script sẵn có
+                        của engine ở lần <strong>Reload Scripts</strong> kế tiếp, không cần sửa
+                        <code>GameScripts/CMakeLists.txt</code>. Xem
+                        <a href="scripting-api.html">Scripting API</a>.
+                    </li>
                     <li><strong>Chuột phải một file/folder</strong> — <strong>Rename</strong> (Enter/click-ra-ngoài lưu, Esc huỷ) / <strong>Delete</strong> (có xác nhận, không Recycle Bin).</li>
                 </ul>
 

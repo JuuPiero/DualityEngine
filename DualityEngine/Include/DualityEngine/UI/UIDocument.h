@@ -47,6 +47,12 @@ namespace Duality {
 
         bool IsLoaded() const { return m_Loaded; }
 
+        // Read-only access to the parsed (and style-resolved) element tree -- the <ui> root's
+        // own Children are the real document content. For introspection (the Editor's .uidoc
+        // asset inspector reads this for its tree summary) -- Instantiate is still the only way
+        // to turn this into real entities.
+        const UIElementNode& GetRoot() const { return m_Root; }
+
         // Creates one root entity per call (never shared/cached -- same "spawn a fresh
         // independent copy" contract as PrefabSerializer::Instantiate) holding the whole parsed
         // element tree as its descendants, parented under `parent` (Entity{} = scene root).

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "DualityEngine/Scripting/ScriptModule.h"
 
@@ -18,10 +19,14 @@ namespace Duality {
         static bool TryCreate(const std::string& className, Behaviour** outInstance, void (**outDestroy)(Behaviour*));
         static int Count();
 
-        // The DUALITY_PROPERTIES-declared fields for `className` (empty if the class never
-        // used that macro, or the class isn't registered at all) -- used by the Properties
-        // panel to show/edit a Behaviour's own Inspector fields, and by Scene::OnRuntimeStart/
-        // EntitySerialization to apply/persist BehaviourComponent::PropertyOverrides.
+        // Every registered class name, e.g. for the Properties panel's "Add Script" submenu.
+        // No particular order guaranteed (backed by an unordered_map).
+        static std::vector<std::string> GetAllClassNames();
+
+        // The DUALITY_PROPERTY-declared fields for `className` (empty if the class never used
+        // that marker, or the class isn't registered at all) -- used by the Properties panel
+        // to show/edit a script's own Inspector fields, and by Scene::OnRuntimeStart/
+        // EntitySerialization to apply/persist each ScriptInstance's own PropertyOverrides.
         static const std::vector<FieldHandle>& GetFields(const std::string& className);
     };
 

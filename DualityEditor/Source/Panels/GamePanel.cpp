@@ -45,17 +45,22 @@ namespace Duality {
                 StopPlaying(ctx);
         }
         ImGui::SameLine();
-        if (ImGui::Button("Reload Scripts")) {
+        bool reloading = (ScriptEngine::GetStatus() == ReloadStatus::Running);
+        ImGui::BeginDisabled(reloading);
+        if (ImGui::Button(reloading ? "Reload Scripts (reloading...)" : "Reload Scripts")) {
             // Reloading while Playing would free GameScripts.dll out from under every live
             // BehaviourComponent::Instance/Destroy still pointing into it (Scene::OnRuntimeUpdate
             // or OnRuntimeStop would then call through dangling function pointers) -- stop (and
             // revert to the pre-Play snapshot, same as the "Stop" button) first, so nothing is
             // left referencing the module being unloaded and scripts get reloaded against a
-            // clean, known scene state rather than whatever Play happened to leave behind.
+            // clean, known scene state rather than whatever Play happened to leave behind. This
+            // stays synchronous, on the main thread, BEFORE the async reload kicks off below --
+            // see ScriptEngine::ReloadAsync's own comment on why that ordering matters.
             if (ctx.IsPlaying)
                 StopPlaying(ctx);
-            ScriptEngine::Reload(ctx.BuildDirectory);
+            ScriptEngine::ReloadAsync(ctx.BuildDirectory);
         }
+        ImGui::EndDisabled();
 
         // Stats overlay -- FPS (Editor frame rate, smoothed) and draw calls (the
         // real dual-screen render pass below, both backends are unbatched so this

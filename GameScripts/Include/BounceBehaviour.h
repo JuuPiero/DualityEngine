@@ -7,18 +7,18 @@
 // script, but a real one -- edited here, hot-reloaded into the running
 // Editor via the "Reload Scripts" button, no code changes needed to also
 // compile it statically into a future device build. Also the demo script for
-// DUALITY_PROPERTIES (Inspector-editable public fields) and EntityRef
+// DUALITY_PROPERTY (Inspector-editable public fields) and EntityRef
 // (drag-drop an entity from the Hierarchy onto the Target field).
 class BounceBehaviour : public Duality::Behaviour {
 public:
     void OnCreate() override;
     void OnUpdate(float deltaTime) override;
 
-    float Amplitude = 40.0f;
-    float Speed = 8.0f;
-    Duality::EntityRef Target;
+    DUALITY_PROPERTY() float Amplitude = 40.0f;
+    DUALITY_PROPERTY() float Speed = 8.0f;
+    DUALITY_PROPERTY() Duality::EntityRef Target;
 
-    DUALITY_PROPERTIES(BounceBehaviour, Amplitude, Speed, Target)
+    DUALITY_PROPERTIES_AUTO()
 
 private:
     float m_Time = 0.0f;

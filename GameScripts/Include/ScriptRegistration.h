@@ -20,9 +20,11 @@ namespace Duality {
 
     namespace Detail {
         // Detects whether T declares `static std::vector<FieldHandle> Fields()` (via
-        // DUALITY_PROPERTIES, see Reflection/PropertyMacros.h) -- unlike ScriptableObject,
-        // a Behaviour is NOT required to declare one: existing scripts written before this
-        // feature existed have none, and must keep compiling with zero Inspector fields.
+        // DUALITY_PROPERTIES_AUTO(), see Reflection/PropertyMacros.h -- its body is
+        // generated separately by GameScripts/CodeGen/generate_fields.py) -- unlike
+        // ScriptableObject, a Behaviour is NOT required to declare one: existing scripts
+        // written before this feature existed have none, and must keep compiling with zero
+        // Inspector fields.
         template<typename T, typename = void>
         struct HasFieldsMethod : std::false_type {};
         template<typename T>

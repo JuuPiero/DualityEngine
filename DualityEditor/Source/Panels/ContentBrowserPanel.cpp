@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
 #include <string>
 
 #include <imgui.h>
@@ -86,6 +87,90 @@ namespace Duality {
         }
         std::string guid = AssetMeta::EnsureMetaFile(path);
         AssetDatabase::Register(guid, path.string());
+    }
+
+    // Writes a small starter .uidoc (Unity UI Toolkit-style declarative UI -- see
+    // DualityEngine/UI/UIDocument.h) to "<directory>/NewUIDocument[ (N)].uidoc" -- same
+    // numbered-suffix/3-step-registration shape as the other Create entries. Ships with one
+    // Panel + one Button using a class-selector stylesheet, so a first-time author sees a real,
+    // working example of the markup/CSS split rather than an empty shell.
+    static void CreateUIDocumentAsset(const std::filesystem::path& directory) {
+        std::filesystem::path path = directory / "NewUIDocument.uidoc";
+        for (int suffix = 1; std::filesystem::exists(path); suffix++)
+            path = directory / ("NewUIDocument (" + std::to_string(suffix) + ").uidoc");
+
+        std::ofstream file(path);
+        if (!file.is_open()) {
+            Log::Error("ContentBrowserPanel: failed to create UIDocument at '" + path.string() + "'");
+            return;
+        }
+        file <<
+            "<ui>\n"
+            "  <style>\n"
+            "    .panel { background-color: #202836; }\n"
+            "    .primary-button { normal-color: #3a6fa8; hover-color: #5aa9ff; pressed-color: #2a4f78; }\n"
+            "  </style>\n"
+            "  <Panel class=\"panel\" screen=\"Bottom\" anchor=\"middle-center\" width=\"200\" height=\"120\">\n"
+            "    <Button id=\"actionButton\" class=\"primary-button\" anchor=\"bottom-center\" y=\"10\" width=\"100\" height=\"32\"/>\n"
+            "  </Panel>\n"
+            "</ui>\n";
+        file.close();
+
+        std::string guid = AssetMeta::EnsureMetaFile(path);
+        AssetDatabase::Register(guid, path.string());
+    }
+
+    // Writes a brand-new Behaviour script (`.h` + `.cpp` pair) to "<directory>/<Name>.h"/".cpp"
+    // -- lets a project own its own gameplay scripts (compiled into GameScripts alongside the
+    // engine's shared/demo scripts, see GameScripts/CMakeLists.txt's
+    // DUALITY_PROJECT_SCRIPTS_DIR) with no GameScripts/CMakeLists.txt editing needed. Deliberately
+    // NOT the same numbered-suffix shape as CreateSceneAsset/CreateMaterialAsset above
+    // ("NewScene (1).scene" is fine since a scene's filename is purely cosmetic) -- a script's
+    // filename and its C++ class name (REGISTER_BEHAVIOUR's argument) need to match at creation
+    // time, so the suffix has to stay a valid C++ identifier ("NewBehaviour1", not
+    // "NewBehaviour (1)"). No AssetMeta/AssetDatabase registration -- scripts are looked up by
+    // class name (a plain string), never referenced by GUID like a real asset. Does NOT trigger
+    // a rebuild -- matches every other "add a script" flow already documented (README.md/
+    // GETTING_STARTED.md): click Reload Scripts afterward, same as always.
+    static void CreateScriptAsset(const std::filesystem::path& directory) {
+        std::string className = "NewBehaviour";
+        std::filesystem::path headerPath = directory / (className + ".h");
+        std::filesystem::path sourcePath = directory / (className + ".cpp");
+        for (int suffix = 1; std::filesystem::exists(headerPath) || std::filesystem::exists(sourcePath); suffix++) {
+            className = "NewBehaviour" + std::to_string(suffix);
+            headerPath = directory / (className + ".h");
+            sourcePath = directory / (className + ".cpp");
+        }
+
+        std::ofstream header(headerPath);
+        if (!header.is_open()) {
+            Log::Error("ContentBrowserPanel: failed to create '" + headerPath.string() + "'");
+            return;
+        }
+        header <<
+            "#pragma once\n\n"
+            "#include \"DualityEngine/Scene/Behaviour.h\"\n\n"
+            "class " << className << " : public Duality::Behaviour {\n"
+            "public:\n"
+            "    void OnCreate() override;\n"
+            "    void OnUpdate(float deltaTime) override;\n"
+            "};\n";
+        header.close();
+
+        std::ofstream source(sourcePath);
+        if (!source.is_open()) {
+            Log::Error("ContentBrowserPanel: failed to create '" + sourcePath.string() + "'");
+            return;
+        }
+        source <<
+            "#include \"" << className << ".h\"\n\n"
+            "#include \"ScriptRegistration.h\"\n\n"
+            "void " << className << "::OnCreate() {\n"
+            "}\n\n"
+            "void " << className << "::OnUpdate(float deltaTime) {\n"
+            "}\n\n"
+            "REGISTER_BEHAVIOUR(" << className << ")\n";
+        source.close();
     }
 
     static void DrawFolderIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max) {
@@ -395,6 +480,10 @@ namespace Duality {
                     CreateFolder(m_CurrentDirectory);
                 if (ImGui::MenuItem("Scene"))
                     CreateSceneAsset(m_CurrentDirectory);
+                if (ImGui::MenuItem("UIDocument"))
+                    CreateUIDocumentAsset(m_CurrentDirectory);
+                if (ImGui::MenuItem("Script"))
+                    CreateScriptAsset(m_CurrentDirectory);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Material"))
                     CreateMaterialAsset(m_CurrentDirectory);

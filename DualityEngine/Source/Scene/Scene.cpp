@@ -24,6 +24,7 @@
 #include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scripting/EngineServices.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
+#include "DualityEngine/UI/UIDocumentLoader.h"
 
 namespace Duality {
 
@@ -422,6 +423,20 @@ namespace Duality {
         return true;
     }
 
+    static bool EngineServices_InstantiateUIDocument(void* scenePtr, const char* uiDocumentAssetGuid, int screen, unsigned int* outHandle) {
+        std::string path = AssetDatabase::ResolvePath(uiDocumentAssetGuid);
+        if (path.empty())
+            return false;
+        const UIDocument& doc = UIDocumentLoader::Load(path);
+        if (!doc.IsLoaded())
+            return false;
+        Entity result = doc.Instantiate(*static_cast<Scene*>(scenePtr), static_cast<Screen>(screen));
+        if (!result)
+            return false;
+        *outHandle = static_cast<unsigned int>(result.Handle());
+        return true;
+    }
+
     static const EngineServices s_EngineServices = {
         &EngineServices_GetKey,
         &EngineServices_GetKeyDown,
@@ -448,6 +463,7 @@ namespace Duality {
         &EngineServices_Raycast2D,
         &EngineServices_Raycast3D,
         &EngineServices_ScreenPointToRay3D,
+        &EngineServices_InstantiateUIDocument,
     };
 
     Entity Scene::CreateEntity(const std::string& name) {
@@ -880,29 +896,31 @@ namespace Duality {
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
-            if (bc.Instance || bc.ClassName.empty())
-                continue;
+            for (auto& script : bc.Scripts) {
+                if (script.Instance || script.ClassName.empty())
+                    continue;
 
-            if (ScriptRegistry::TryCreate(bc.ClassName, &bc.Instance, &bc.Destroy)) {
-                bc.Instance->m_Entity = Entity(handle, this);
-                bc.Instance->SetEngineServices(&s_EngineServices);
+                if (ScriptRegistry::TryCreate(script.ClassName, &script.Instance, &script.Destroy)) {
+                    script.Instance->m_Entity = Entity(handle, this);
+                    script.Instance->SetEngineServices(&s_EngineServices);
 
-                // Apply Edit-mode Inspector overrides (see BehaviourComponent's own comment)
-                // onto the fresh instance's real fields before OnCreate() sees them --
-                // matches Unity's own field-initialization-before-Awake ordering.
-                const std::vector<FieldHandle>& fields = ScriptRegistry::GetFields(bc.ClassName);
-                for (auto& [name, value] : bc.PropertyOverrides) {
-                    for (auto& field : fields) {
-                        if (field.Name == name) {
-                            field.Set(bc.Instance, value);
-                            break;
+                    // Apply Edit-mode Inspector overrides (see ScriptInstance's own comment)
+                    // onto the fresh instance's real fields before OnCreate() sees them --
+                    // matches Unity's own field-initialization-before-Awake ordering.
+                    const std::vector<FieldHandle>& fields = ScriptRegistry::GetFields(script.ClassName);
+                    for (auto& [name, value] : script.PropertyOverrides) {
+                        for (auto& field : fields) {
+                            if (field.Name == name) {
+                                field.Set(script.Instance, value);
+                                break;
+                            }
                         }
                     }
-                }
 
-                bc.Instance->OnCreate();
-            } else {
-                Log::Error("Behaviour: unknown script class '" + bc.ClassName + "'");
+                    script.Instance->OnCreate();
+                } else {
+                    Log::Error("Behaviour: unknown script class '" + script.ClassName + "'");
+                }
             }
         }
     }
@@ -1033,12 +1051,14 @@ namespace Duality {
                 if (!m_Registry.all_of<BehaviourComponent>(self))
                     return;
                 auto& bc = m_Registry.get<BehaviourComponent>(self);
-                if (!bc.Instance)
-                    return;
-                if (isTrigger) {
-                    if (isBegin) bc.Instance->OnTriggerEnter(other); else bc.Instance->OnTriggerExit(other);
-                } else {
-                    if (isBegin) bc.Instance->OnCollisionEnter(other); else bc.Instance->OnCollisionExit(other);
+                for (auto& script : bc.Scripts) {
+                    if (!script.Instance)
+                        continue;
+                    if (isTrigger) {
+                        if (isBegin) script.Instance->OnTriggerEnter(other); else script.Instance->OnTriggerExit(other);
+                    } else {
+                        if (isBegin) script.Instance->OnCollisionEnter(other); else script.Instance->OnCollisionExit(other);
+                    }
                 }
             };
             fire(event.A, Entity(event.B, this), event.IsTrigger, event.IsBegin);
@@ -1074,19 +1094,23 @@ namespace Duality {
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
-            if (!bc.Instance)
+            if (bc.Scripts.empty())
                 continue;
 
             bool active = IsEffectivelyActive(Entity(handle, this));
-            if (active != bc.WasActiveLastFrame) {
+            for (auto& script : bc.Scripts) {
+                if (!script.Instance)
+                    continue;
+                if (active != script.WasActiveLastFrame) {
+                    if (active)
+                        script.Instance->OnEnable();
+                    else
+                        script.Instance->OnDisable();
+                    script.WasActiveLastFrame = active;
+                }
                 if (active)
-                    bc.Instance->OnEnable();
-                else
-                    bc.Instance->OnDisable();
-                bc.WasActiveLastFrame = active;
+                    script.Instance->OnUpdate(deltaTime);
             }
-            if (active)
-                bc.Instance->OnUpdate(deltaTime);
         }
     }
 
@@ -1094,12 +1118,14 @@ namespace Duality {
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
-            if (bc.Instance) {
-                if (bc.WasActiveLastFrame)
-                    bc.Instance->OnDisable();
-                bc.Instance->OnDestroy();
-                bc.Destroy(bc.Instance);
-                bc.Instance = nullptr;
+            for (auto& script : bc.Scripts) {
+                if (script.Instance) {
+                    if (script.WasActiveLastFrame)
+                        script.Instance->OnDisable();
+                    script.Instance->OnDestroy();
+                    script.Destroy(script.Instance);
+                    script.Instance = nullptr;
+                }
             }
         }
 

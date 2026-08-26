@@ -115,7 +115,7 @@ namespace Duality {
         // Same script class as the 2D ApiShowcase entity below -- demonstrates it adapting to a
         // 3D mesh entity instead of a sprite (ground-plane movement, yaw spin) via
         // GetEntity().HasComponent<T>(), see ApiShowcaseBehaviour.cpp.
-        testCube.AddComponent<BehaviourComponent>().ClassName = "ApiShowcaseBehaviour";
+        testCube.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "ApiShowcaseBehaviour" });
 
         Entity topQuad = m_Scene.CreateEntity("TopQuad");
         topQuad.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f, 0.0f };
@@ -128,7 +128,7 @@ namespace Duality {
         auto& bottomSprite = bottomQuad.AddComponent<SpriteRendererComponent>();
         bottomSprite.Size = { 60.0f, 60.0f };
         bottomSprite.Color = { 0.25f, 0.45f, 0.9f, 1.0f };
-        bottomQuad.AddComponent<BehaviourComponent>().ClassName = "BounceBehaviour";
+        bottomQuad.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "BounceBehaviour" });
 
         // Physics demo: a ball falls onto a static platform when Play
         // starts, proving Box2D integration + camera-relative multi-sprite
@@ -190,14 +190,22 @@ namespace Duality {
         apiShowcase.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, 60.0f, 0.0f };
         auto& showcaseSprite = apiShowcase.AddComponent<SpriteRendererComponent>();
         showcaseSprite.Size = { 32.0f, 32.0f };
-        apiShowcase.AddComponent<BehaviourComponent>().ClassName = "ApiShowcaseBehaviour";
+        apiShowcase.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "ApiShowcaseBehaviour" });
 
         // Physics Raycast API demo -- no Transform/collider of its own needed, just watches the
         // Bottom screen's pointer (BottomCamera above is Perspective, so ScreenPointToRay3D
         // works against it) and logs whichever 3D collider a click/touch hits (PhysicsGround3D/
         // PhysicsBall3D above, or TestCube3D). See GameScripts/RaycastDemoBehaviour.cpp.
         Entity raycastController = m_Scene.CreateEntity("RaycastController");
-        raycastController.AddComponent<BehaviourComponent>().ClassName = "RaycastDemoBehaviour";
+        raycastController.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RaycastDemoBehaviour" });
+
+        // Per-project scripts demo -- ProjectDemoBehaviour lives in
+        // SampleProject/Assets/Scripts/ (this PROJECT's own script, not GameScripts/'s shared
+        // ones), compiled in via GameScripts/CMakeLists.txt's DUALITY_PROJECT_SCRIPTS_DIR. Logs
+        // once on Play start -- a real, permanent proof this pipeline works, matching every
+        // other feature demo in this function.
+        Entity projectScriptDemo = m_Scene.CreateEntity("ProjectScriptDemo");
+        projectScriptDemo.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "ProjectDemoBehaviour" });
 
         // Demo Button (UI system) in the Bottom screen's bottom-right corner -- its own
         // Normal/Hover/Pressed color already shows interaction feedback with no script needed;
@@ -210,6 +218,21 @@ namespace Duality {
         testButtonRect.Size = { 80.0f, 32.0f };
         testButton.AddComponent<UIImageComponent>();
         testButton.AddComponent<UIButtonComponent>();
+
+        // UIDocument demo (Unity UI Toolkit-style declarative UI) -- spawns SampleProject's
+        // Assets/UI/DemoMenu.uidoc onto the Bottom screen at Play start (UIDocumentDemoBehaviour),
+        // a real markup+stylesheet document with two Buttons each wired to UIButtonClickBehaviour
+        // via the markup's own `behaviour="..."` attribute. Same 3-step asset registration
+        // Material's own setup above uses, since a Behaviour field's AssetRef needs a real guid
+        // to point at, not a raw path.
+        std::filesystem::path uiDocPath = m_Project->GetAssetsDirectory() + "/UI/DemoMenu.uidoc";
+        std::string uiDocGuid = AssetMeta::EnsureMetaFile(uiDocPath);
+        AssetDatabase::Register(uiDocGuid, uiDocPath.string());
+
+        Entity uiMenuController = m_Scene.CreateEntity("UIMenuController");
+        ScriptInstance uiMenuScript{ "UIDocumentDemoBehaviour" };
+        uiMenuScript.PropertyOverrides["MenuDocument"] = FieldValue(AssetRef{ uiDocGuid });
+        uiMenuController.AddComponent<BehaviourComponent>().Scripts.push_back(uiMenuScript);
 
         m_Selected = topQuad;
     }
@@ -238,10 +261,64 @@ namespace Duality {
         m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.scene";
         m_ContentBrowserPanel.SetRootDirectory(m_Project->GetAssetsDirectory());
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
+        // Compiles+loads THIS project's own Assets/Scripts (see GameScripts/CMakeLists.txt's
+        // DUALITY_PROJECT_SCRIPTS_DIR) alongside the engine's shared scripts, with no extra
+        // click needed. Safe to be async here even though Deserialize runs right after --
+        // SceneSerializer only stores ScriptInstance::ClassName strings, it doesn't need
+        // ScriptRegistry to already know the class until Play actually starts.
+        ScriptEngine::ReloadAsync(m_BuildDirectory);
 
         // A brand new project has no Scene.scene yet -- Deserialize logs an
         // error and leaves m_Scene empty in that case, same as clicking
         // "Load Scene" against a project that hasn't saved one yet.
+        SceneSerializer(m_Scene).Deserialize(m_ScenePath);
+    }
+
+    // "Create New Project" -- Project::New(directory, name) already existed and does
+    // everything needed (creates the directory + Assets/, writes the .dproj) but was
+    // never wired up to any Editor UI. Reuses FileDialogs::SaveFile (the same native dialog
+    // "Save Scene As..." already uses) instead of adding a new folder-picker dialog: the
+    // chosen path's filename (minus extension) becomes both the project's Name and a
+    // same-named subfolder created under its parent folder, e.g. picking
+    // "F:\Projects\MyGame.dproj" creates "F:\Projects\MyGame\MyGame.dproj" +
+    // "F:\Projects\MyGame\Assets\" -- matches SampleProject's own existing layout (a
+    // dedicated project folder with the .dproj at its own root) and mirrors how Unity's own
+    // "New Project" dialog asks for a location + name and creates location/name/ as the root.
+    void Application::NewProjectFromDialog() {
+        std::string path = FileDialogs::SaveFile(m_Window.GetNativeWindow(), "Duality Project (*.dproj)\0*.dproj\0");
+        if (path.empty())
+            return;
+
+        std::filesystem::path chosen(path);
+        std::string name = chosen.stem().string();
+        std::string directory = (chosen.parent_path() / name).string();
+
+        auto project = Project::New(directory, name);
+        if (!project)
+            return;
+
+        if (m_IsPlaying) {
+            m_Scene.OnRuntimeStop();
+            m_IsPlaying = false;
+        }
+
+        m_Project = project;
+        m_Scene = Scene(); // old Entity handles (including m_Selected) don't survive this
+        m_Selected = Entity();
+        m_TopSceneView = SceneViewCamera();       // re-seed from the new scene's own cameras
+        m_BottomSceneView = SceneViewCamera();    // instead of keeping the old project's pan/zoom
+        m_TopSceneView3D = SceneViewCamera3D();   // same reasoning, 3D orbit cameras
+        m_BottomSceneView3D = SceneViewCamera3D();
+        m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.scene";
+        m_ContentBrowserPanel.SetRootDirectory(m_Project->GetAssetsDirectory());
+        AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
+        // Same reasoning as OpenProjectFromDialog's own call -- compiles+loads this brand new
+        // project's (empty, until Content Browser's "Create > Script" is used) Assets/Scripts.
+        ScriptEngine::ReloadAsync(m_BuildDirectory);
+
+        // Always a no-op in practice (a brand new project's Assets/ is empty) -- kept for the
+        // exact same reason OpenProjectFromDialog keeps its own call: logs a normal "could not
+        // open" error and leaves m_Scene empty rather than needing a special case here.
         SceneSerializer(m_Scene).Deserialize(m_ScenePath);
     }
 
@@ -290,6 +367,13 @@ namespace Duality {
             }
 
             AudioEngine::Update();
+
+            // Finishes a background ScriptEngine::ReloadAsync build, if one just completed --
+            // must run on the main thread, and early in the frame, before any panel below reads
+            // ScriptRegistry (Properties panel's script fields, Add Component's "Add Script"
+            // submenu) -- see ScriptEngine::ReloadAsync's own comment for why this can't happen
+            // on the background thread itself (a real, reproducible crash otherwise).
+            ScriptEngine::PollMainThread();
 
             if (m_IsPlaying) {
                 // Before OnRuntimeUpdate, not after -- a script polling UIButtonComponent::
@@ -387,7 +471,7 @@ namespace Duality {
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
                 m_Fps, m_GameDrawCallCount,
                 m_ScenePath, m_BuildDirectory, m_RepoRoot, m_PlaySnapshot,
-                m_RequestOpenProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog
+                m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog
             };
 
             m_MenuBarPanel.OnImGuiRender(ctx);
@@ -401,6 +485,10 @@ namespace Duality {
             if (m_RequestOpenProject) {
                 m_RequestOpenProject = false;
                 OpenProjectFromDialog();
+            }
+            if (m_RequestNewProject) {
+                m_RequestNewProject = false;
+                NewProjectFromDialog();
             }
             if (m_RequestSaveSceneAs) {
                 m_RequestSaveSceneAs = false;

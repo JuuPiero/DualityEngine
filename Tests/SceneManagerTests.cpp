@@ -57,7 +57,7 @@ TEST_CASE("Behaviour::LoadScene forwards through EngineServices into SceneManage
 
     Scene scene;
     Entity e = scene.CreateEntity("Loader");
-    e.AddComponent<BehaviourComponent>().ClassName = "LoadSceneBehaviour";
+    e.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "LoadSceneBehaviour" });
 
     scene.OnRuntimeStart();
     scene.OnRuntimeUpdate(1.0f / 60.0f); // OnUpdate calls LoadScene("Scenes/Level2.scene")

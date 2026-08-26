@@ -15,14 +15,15 @@
                 <h1>Editor Panels</h1>
                 <p class="lede">
                     Editor desktop dựng bằng Dear ImGui, layout dock kiểu Unity/Cocos Creator mặc
-                    định. Mở project cố định tại <code>SampleProject/</code> khi khởi động (chưa
-                    có "New Project" dialog — mở project khác qua <strong>File → Open
-                    Project...</strong>, chọn file <code>.dproj</code>).
+                    định. Mở project cố định tại <code>SampleProject/</code> khi khởi động — tạo
+                    project mới qua <strong>File → New Project...</strong>, hoặc mở project có
+                    sẵn qua <strong>File → Open Project...</strong>, chọn file <code>.dproj</code>.
                 </p>
 
                 <h2 style="border-top:none;margin-top:0">Menu Bar</h2>
                 <table>
                     <tr><th>Mục</th><th>Hành vi</th></tr>
+                    <tr><td>New Project...</td><td>Hiện dialog Save (giống <strong>Save Scene As...</strong>) để chọn vị trí + tên — vd chọn <code>F:\Projects\MyGame.dproj</code> thì tạo folder project riêng <code>F:\Projects\MyGame\MyGame.dproj</code> + <code>F:\Projects\MyGame\Assets\</code> (giống layout <code>SampleProject/</code>, giống cách Unity hỏi vị trí+tên rồi tạo <code>location/name/</code>), rồi mở luôn project mới đó.</td></tr>
                     <tr><td>Open Project...</td><td>Chọn file <code>.dproj</code>; dừng Play nếu đang chạy, đổi hẳn project/scene/root Content Browser.</td></tr>
                     <tr><td>Save Scene</td><td>Ghi scene hiện tại ra <code>Assets/Scene.scene</code>.</td></tr>
                     <tr><td>Load Scene</td><td>Xoá sạch scene hiện tại rồi đọc lại từ đĩa — trước đây có bug nạp đè lên scene cũ thay vì xoá trước, đã fix.</td></tr>
@@ -58,11 +59,20 @@
                     hữu ích để ghim khi duyệt chỗ khác.
                 </p>
                 <p>
-                    Nếu entity đang chọn có <strong>Behaviour</strong> gắn class hợp lệ, một mục
-                    "Script Properties" hiện thêm bên dưới field <code>Class</code> — field public
-                    do <code>DUALITY_PROPERTIES</code> khai báo (xem
-                    <a href="architecture.html">Kiến trúc</a>). Sửa lúc Edit lưu cùng scene; sửa
-                    lúc đang Play chỉ ảnh hưởng object đang sống, mất khi Stop.
+                    Script gắn qua <strong>+ Add Component → Add Script</strong> — một submenu con
+                    liệt kê mọi class script đã đăng ký, chọn một class là gắn ngay. Danh sách này
+                    gộp chung script dùng riêng của project đang mở (<code>Assets/Scripts/</code>,
+                    tạo qua Content Browser's <strong>Create → Script</strong> — xem
+                    <a href="assets.html">Asset Pipeline</a>) lẫn script dùng chung cấp engine
+                    (<code>GameScripts/Include/</code>+<code>Source/</code>) — sau khi build, cả
+                    hai nằm chung một <code>ScriptRegistry</code>, không còn phân biệt được nguồn
+                    gốc ở đây. Một entity có thể mang nhiều script khác nhau cùng lúc (hoặc cùng
+                    một script nhiều lần), mỗi script hiện thành một card riêng trong mục
+                    <strong>Scripts</strong> của Properties, kèm field public đánh dấu
+                    <code>DUALITY_PROPERTY()</code> của riêng nó (xem
+                    <a href="architecture.html">Kiến trúc</a>) và nút "..." →
+                    <strong>Remove Script</strong> riêng để gỡ đúng script đó. Sửa lúc Edit lưu
+                    cùng scene; sửa lúc đang Play chỉ ảnh hưởng object đang sống, mất khi Stop.
                 </p>
 
                 <h2>Scene (panel edit)</h2>
@@ -98,8 +108,14 @@
                     dùng. <strong>Play/Stop</strong> chạy toàn bộ vòng đời runtime (script, physics
                     2D/3D, sự kiện va chạm/trigger, UI); Stop phục hồi <em>đúng</em> trạng thái
                     trước khi Play (xem <a href="architecture.html">Kiến trúc</a>).
-                    <strong>Reload Scripts</strong> build lại <code>GameScripts</code> và hot-load
-                    vào Editor đang chạy mà không khởi động lại.
+                    <strong>Reload Scripts</strong> build lại <code>GameScripts</code> trên một
+                    thread nền (không đứng hình Editor lúc build) rồi hot-load vào Editor đang
+                    chạy mà không khởi động lại — nút tự đổi thành "Reload Scripts (reloading...)"
+                    và bị disable trong lúc build đang chạy. Reconfigure (<code>cmake -B</code>)
+                    chạy trước build mỗi lần — cần thiết để nhặt được script project vừa tạo (hoặc
+                    project vừa đổi), không chỉ file đã sửa; <strong>File → Open Project...</strong>/
+                    <strong>New Project...</strong> cũng tự kích hoạt bước reload này, không cần
+                    bấm tay.
                 </p>
                 <p>
                     Click/chạm vào ảnh mỗi màn ở đây (lúc đang Play) được resolve đúng về toạ độ
@@ -112,7 +128,7 @@
                 <p>Xem log <code>Duality::Log</code> (kể cả <code>Behaviour::LogInfo/Warn/Error</code> từ script), tô màu theo mức (Trace/Info/Warn/Error), lọc theo mức + ô tìm kiếm text.</p>
 
                 <h2>Content Browser</h2>
-                <p>Xem chi tiết ở <a href="assets.html">Asset Pipeline</a>.</p>
+                <p>Xem chi tiết ở <a href="assets.html">Asset Pipeline</a> — gồm cả menu <strong>Create → Script</strong> để thêm script riêng cho project đang mở.</p>
 
                 <div class="page-nav">
                     <a class="prev" href="assets.html"><span class="dir">← Trước</span>Asset Pipeline</a>

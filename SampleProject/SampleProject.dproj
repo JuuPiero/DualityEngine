@@ -1,5 +1,6 @@
 {
   "AssetsDirectory": "Assets",
   "Name": "SampleProject",
+  "ScriptsDirectory": "Scripts",
   "StartScene": ""
 }

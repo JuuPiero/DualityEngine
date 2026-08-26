@@ -98,6 +98,11 @@ namespace Duality {
         // flag rather than a callback into Application's internals.
         bool& RequestOpenProject;
 
+        // Same request-flag convention as RequestOpenProject, for "New Project..." --
+        // shows a native Save dialog (reusing FileDialogs::SaveFile, same as "Save Scene
+        // As...") to pick a location + name, then calls Project::New instead of Project::Load.
+        bool& RequestNewProject;
+
         // Same request-flag convention as RequestOpenProject, for "Save Scene As..." --
         // lets a project accumulate additional scene files (e.g. for
         // Behaviour::LoadScene to target) without hand-copying JSON outside the Editor.

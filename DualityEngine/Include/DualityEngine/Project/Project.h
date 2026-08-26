@@ -8,6 +8,10 @@ namespace Duality {
     struct ProjectConfig {
         std::string Name = "Untitled";
         std::string AssetsDirectory = "Assets";
+        // Relative to AssetsDirectory, matching Unity's own Assets/Scripts/ convention -- where
+        // this project's own gameplay scripts live (compiled into GameScripts alongside the
+        // engine's shared demo scripts, see GameScripts/CMakeLists.txt's DUALITY_PROJECT_SCRIPTS_DIR).
+        std::string ScriptsDirectory = "Scripts";
         std::string StartScene;
     };
 
@@ -27,6 +31,7 @@ namespace Duality {
 
         const std::string& GetDirectory() const { return m_Directory; }
         std::string GetAssetsDirectory() const { return m_Directory + "/" + m_Config.AssetsDirectory; }
+        std::string GetScriptsDirectory() const { return GetAssetsDirectory() + "/" + m_Config.ScriptsDirectory; }
         ProjectConfig& GetConfig() { return m_Config; }
 
     private:

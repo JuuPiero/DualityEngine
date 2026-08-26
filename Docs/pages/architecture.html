@@ -96,35 +96,54 @@ TypeRegistry::Register&lt;SpriteRendererComponent&gt;(<span class="tok-str">"Spr
                     reflection tổng quát nặng hơn nhiều so với nhu cầu thực tế.
                 </div>
 
-                <h2>DUALITY_PROPERTIES — reflection cho script</h2>
+                <h2>DUALITY_PROPERTY() — reflection cho script</h2>
                 <p>
-                    <code>BehaviourComponent</code> chỉ biết tên class (chuỗi), không có field
-                    riêng để đăng ký với <code>TypeRegistry</code> theo cách trên (không gắn với
-                    một Entity theo kiểu "component" thông thường). Field public của một
-                    <code>Behaviour</code> hiện lên Properties panel qua macro riêng:
+                    <code>BehaviourComponent</code> giờ giữ một <code>std::vector&lt;ScriptInstance&gt;</code>
+                    — một entity có thể mang nhiều script khác nhau cùng lúc (hoặc cùng một script
+                    nhiều lần), mỗi <code>ScriptInstance</code> chỉ biết tên class (chuỗi) của
+                    riêng nó, không có field riêng để đăng ký với <code>TypeRegistry</code> theo
+                    cách trên (không gắn với một Entity theo kiểu "component" thông thường). Field
+                    public của một <code>Behaviour</code> hiện lên Properties panel — mỗi script
+                    trong <strong>Scripts</strong> một card riêng — qua một marker cấp field:
                 </p>
                 <pre><code><span class="tok-kw">class</span> BounceBehaviour : <span class="tok-kw">public</span> Duality::Behaviour {
 <span class="tok-kw">public</span>:
-    <span class="tok-type">float</span> Amplitude = <span class="tok-num">40.0f</span>;
-    <span class="tok-type">float</span> Speed = <span class="tok-num">8.0f</span>;
-    Duality::EntityRef Target;
+    DUALITY_PROPERTY() <span class="tok-type">float</span> Amplitude = <span class="tok-num">40.0f</span>;
+    DUALITY_PROPERTY() <span class="tok-type">float</span> Speed = <span class="tok-num">8.0f</span>;
+    DUALITY_PROPERTY() Duality::EntityRef Target;
 
-    DUALITY_PROPERTIES(BounceBehaviour, Amplitude, Speed, Target)
+    DUALITY_PROPERTIES_AUTO()
 };</code></pre>
                 <p>
-                    Một dòng macro duy nhất liệt kê tên field đã khai báo, sinh ra
-                    <code>static std::vector&lt;FieldHandle&gt; Fields()</code> qua một FOR_EACH
-                    macro biến thiên (portable, không cần code-generation ngoài) — hoàn toàn tuỳ
-                    chọn, script không có dòng này thì đơn giản là không có field nào hiện ở
-                    Inspector.
+                    <code>DUALITY_PROPERTY()</code> đánh dấu field muốn hiện ở Inspector (no-op
+                    lúc compile thật); <code>DUALITY_PROPERTIES_AUTO()</code> (một dòng, không
+                    tham số) khai báo method <code>static std::vector&lt;FieldHandle&gt; Fields()</code>
+                    của class. <code>Fields()</code> thật do một bước code-generation lúc build
+                    sinh ra — <code>GameScripts/CodeGen/generate_fields.py</code> (gắn vào
+                    <code>GameScripts/CMakeLists.txt</code> như một pre-build step) quét mọi header
+                    dưới <code>GameScripts/Include/</code> tìm marker <code>DUALITY_PROPERTY()</code>,
+                    rồi emit <code>GameScripts/Generated/ScriptFields.generated.cpp</code>. Cả hai
+                    macro hoàn toàn tuỳ chọn — script không có dòng nào thì đơn giản là không có
+                    field nào hiện ở Inspector.
+                </p>
+                <p>
+                    Từ khi project có thể tự mang script riêng (xem
+                    <a href="scripting-api.html">Scripting API</a>), <code>generate_fields.py</code>
+                    quét thêm cả <code>Assets/Scripts/</code> của project đang mở (nếu có) song
+                    song với <code>GameScripts/Include/</code> — field đánh dấu
+                    <code>DUALITY_PROPERTY()</code> trên script riêng của project hiện lên
+                    Properties panel y hệt script dùng chung của engine.
                 </p>
                 <div class="callout note">
-                    <span class="callout-title">Vì sao không phải <code>DUALITY_PROPERTY() float speed;</code> trên từng field?</span>
-                    Không khả thi trong C++ thuần không có bước code-generation quét header — một
-                    macro gắn trên một field không có cách nào tự biết tên/kiểu của chính nó hay
-                    với tới danh sách field của cả class. <code>DUALITY_PROPERTIES</code> (lấy ý
-                    tưởng từ thư viện <code>ImReflect</code> trong hệ sinh thái ImGui) đạt cùng mục
-                    tiêu "không cần viết tay <code>MakeField()</code>" bằng một dòng ở cấp class.
+                    <span class="callout-title">Vì sao cần một bước code-generation quét header?</span>
+                    Một macro gắn trên riêng một field, tự nó, không có cách nào biết tên/kiểu của
+                    chính field đó hay "nhìn" tới danh sách field khác trong cùng class — thuần
+                    preprocessor không làm được, đúng như Unreal Header Tool phải quét
+                    <code>UPROPERTY()</code> trước khi compiler thật chạy (tầng scripting C# của
+                    Polyphase-Engine tự giải bài toán tương tự cùng một lý do).
+                    <code>generate_fields.py</code> làm đúng việc đó cho <code>DUALITY_PROPERTY()</code>
+                    — macro chỉ còn là một marker vô hại lúc compile, còn <code>Fields()</code>
+                    thật do script sinh ra từ source.
                 </div>
 
                 <h2>Vòng đời Play/Stop</h2>

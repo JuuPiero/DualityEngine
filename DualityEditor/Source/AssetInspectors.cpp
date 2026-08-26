@@ -14,7 +14,10 @@
 #include "DualityEngine/Asset/MaterialLoader.h"
 #include "DualityEngine/Asset/ScriptableObjectLoader.h"
 #include "DualityEngine/Asset/TextureImportSettings.h"
+#include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scripting/ScriptableObjectRegistry.h"
+#include "DualityEngine/UI/UIDocument.h"
+#include "DualityEngine/UI/UIDocumentLoader.h"
 
 using json = nlohmann::json;
 
@@ -163,6 +166,47 @@ namespace Duality {
                 AudioImportSettings::Save(path, settings);
         }
 
+        // Recursively lists tag (+ id, if any) for the element tree summary -- the .uidoc
+        // equivalent of DrawPrefabAsset's "Components on root" bullet list above. Two-space
+        // indent per depth, matching how a human would read nested markup.
+        void DrawUIElementTree(const UIElementNode& node, int depth) {
+            std::string label = node.Tag;
+            if (!node.Id.empty())
+                label += " #" + node.Id;
+            ImGui::BulletText("%*s%s", depth * 2, "", label.c_str());
+            for (auto& child : node.Children)
+                DrawUIElementTree(child, depth + 1);
+        }
+
+        // Markup is hand-edited externally (no visual editor -- see UIDocument.h's own comment
+        // on why the XML-declarative on-click binding style was deliberately not built), so
+        // this is a read-only summary + two actions: "Reload" re-parses the cached
+        // UIDocumentLoader entry after an external edit, "Instantiate into Scene" spawns a real
+        // copy into the currently-open scene for a quick visual check.
+        void DrawUIDocumentAsset(const std::string& path, EditorContext& ctx) {
+            if (ImGui::Button("Reload"))
+                UIDocumentLoader::Reload(path);
+
+            const UIDocument& doc = UIDocumentLoader::Load(path);
+            if (!doc.IsLoaded()) {
+                ImGui::TextDisabled("<failed to parse -- see the Console panel for the reason>");
+                return;
+            }
+
+            static int s_ScreenIndex = 1; // Bottom by default -- matches the "Create > UIDocument" starter template
+            const char* screens[] = { "Top", "Bottom" };
+            ImGui::SetNextItemWidth(90.0f);
+            ImGui::Combo("##InstantiateScreen", &s_ScreenIndex, screens, 2);
+            ImGui::SameLine();
+            if (ImGui::Button("Instantiate into Scene"))
+                doc.Instantiate(ctx.SceneRef, s_ScreenIndex == 0 ? Screen::Top : Screen::Bottom);
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Elements:");
+            for (auto& child : doc.GetRoot().Children)
+                DrawUIElementTree(child, 0);
+        }
+
     }
 
     void RegisterBuiltinAssetInspectors() {
@@ -171,6 +215,7 @@ namespace Duality {
         AssetInspectorRegistry::Register({ ".asset", "ScriptableObject", &DrawScriptableObjectAsset });
         AssetInspectorRegistry::Register({ ".scene", "Scene", &DrawSceneAsset });
         AssetInspectorRegistry::Register({ ".wav", "Audio Clip", &DrawAudioAsset });
+        AssetInspectorRegistry::Register({ ".uidoc", "UIDocument", &DrawUIDocumentAsset });
 
         // Same recognized-extension list as ThumbnailCache::IsImageFile -- kept as its own
         // literal list here rather than a shared constant, one line of duplication, matching

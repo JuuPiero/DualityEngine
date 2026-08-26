@@ -53,7 +53,18 @@
                     </li>
                     <li class="step">
                         <div class="step-title">Viết script di chuyển</div>
-                        <p>Tạo <code>GameScripts/Include/PlayerMoveBehaviour.h</code>:</p>
+                        <p>
+                            Trong <strong>Content Browser</strong>, mở (hoặc tạo) thư mục
+                            <code>Assets/Scripts/</code> của <code>SampleProject</code>, chuột phải
+                            khoảng trống → <strong>Create → Script</strong> — sinh sẵn cặp
+                            <code>NewBehaviour.h</code>/<code>NewBehaviour.cpp</code> với khung
+                            <code>REGISTER_BEHAVIOUR(NewBehaviour)</code> đã điền. Đổi tên cả hai
+                            file (chuột phải → <strong>Rename</strong>) thành
+                            <code>PlayerMoveBehaviour.h</code>/<code>.cpp</code>, rồi mở và sửa nội
+                            dung bên trong (tên class + tham số <code>REGISTER_BEHAVIOUR</code>
+                            phải đổi theo tên file — Rename chỉ đổi tên file, không tự sửa code)
+                            thành:
+                        </p>
                         <pre><code><span class="tok-kw">#pragma once</span>
 <span class="tok-kw">#include</span> <span class="tok-str">"DualityEngine/Scene/Behaviour.h"</span>
 
@@ -61,12 +72,12 @@
 <span class="tok-kw">public</span>:
     <span class="tok-type">void</span> <span class="tok-fn">OnUpdate</span>(<span class="tok-type">float</span> deltaTime) <span class="tok-kw">override</span>;
 
-    <span class="tok-com">// Field này hiện trong Properties panel nhờ DUALITY_PROPERTIES bên dưới</span>
-    <span class="tok-type">float</span> Speed = <span class="tok-num">150.0f</span>;
+    <span class="tok-com">// DUALITY_PROPERTY() đánh dấu field này hiện trong Properties panel</span>
+    DUALITY_PROPERTY() <span class="tok-type">float</span> Speed = <span class="tok-num">150.0f</span>;
 
-    DUALITY_PROPERTIES(PlayerMoveBehaviour, Speed)
+    DUALITY_PROPERTIES_AUTO()
 };</code></pre>
-                        <p>Và <code>GameScripts/Source/PlayerMoveBehaviour.cpp</code>:</p>
+                        <p>Và <code>PlayerMoveBehaviour.cpp</code>:</p>
                         <pre><code><span class="tok-kw">#include</span> <span class="tok-str">"PlayerMoveBehaviour.h"</span>
 <span class="tok-kw">#include</span> <span class="tok-str">"ScriptRegistration.h"</span>
 
@@ -80,10 +91,13 @@
 
 REGISTER_BEHAVIOUR(PlayerMoveBehaviour)</code></pre>
                         <p>
-                            Thêm 2 file vào <code>GameScripts/CMakeLists.txt</code> (cạnh các entry
-                            có sẵn), gắn <code>PlayerMoveBehaviour</code> vào field <strong>Class</strong>
-                            của <strong>+ Add Component → Behaviour</strong> trên entity Player, rồi
-                            bấm <strong>Reload Scripts</strong> (toolbar panel Game).
+                            Không cần sửa <code>GameScripts/CMakeLists.txt</code> — script nằm
+                            trong <code>Assets/Scripts/</code> của project đang mở tự được nhặt vào
+                            lần build kế tiếp. Bấm <strong>Reload Scripts</strong> (toolbar panel
+                            Game) — build chạy nền, nút disable tới khi xong. Xong thì
+                            <strong>+ Add Component → Add Script → PlayerMoveBehaviour</strong>
+                            trên entity Player để gắn script (submenu liệt kê mọi class đã đăng
+                            ký, gồm cả script riêng của project lẫn script dùng chung của engine).
                         </p>
                     </li>
                     <li class="step">
@@ -92,7 +106,10 @@ REGISTER_BEHAVIOUR(PlayerMoveBehaviour)</code></pre>
                             Tạo entity <code>Coin</code> — <strong>Sprite Renderer</strong> (màu
                             vàng) + <strong>Circle Collider 2D</strong> với <code>Is Trigger</code>
                             bật (không cần Rigidbody — một collider tĩnh không Rigidbody vẫn hoạt
-                            động như static). Script nhặt, <code>CollectCoinBehaviour.h</code>/<code>.cpp</code>:
+                            động như static). Script nhặt: lại Content Browser → <code>Assets/Scripts/</code>
+                            → <strong>Create → Script</strong> → Rename cặp file thành
+                            <code>CollectCoinBehaviour.h</code>/<code>.cpp</code>, sửa nội dung
+                            (class + <code>REGISTER_BEHAVIOUR</code>) thành:
                         </p>
                         <pre><code><span class="tok-kw">#pragma once</span>
 <span class="tok-kw">#include</span> <span class="tok-str">"DualityEngine/Scene/Behaviour.h"</span>
@@ -112,7 +129,7 @@ REGISTER_BEHAVIOUR(PlayerMoveBehaviour)</code></pre>
     <span class="tok-fn">LogInfo</span>(<span class="tok-str">"Nhặt được coin!"</span>); <span class="tok-com">// hiện trong panel Console</span>
     <span class="tok-fn">SetActive</span>(<span class="tok-kw">false</span>); <span class="tok-com">// biến mất khỏi Scene view + Game view ngay lập tức</span>
 }</code></pre>
-                        <p>Gắn script này vào entity <code>Coin</code>, thêm file vào CMakeLists, Reload Scripts.</p>
+                        <p>Bấm <strong>Reload Scripts</strong> (không cần đụng tới <code>GameScripts/CMakeLists.txt</code>), rồi <strong>+ Add Component → Add Script → CollectCoinBehaviour</strong> trên entity <code>Coin</code>.</p>
                         <div class="callout">
                             Cả hai phía của một cặp chạm đều nhận callback  — script
                             đặt ở <code>Coin</code> hay <code>Player</code> đều được, chỉ cần đúng

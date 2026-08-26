@@ -58,6 +58,7 @@ namespace Duality {
         project->m_Directory = DirectoryOf(projectFilePath);
         project->m_Config.Name = root.value("Name", "Untitled");
         project->m_Config.AssetsDirectory = root.value("AssetsDirectory", "Assets");
+        project->m_Config.ScriptsDirectory = root.value("ScriptsDirectory", "Scripts");
         project->m_Config.StartScene = root.value("StartScene", "");
 
         s_ActiveProject = project;
@@ -69,6 +70,7 @@ namespace Duality {
         json root;
         root["Name"] = m_Config.Name;
         root["AssetsDirectory"] = m_Config.AssetsDirectory;
+        root["ScriptsDirectory"] = m_Config.ScriptsDirectory;
         root["StartScene"] = m_Config.StartScene;
 
         std::ofstream file(m_ProjectFilePath);

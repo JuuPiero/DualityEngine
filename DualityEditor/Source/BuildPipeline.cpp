@@ -10,10 +10,12 @@
 
 #include <nlohmann/json.hpp>
 
+#include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Asset/AudioImportSettings.h"
 #include "DualityEngine/Asset/TextureImportSettings.h"
 #include "DualityEngine/Core/Log.h"
+#include "DualityEngine/Project/Project.h"
 
 using json = nlohmann::json;
 
@@ -210,6 +212,14 @@ namespace Duality {
             Log::Warn("BuildPipeline: a build is already in progress");
             return;
         }
+        // Mirrors the existing BuildFor3DSAsync/BuildForPCAsync single-build-at-a-time
+        // convention (they already share one s_Status even though they target different build
+        // trees) -- ScriptEngine::ReloadAsync runs `cmake --build` too, so it's folded into the
+        // same one-background-build-task-at-a-time gate rather than letting it overlap silently.
+        if (ScriptEngine::GetStatus() == ReloadStatus::Running) {
+            Log::Warn("BuildPipeline: a script reload is already in progress, try again once it finishes");
+            return;
+        }
         s_Status = BuildStatus::Running;
         // Detached, not joined -- MenuBarPanel polls GetStatus() instead of
         // waiting on the thread. Closing the Editor mid-build leaves the
@@ -240,12 +250,20 @@ namespace Duality {
         // Delegates to build-3ds.bat (a real, separately-parsed script file) rather than
         // hand-building a chained cmd.exe command string here -- keeps exactly one place
         // (build-3ds.bat) that knows how to configure/build the 3DS target, so everything a
-        // plain double-click of that script does is exactly what this button does. Routed
-        // through RunCommand (see its own comment above) for the same cmd.exe /c quoting
-        // reason as CookAssets's tex3ds invocation, even though this particular command only
-        // has one quoted argument -- consistent handling beats relying on which specific
-        // shape of command cmd.exe happens to preserve unwrapped.
-        std::string command = "\"" + repoRoot + "\\build-3ds.bat\"";
+        // plain double-click of that script does is exactly what this button does. Passes the
+        // active project's own Assets/Scripts directory as %1 (build-3ds.bat forwards it to its
+        // own cmake configure as -DDUALITY_PROJECT_SCRIPTS_DIR=..., same as ScriptEngine::Reload
+        // does for the desktop build -- see GameScripts/CMakeLists.txt) so a project's own
+        // scripts compile into the STATIC 3DS-linked GameScripts too. Routed through RunCommand
+        // (see its own comment above) for the same cmd.exe /c quoting reason as CookAssets's
+        // tex3ds invocation -- this is now a genuine multi-quoted-argument command (script path
+        // + scripts dir), exactly the shape RunCommand's wrapping exists to handle correctly.
+        // Resolved to absolute + forward-slash here for the exact same reason
+        // ScriptEngine::Reload's own copy of this logic is -- see its comment there.
+        std::string projectScriptsDir;
+        if (auto project = Project::GetActive())
+            projectScriptsDir = std::filesystem::absolute(project->GetScriptsDirectory()).generic_string();
+        std::string command = "\"" + repoRoot + "\\build-3ds.bat\" \"" + projectScriptsDir + "\"";
         if (RunCommand(command) != 0) {
             Log::Error("BuildPipeline: 3DS build failed");
             return false;
@@ -276,6 +294,12 @@ namespace Duality {
     void BuildPipeline::BuildForPCAsync(const std::string& buildDirectory) {
         if (s_Status == BuildStatus::Running) {
             Log::Warn("BuildPipeline: a build is already in progress");
+            return;
+        }
+        // Same reasoning as BuildFor3DSAsync's check above -- BuildForPC in particular shares
+        // the EXACT same Ninja tree ScriptEngine::Reload builds GameScripts in.
+        if (ScriptEngine::GetStatus() == ReloadStatus::Running) {
+            Log::Warn("BuildPipeline: a script reload is already in progress, try again once it finishes");
             return;
         }
         s_Status = BuildStatus::Running;

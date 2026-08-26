@@ -6,7 +6,7 @@
 
 #include "DualityEngine/Input/KeyCode.h"
 #include "DualityEngine/Physics/RaycastHit.h"
-#include "DualityEngine/Reflection/PropertyMacros.h" // brings in DUALITY_PROPERTIES() for scripts
+#include "DualityEngine/Reflection/PropertyMacros.h" // brings in DUALITY_PROPERTY()/DUALITY_PROPERTIES_AUTO() for scripts
 #include "DualityEngine/Scene/ActiveComponent.h"
 #include "DualityEngine/Scene/Scene.h" // Entity's GetComponent<T>/etc. templates are *defined*
                                        // here (after Scene is complete), not in Entity.h -- see
@@ -18,11 +18,11 @@ namespace Duality {
     // The MonoBehaviour-equivalent base class for gameplay code, written as
     // plain C++ (no embedded scripting language). Subclasses can declare
     // Inspector-editable public fields (Unity's [SerializeField]-equivalent)
-    // via DUALITY_PROPERTIES (Reflection/PropertyMacros.h) -- Edit-mode
-    // edits are stored on BehaviourComponent::PropertyOverrides and applied
-    // onto the real instance right before OnCreate() at Play start (see
-    // Scene::OnRuntimeStart). DLL hot-reload for fast desktop iteration is
-    // still a later phase.
+    // via DUALITY_PROPERTY()/DUALITY_PROPERTIES_AUTO() (Reflection/PropertyMacros.h) --
+    // Edit-mode edits are stored on the owning ScriptInstance::PropertyOverrides
+    // (Components.h) and applied onto the real instance right before OnCreate()
+    // at Play start (see Scene::OnRuntimeStart). DLL hot-reload for fast desktop
+    // iteration is still a later phase.
     class Behaviour {
     public:
         virtual ~Behaviour() = default;
@@ -167,6 +167,19 @@ namespace Duality {
                 return Entity{};
             unsigned int handle = 0;
             if (!m_Services->Instantiate(m_Entity.GetScene(), prefabAssetGuid.c_str(), &handle))
+                return Entity{};
+            return Entity(static_cast<entt::entity>(handle), m_Entity.GetScene());
+        }
+
+        // Unity UI Toolkit-style declarative UI -- `uiDocumentAssetGuid` is an AssetRef's Guid
+        // pointing at a ".uidoc" markup asset (see UI/UIDocument.h), instantiated onto `screen`
+        // as a new root entity in this Behaviour's own Scene. Returns an empty Entity if the
+        // guid doesn't resolve to a loadable/parseable document.
+        Entity InstantiateUIDocument(const std::string& uiDocumentAssetGuid, Screen screen) const {
+            if (!m_Services)
+                return Entity{};
+            unsigned int handle = 0;
+            if (!m_Services->InstantiateUIDocument(m_Entity.GetScene(), uiDocumentAssetGuid.c_str(), static_cast<int>(screen), &handle))
                 return Entity{};
             return Entity(static_cast<entt::entity>(handle), m_Entity.GetScene());
         }

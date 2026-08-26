@@ -65,8 +65,19 @@ if exist "%BUILD_DIR%" (
     )
 )
 
+REM %1, if given, is the active Project's own Assets/Scripts directory (passed by
+REM BuildPipeline::BuildFor3DS -- see GameScripts/CMakeLists.txt's
+REM DUALITY_PROJECT_SCRIPTS_DIR) so a project's own scripts get compiled into the
+REM STATIC 3DS-linked GameScripts too, not just the desktop SHARED DLL. Empty when
+REM this script is run directly (double-click/plain invocation, no active project) --
+REM matches that CMake cache variable's own empty default, a graceful no-op. Passed
+REM through here as a plain Windows-style path, unconverted -- GameScripts/
+REM CMakeLists.txt derives its own MSYS-mount-notation copy internally (gated to
+REM CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS") for the file(GLOB)/EXISTS calls that
+REM need it, the same "F:/..." -> "/f/..." transform this script's own DKP_MSYS
+REM derivation above uses, but done in one place instead of duplicated here.
 echo Configuring for Nintendo 3DS (devkitARM)...
-cmake -S . -B "%BUILD_DIR%" -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="%DKP_MSYS%/cmake/3DS.cmake" -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B "%BUILD_DIR%" -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="%DKP_MSYS%/cmake/3DS.cmake" -DCMAKE_BUILD_TYPE=Release -DDUALITY_PROJECT_SCRIPTS_DIR="%~1"
 if errorlevel 1 goto :error
 
 echo.
