@@ -160,14 +160,16 @@
       "Active": {
         "Active": true
       },
-      "Behaviour": {
-        "Class": "BallTest",
-        "PropertyOverrides": null
-      },
       "Name": {
         "Name": "Ball"
       },
       "Parent": -1,
+      "Scripts": [
+        {
+          "ClassName": "BallTest",
+          "PropertyOverrides": null
+        }
+      ],
       "Sprite Renderer": {
         "Color": [
           1.0,
@@ -197,7 +199,7 @@
         ],
         "Translation": [
           0.0,
-          -171.0,
+          41.0,
           0.0
         ]
       }

@@ -74,13 +74,16 @@
       "Active": {
         "Active": true
       },
-      "Behaviour": {
-        "Class": "ApiShowcaseBehaviour"
-      },
       "Name": {
         "Name": "ApiShowcase"
       },
       "Parent": -1,
+      "Scripts": [
+        {
+          "ClassName": "BounceBehaviour",
+          "PropertyOverrides": null
+        }
+      ],
       "Sprite Renderer": {
         "Color": [
           1.0,
@@ -117,7 +120,7 @@
     },
     {
       "Active": {
-        "Active": true
+        "Active": false
       },
       "Mesh Renderer": {
         "Material": "",
@@ -166,7 +169,7 @@
     },
     {
       "Active": {
-        "Active": true
+        "Active": false
       },
       "Box Collider 3D": {
         "Density": 1.0,
@@ -237,8 +240,8 @@
       },
       "Parent": -1,
       "Rigidbody 2D": {
-        "Fixed Rotation": false,
-        "Body Type": "Dynamic"
+        "Body Type": "Dynamic",
+        "Fixed Rotation": false
       },
       "Sprite Renderer": {
         "Color": [
@@ -297,8 +300,8 @@
       },
       "Parent": -1,
       "Rigidbody 2D": {
-        "Fixed Rotation": false,
-        "Body Type": "Static"
+        "Body Type": "Static",
+        "Fixed Rotation": false
       },
       "Sprite Renderer": {
         "Color": [
@@ -336,10 +339,7 @@
     },
     {
       "Active": {
-        "Active": true
-      },
-      "Behaviour": {
-        "Class": "BounceBehaviour"
+        "Active": false
       },
       "Name": {
         "Name": "BottomQuad"
@@ -381,7 +381,7 @@
     },
     {
       "Active": {
-        "Active": true
+        "Active": false
       },
       "Name": {
         "Name": "TopQuad"
@@ -424,9 +424,6 @@
     {
       "Active": {
         "Active": true
-      },
-      "Behaviour": {
-        "Class": "ApiShowcaseBehaviour"
       },
       "Mesh Renderer": {
         "Material": "f88066254862338300d1e7afc9357c8e",
@@ -531,6 +528,40 @@
           200.0,
           120.0,
           0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Material": "5f6708385448b38d8085226cc0d52916",
+        "Mesh": "970087cbca18450197f760ea437bf3a9",
+        "Primitive": "Cube"
+      },
+      "Name": {
+        "Name": "Megaman"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          -180.0,
+          -190.85716247558594,
+          0.0
+        ],
+        "Scale": [
+          60.0,
+          60.0,
+          60.0
+        ],
+        "Translation": [
+          153.59226989746094,
+          185.78237915039063,
+          -178.32643127441406
         ]
       }
     }

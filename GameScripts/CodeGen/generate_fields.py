@@ -35,6 +35,23 @@ import sys
 
 CLASS_RE = re.compile(r"\bclass\s+(\w+)\s*:\s*public\s+(?:Duality::)?Behaviour\b")
 FIELD_RE = re.compile(r"\bDUALITY_PROPERTY\(\)\s+([\w:<>]+)\s+(\w+)\s*(?:=.*)?;")
+MSYS_DRIVE_PATH_RE = re.compile(r"^/([A-Za-z])/(.*)$")
+
+
+def format_include_path(path):
+    """Formats a path for a generated C++ #include.
+
+    MSYS-hosted CMake can pass its own source directory as ``/d/...`` even
+    when this script is run by native Windows Python.  That spelling is not a
+    portable absolute Windows include path, so turn just that MSYS drive form
+    into the forward-slash Windows spelling expected by the generated source.
+    Leave normal POSIX paths untouched for non-Windows builds.
+    """
+    path = path.replace("\\", "/")
+    match = MSYS_DRIVE_PATH_RE.match(path)
+    if match:
+        return f"{match.group(1).upper()}:/{match.group(2)}"
+    return path
 
 
 def scan_header(path):
@@ -96,7 +113,7 @@ def main():
     all_classes = []  # (full_header_path, class_name, [field_name, ...])
     for scan_dir in scan_dirs:
         for header in sorted(f for f in os.listdir(scan_dir) if f.endswith(".h")):
-            full_path = os.path.join(scan_dir, header).replace("\\", "/")
+            full_path = os.path.join(scan_dir, header)
             for class_name, fields in scan_header(full_path):
                 all_classes.append((full_path, class_name, fields))
 
@@ -106,7 +123,7 @@ def main():
         "",
     ]
     for full_path, _, _ in all_classes:
-        lines.append(f'#include "{full_path}"')
+        lines.append(f'#include "{format_include_path(full_path)}"')
     if all_classes:
         lines.append("")
 

@@ -1,6 +1,6 @@
 # Blender 5.1.2
 # www.blender.org
-mtllib Falza And Gregar.mtl
+mtllib test.mtl
 o 5_Megaman_1_0_0.002
 v 1.104580 1.164643 0.030778
 v 1.099692 1.160611 0.033855
