@@ -64,3 +64,50 @@ TEST_CASE("MeshLoader returns empty Vertices for a nonexistent file") {
     const MeshData& data = MeshLoader::Load("this_mesh_does_not_exist.obj");
     CHECK_SOFT(data.Vertices.empty(), "missing file falls back to an empty mesh, not a crash");
 }
+
+TEST_CASE("MeshLoader with no \"usemtl\" produces exactly one SubMesh spanning everything") {
+    const char* obj = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
+    std::string path = WriteTempObj("duality_engine_test_no_usemtl.obj", obj);
+
+    const MeshData& data = MeshLoader::Load(path);
+    CHECK_SOFT(data.SubMeshes.size() == 1, "a file with no material groups is exactly one implicit submesh -- today's original single-material behavior");
+    if (data.SubMeshes.size() == 1) {
+        CHECK_SOFT(data.SubMeshes[0].FirstVertex == 0, "the one submesh starts at vertex 0");
+        CHECK_SOFT(data.SubMeshes[0].VertexCount == data.Vertices.size(), "the one submesh spans every vertex");
+    }
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("MeshLoader splits submeshes at \"usemtl\" boundaries") {
+    const char* obj =
+        "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\nv 2 0 0\nv 2 1 0\n"
+        "usemtl Red\n"
+        "f 1 2 3\n"
+        "usemtl Blue\n"
+        "f 2 4 3\n"
+        "f 5 6 4\n";
+    std::string path = WriteTempObj("duality_engine_test_usemtl_split.obj", obj);
+
+    const MeshData& data = MeshLoader::Load(path);
+    // "Red" group: 1 face = 3 vertices. "Blue" group: 2 faces = 6 vertices. Total 9.
+    CHECK_SOFT(data.Vertices.size() == 9, "both usemtl groups' faces were parsed");
+    CHECK_SOFT(data.SubMeshes.size() == 2, "two usemtl directives produce two submeshes");
+    if (data.SubMeshes.size() == 2) {
+        CHECK_SOFT(data.SubMeshes[0].FirstVertex == 0 && data.SubMeshes[0].VertexCount == 3, "first submesh (Red) covers the first face's 3 vertices");
+        CHECK_SOFT(data.SubMeshes[1].FirstVertex == 3 && data.SubMeshes[1].VertexCount == 6, "second submesh (Blue) covers the remaining 6 vertices");
+    }
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("MeshLoader does not emit an empty SubMesh for back-to-back \"usemtl\" lines") {
+    const char* obj = "v 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl A\nusemtl B\nf 1 2 3\n";
+    std::string path = WriteTempObj("duality_engine_test_usemtl_backtoback.obj", obj);
+
+    const MeshData& data = MeshLoader::Load(path);
+    CHECK_SOFT(data.Vertices.size() == 3, "the one face after both usemtl lines still parses");
+    CHECK_SOFT(data.SubMeshes.size() == 1, "two usemtl lines with zero faces between them collapse into one submesh -- group A never got any faces, so no empty entry for it");
+
+    std::filesystem::remove(path);
+}

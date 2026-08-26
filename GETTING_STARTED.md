@@ -28,8 +28,24 @@ Chạy `run.bat`. Bạn sẽ thấy:
   **Build for 3DS**, và **Build for PC** (build lại `DualityPlayerDesktop`
   trong build tree desktop có sẵn -- không cần bước cook asset nào vì target
   đó tự đọc thẳng `Assets/` của project lúc chạy; sau khi build xong, chạy
-  bằng `run-desktop-player.bat`). Hai nút build này dùng chung một cờ trạng
-  thái nên không chạy đồng thời được.
+  bằng `run-desktop-player.bat`), và **Build Settings...** (một cửa sổ riêng
+  liệt kê danh sách scene sẽ đóng gói vào bản build 3DS, xem bên dưới). Hai
+  nút build (3DS/PC) dùng chung một cờ trạng thái nên không chạy đồng thời
+  được.
+- **Build Settings...** (menu File) -- danh sách **Scenes In Build** (kéo một
+  dòng để sắp xếp lại thứ tự, nút "x" để xóa; scene trên cùng là Start Scene)
+  cùng danh sách **Other Scenes In Project** quét tự động mọi file `.scene`
+  chưa có trong danh sách trên (click vào để thêm), và ngay trong cửa sổ này
+  có nút **Build for 3DS** + thanh tiến trình. Hành vi thật đứng sau danh
+  sách này: một khi đã thêm ít nhất một scene, CHỈ những scene được liệt kê
+  mới được đóng gói vào bản build 3DS (danh sách rỗng = giữ nguyên hành vi
+  cũ, đóng gói mọi scene tìm thấy).
+- **Edit menu** (phía trên) -- **Project Settings...** (hiện Name/Assets
+  Directory/Scripts Directory của project đang mở, chỉ xem, chưa chỉnh sửa
+  được) và **Preferences...** (chọn file `.exe` của một editor ngoài, ví dụ
+  VS Code, qua nút **Browse...**, rồi **Open Project in External Editor** sẽ
+  mở project bằng editor đó -- lưu theo máy, không theo project, tại
+  `%APPDATA%\DualityEngine\EditorSettings.json`).
 - **Hierarchy** (bên trái) -- mọi entity trong scene. Bấm vào một entity để chọn;
   **Create Entity** tạo một entity trống mới. Có ô tìm kiếm: gõ vào để lọc ra
   danh sách phẳng mọi entity khớp tên trong toàn scene (cây/kéo-thả trở lại khi
@@ -54,7 +70,9 @@ Chạy `run.bat`. Bạn sẽ thấy:
   pan, lăn con lăn để zoom, bấm vào sprite để chọn, các nút Translate/Rotate/
   Scale chuyển chế độ gizmo. Camera entity vẽ hẳn khung nhìn thật (frustum --
   mặt phẳng near/far, FOV) thay vì chỉ một điểm đánh dấu, nên bạn thấy chính
-  xác camera đang nhìn về đâu. **Game** hiển thị chính xác những gì camera trong
+  xác camera đang nhìn về đâu; field **Background** (màu) của Camera trong
+  Properties chính là màu mà màn hình đó thực sự dùng để clear khi có camera.
+  **Game** hiển thị chính xác những gì camera trong
   scene thực render -- tức hình ảnh bạn thực sự sẽ thấy trên máy console.
 - **Console** (phía dưới, dạng tab) -- log output (`Duality::Log`, kể cả
   `Behaviour::LogInfo/LogWarn/LogError` gọi từ script), có màu theo cấp độ
@@ -98,8 +116,10 @@ lúc bấm Play, nên không cần save trước khi Play để "giữ chỗ" n�
    thước -- hoặc chỉnh trực tiếp các field `Transform` trong Properties.
 5. **+ Add Component -> Box Collider 2D** (hoặc **Circle Collider 2D**) cùng với
    **Rigidbody 2D** sẽ biến entity thành một vật thể physics -- bấm Play để xem nó
-   phản ứng với trọng lực. Collider hiện dưới dạng đường viền màu xanh lá trong
-   Scene để bạn thấy phạm vi thật của chúng khi chỉnh sửa.
+   phản ứng với trọng lực. Khi entity đang được chọn, collider hiện dưới dạng
+   đường viền màu xanh lá trong Scene để bạn thấy phạm vi thật của nó; bật
+   checkbox **Edit** ngay trên component đó trong Properties để kéo tay nắm
+   resize trực tiếp trong viewport (chỉnh `Size`/`Radius`) thay vì gõ số tay.
 6. Chọn **File -> Save Scene** khi bạn đã hài lòng.
 
 Mọi field editor, mọi component và các menu Add/Remove Component đều hoàn toàn

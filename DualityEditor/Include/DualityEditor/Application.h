@@ -9,11 +9,14 @@
 #include "DualityEditor/EditorContext.h" // for RenderMode -- an m_Top/BottomRenderMode member needs its full definition, not just a forward declaration
 #include "DualityEditor/Event.h"
 #include "DualityEditor/Framebuffer.h"
+#include "DualityEditor/Panels/BuildSettingsPanel.h"
 #include "DualityEditor/Panels/ConsolePanel.h"
 #include "DualityEditor/Panels/ContentBrowserPanel.h"
 #include "DualityEditor/Panels/GamePanel.h"
 #include "DualityEditor/Panels/HierarchyPanel.h"
 #include "DualityEditor/Panels/MenuBarPanel.h"
+#include "DualityEditor/Panels/PreferencesPanel.h"
+#include "DualityEditor/Panels/ProjectSettingsPanel.h"
 #include "DualityEditor/Panels/PropertiesPanel.h"
 #include "DualityEditor/Panels/ScenePanel.h"
 #include "DualityEditor/SceneGizmo.h"
@@ -84,6 +87,19 @@ namespace Duality {
         // Set by MenuBarPanel's "Open Scene...", same request-flag convention -- see
         // OpenSceneFromDialog's own comment.
         bool m_RequestOpenSceneDialog = false;
+        // Set by PreferencesPanel's "Browse...", same request-flag convention -- see
+        // EditorContext::RequestBrowseExternalEditor's own comment.
+        bool m_RequestBrowseExternalEditor = false;
+        // Set by ProjectSettingsPanel's Icon "Browse...", same request-flag convention -- see
+        // EditorContext::RequestBrowseIcon's own comment.
+        bool m_RequestBrowseIcon = false;
+
+        // Persistent open/close state for the Build Settings/Project Settings/Preferences
+        // floating windows -- see EditorContext::ShowBuildSettings's own comment on why this is
+        // a plain persistent bool (IsPlaying's convention), not a one-shot Request* flag.
+        bool m_ShowBuildSettings = false;
+        bool m_ShowProjectSettings = false;
+        bool m_ShowPreferences = false;
 
         // Play->Stop scene-state snapshot -- see EditorContext::PlaySnapshot's own comment.
         std::string m_PlaySnapshot;
@@ -114,6 +130,9 @@ namespace Duality {
         GamePanel m_GamePanel;
         ContentBrowserPanel m_ContentBrowserPanel;
         ConsolePanel m_ConsolePanel;
+        BuildSettingsPanel m_BuildSettingsPanel;
+        ProjectSettingsPanel m_ProjectSettingsPanel;
+        PreferencesPanel m_PreferencesPanel;
     };
 
 }

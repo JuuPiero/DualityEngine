@@ -27,7 +27,8 @@ namespace Duality {
         void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
-        void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
+        void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
+        uint32_t GetSubMeshCount(uint32_t meshHandle) const override;
 
         uint32_t LoadTexture(const std::string& path) override;
         uint32_t LoadMesh(const std::string& path) override;

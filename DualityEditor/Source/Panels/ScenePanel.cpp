@@ -336,6 +336,30 @@ namespace Duality {
             return std::max(0.01f, current + dragAmount);
         }
 
+        constexpr float Collider2DHandleHalfSize = 5.0f;
+
+        // 2D counterpart of DragCollider3DHandle above -- same InvisibleButton-driven drag,
+        // same outward-along-the-handle-direction projection, but no cameraDistance-scaled
+        // sensitivity constant needed: the 2D pane's own camera.Zoom already IS the exact
+        // pixels-per-world-unit conversion factor (see DrawScenePane2D's worldToPaneScreen),
+        // so dividing by it converts a screen-space mouse delta straight into world units.
+        float DragCollider2DHandle(const char* id, ImVec2 centerScreen, ImVec2 handleScreen, float zoom, float current) {
+            ImGui::SetCursorScreenPos(ImVec2(handleScreen.x - Collider2DHandleHalfSize, handleScreen.y - Collider2DHandleHalfSize));
+            ImGui::InvisibleButton(id, ImVec2(Collider2DHandleHalfSize * 2.0f, Collider2DHandleHalfSize * 2.0f));
+            if (!ImGui::IsItemActive() || !ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f))
+                return current;
+
+            glm::vec2 screenDir{ handleScreen.x - centerScreen.x, handleScreen.y - centerScreen.y };
+            float screenDirLen = glm::length(screenDir);
+            if (screenDirLen < 1e-3f)
+                return current; // handle sits right on top of center -- no reliable direction this frame
+            screenDir /= screenDirLen;
+
+            ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
+            float dragAmount = (mouseDelta.x * screenDir.x + mouseDelta.y * screenDir.y) / zoom;
+            return std::max(0.01f, current + dragAmount);
+        }
+
         // Clips the segment a-b against a plane `nearDistance` in front of the camera (NOT
         // Projector3D::Project's own bare 0.01 "still technically in front" threshold -- see
         // below for why) and returns the portion actually beyond it. Necessary because
@@ -662,10 +686,16 @@ namespace Duality {
                     continue;
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 auto& mesh = ctx.SceneRef.Registry().get<MeshRendererComponent>(handle);
-                Material material = ResolveMeshMaterial(mesh.Material);
-                uint32_t textureId = ResolveMeshTexture(renderer3D, material.Texture);
                 uint32_t meshHandle = ResolveMeshGeometry(renderer3D, mesh.Mesh);
-                renderer3D.DrawMesh(mesh.Primitive, meshHandle, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+                // One draw call per submesh -- see SceneRenderer.cpp's RenderScreen3D, same loop.
+                uint32_t subMeshCount = renderer3D.GetSubMeshCount(meshHandle);
+                for (uint32_t i = 0; i < subMeshCount; i++) {
+                    const AssetRef& materialRef = mesh.Materials.empty()
+                        ? AssetRef{} : mesh.Materials[std::min<size_t>(i, mesh.Materials.size() - 1)];
+                    Material material = ResolveMeshMaterial(materialRef);
+                    uint32_t textureId = ResolveMeshTexture(renderer3D, material.Texture);
+                    renderer3D.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+                }
             }
             // Sprites always visible here too now, drawn as flat upright quads (Plane rotated
             // 90 degrees around X, so its XZ-facing surface faces the camera instead of lying
@@ -689,7 +719,7 @@ namespace Duality {
                 // elsewhere, same tolerance as Citro3DRenderer/Citro2DRenderer's own separate
                 // texture caches).
                 uint32_t textureId = ResolveMeshTexture(renderer3D, GetActiveSpriteTexture(ctx.SceneRef, handle));
-                renderer3D.DrawMesh(MeshPrimitive::Plane, 0,
+                renderer3D.DrawMesh(MeshPrimitive::Plane, 0, 0,
                     { transform.Translation.x, transform.Translation.y, 0.0f },
                     { 90.0f, 0.0f, transform.Rotation.z },
                     { sprite.Size.x, 1.0f, sprite.Size.y },
@@ -746,25 +776,24 @@ namespace Duality {
                 DrawCameraFrustum(proj, camTransform.Translation, camForward, camRight, camUp, cameraComponent.Projection, cameraComponent.FovDegrees, camOrthoHalfHeight, aspect, cameraComponent.NearPlane, cameraComponent.FarPlane, frustumColor);
             }
 
-            // 3D collider gizmos -- same "always drawn, not just for the selected entity"
-            // convention as the 2D pane's own BoxCollider2D/CircleCollider2D outlines above,
-            // green wireframe, editor-only (never actually rendered by the real IRenderer3D
-            // pass). The SELECTED entity additionally gets draggable resize handles -- editing a
-            // collider's Size/Radius directly in the viewport instead of only through the
-            // generic DragFloat fields in Properties.
-            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, BoxCollider3DComponent>()) {
-                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
-                    continue;
-                Entity entity(handle, &ctx.SceneRef);
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(entity);
-                auto& collider = entity.GetComponent<BoxCollider3DComponent>();
+            // 3D collider gizmo -- green wireframe, editor-only (never actually rendered by the
+            // real IRenderer3D pass), drawn ONLY for the selected entity (previously drawn for
+            // every collider in the scene at once, which got visually noisy fast in anything
+            // beyond a small demo scene). Draggable resize handles only respond once the
+            // component's own "Edit" checkbox (Properties panel) is on, so a collider isn't
+            // accidentally reshaped by a stray drag while just moving/inspecting the entity --
+            // the wireframe+handle markers themselves still draw regardless of Edit, matching
+            // Unity's own "always show the gizmo, only let you grab it in edit mode" feel.
+            if (ctx.Selected && ctx.Selected.HasComponent<BoxCollider3DComponent>() && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
+                auto& collider = ctx.Selected.GetComponent<BoxCollider3DComponent>();
                 glm::vec3 center = transform.Translation + collider.Offset;
                 glm::quat rotation = EulerDegreesToQuat(transform.Rotation);
 
                 ImVec2 faceHandles[3];
                 DrawBoxCollider3D(proj, center, rotation, collider.Size, faceHandles);
 
-                if (entity == ctx.Selected) {
+                if (collider.EditMode) {
                     ImVec2 centerScreen;
                     if (proj.Project(center, centerScreen)) {
                         const char* ids[3] = { "##ColliderResizeX", "##ColliderResizeY", "##ColliderResizeZ" };
@@ -778,18 +807,15 @@ namespace Duality {
                     }
                 }
             }
-            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SphereCollider3DComponent>()) {
-                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
-                    continue;
-                Entity entity(handle, &ctx.SceneRef);
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(entity);
-                auto& collider = entity.GetComponent<SphereCollider3DComponent>();
+            if (ctx.Selected && ctx.Selected.HasComponent<SphereCollider3DComponent>() && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
+                auto& collider = ctx.Selected.GetComponent<SphereCollider3DComponent>();
                 glm::vec3 center = transform.Translation + collider.Offset;
 
                 ImVec2 equatorHandle;
                 DrawSphereCollider3D(proj, center, collider.Radius, equatorHandle);
 
-                if (entity == ctx.Selected && !std::isnan(equatorHandle.x)) {
+                if (collider.EditMode && !std::isnan(equatorHandle.x)) {
                     ImVec2 centerScreen;
                     if (proj.Project(center, centerScreen)) {
                         float newRadius = DragCollider3DHandle("##ColliderResizeRadius", centerScreen, equatorHandle, camera3D.Distance, collider.Radius);
@@ -1014,10 +1040,15 @@ namespace Duality {
                     continue; // see DrawScenePane3D's own mesh loop for why this pane hides inactive entities too
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 auto& mesh = ctx.SceneRef.Registry().get<MeshRendererComponent>(handle);
-                Material material = ResolveMeshMaterial(mesh.Material);
-                uint32_t textureId = ResolveMeshTexture(ctx.Renderer3D, material.Texture);
                 uint32_t meshHandle = ResolveMeshGeometry(ctx.Renderer3D, mesh.Mesh);
-                ctx.Renderer3D.DrawMesh(mesh.Primitive, meshHandle, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+                uint32_t subMeshCount = ctx.Renderer3D.GetSubMeshCount(meshHandle);
+                for (uint32_t i = 0; i < subMeshCount; i++) {
+                    const AssetRef& materialRef = mesh.Materials.empty()
+                        ? AssetRef{} : mesh.Materials[std::min<size_t>(i, mesh.Materials.size() - 1)];
+                    Material material = ResolveMeshMaterial(materialRef);
+                    uint32_t textureId = ResolveMeshTexture(ctx.Renderer3D, material.Texture);
+                    ctx.Renderer3D.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+                }
             }
             ctx.Renderer3D.EndScene();
 
@@ -1068,37 +1099,62 @@ namespace Duality {
                     imagePos.y + (worldPos.y - camera.Position.y) * camera.Zoom + viewportH * 0.5f);
             };
 
-            // Collider gizmos -- Unity/Unreal-style green wireframe outlines,
-            // drawn for every entity with a collider (not just the selected
-            // one), always on top of the rendered sprites but under the
-            // translate/rotate/scale gizmo below. Purely an editor-only
-            // overlay (ImDrawList, like the translate/rotate/scale gizmo) --
-            // colliders are never actually rendered by the real IRenderer2D
-            // pass, on desktop or on-device, same as Unity's own Gizmos only
-            // ever showing in the Scene view.
+            // Collider gizmo -- Unity/Unreal-style green wireframe outline, drawn ONLY for the
+            // selected entity (previously drawn for every collider in the scene at once, which
+            // got visually noisy fast in anything beyond a small demo scene), on top of the
+            // rendered sprites but under the translate/rotate/scale gizmo below. Purely an
+            // editor-only overlay (ImDrawList, like the translate/rotate/scale gizmo) --
+            // colliders are never actually rendered by the real IRenderer2D pass, on desktop or
+            // on-device, same as Unity's own Gizmos only ever showing in the Scene view. Small
+            // square resize handles are drawn alongside the outline whenever selected, but only
+            // respond to a drag once the component's own "Edit" checkbox (Properties panel) is
+            // on -- see DragCollider2DHandle's own comment for why.
             ImDrawList* colliderDrawList = ImGui::GetWindowDrawList();
             const ImU32 colliderColor = IM_COL32(60, 230, 90, 255);
             // Offset is added in world space untransformed by the parent's rotation --
             // a tiny, purely-visual imprecision for rotated parents (colliders are never
             // simulated as children of a moving parent anyway, see Scene::OnRuntimeStart).
-            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, BoxCollider2DComponent>()) {
-                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
-                    continue;
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
-                auto& collider = ctx.SceneRef.Registry().get<BoxCollider2DComponent>(handle);
+            if (ctx.Selected && ctx.Selected.HasComponent<BoxCollider2DComponent>() && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
+                auto& collider = ctx.Selected.GetComponent<BoxCollider2DComponent>();
                 glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
                 ImVec2 topLeft = worldToPaneScreen(center - collider.Size);
                 ImVec2 bottomRight = worldToPaneScreen(center + collider.Size);
                 colliderDrawList->AddRect(topLeft, bottomRight, colliderColor, 0.0f, 0, 2.0f);
+
+                ImVec2 centerScreen = worldToPaneScreen(center);
+                ImVec2 xHandle = worldToPaneScreen(center + glm::vec2{ collider.Size.x, 0.0f });
+                ImVec2 yHandle = worldToPaneScreen(center + glm::vec2{ 0.0f, collider.Size.y });
+                colliderDrawList->AddRectFilled(ImVec2(xHandle.x - Collider2DHandleHalfSize, xHandle.y - Collider2DHandleHalfSize),
+                    ImVec2(xHandle.x + Collider2DHandleHalfSize, xHandle.y + Collider2DHandleHalfSize), colliderColor);
+                colliderDrawList->AddRectFilled(ImVec2(yHandle.x - Collider2DHandleHalfSize, yHandle.y - Collider2DHandleHalfSize),
+                    ImVec2(yHandle.x + Collider2DHandleHalfSize, yHandle.y + Collider2DHandleHalfSize), colliderColor);
+
+                if (collider.EditMode) {
+                    float newX = DragCollider2DHandle("##Collider2DResizeX", centerScreen, xHandle, camera.Zoom, collider.Size.x);
+                    if (newX != collider.Size.x)
+                        collider.Size.x = newX;
+                    float newY = DragCollider2DHandle("##Collider2DResizeY", centerScreen, yHandle, camera.Zoom, collider.Size.y);
+                    if (newY != collider.Size.y)
+                        collider.Size.y = newY;
+                }
             }
-            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CircleCollider2DComponent>()) {
-                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
-                    continue;
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
-                auto& collider = ctx.SceneRef.Registry().get<CircleCollider2DComponent>(handle);
+            if (ctx.Selected && ctx.Selected.HasComponent<CircleCollider2DComponent>() && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
+                auto& collider = ctx.Selected.GetComponent<CircleCollider2DComponent>();
                 glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
                 ImVec2 screenCenter = worldToPaneScreen(center);
                 colliderDrawList->AddCircle(screenCenter, collider.Radius * camera.Zoom, colliderColor, 32, 2.0f);
+
+                ImVec2 radiusHandle = worldToPaneScreen(center + glm::vec2{ collider.Radius, 0.0f });
+                colliderDrawList->AddRectFilled(ImVec2(radiusHandle.x - Collider2DHandleHalfSize, radiusHandle.y - Collider2DHandleHalfSize),
+                    ImVec2(radiusHandle.x + Collider2DHandleHalfSize, radiusHandle.y + Collider2DHandleHalfSize), colliderColor);
+
+                if (collider.EditMode) {
+                    float newRadius = DragCollider2DHandle("##Collider2DResizeRadius", screenCenter, radiusHandle, camera.Zoom, collider.Radius);
+                    if (newRadius != collider.Radius)
+                        collider.Radius = newRadius;
+                }
             }
 
             // Draw+hit-test the gizmo every frame (not just while hovered) so a

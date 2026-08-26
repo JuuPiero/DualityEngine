@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,18 @@ namespace Duality {
         // Max distance from the origin across all vertices, for the Editor's Scene view pick
         // test (see ScenePanel.cpp) -- 0 if Vertices is empty.
         float BoundingRadius = 0.0f;
+
+        // One contiguous (FirstVertex, VertexCount) range into Vertices above, non-indexed
+        // (matching Vertices' own convention -- a submesh is just a slice of the same flat
+        // triangle list, no separate index buffer). Always >= 1 entry once Vertices is
+        // non-empty, even for a file with no material groups at all -- that case just produces
+        // one SubMesh spanning the whole range, expressing today's original single-material
+        // behavior as the 1-submesh case of this same mechanism rather than a special case.
+        struct SubMesh {
+            uint32_t FirstVertex = 0;
+            uint32_t VertexCount = 0;
+        };
+        std::vector<SubMesh> SubMeshes;
     };
 
     // Loads a Wavefront ".obj" file into a flat MeshVertex list -- a small, hand-rolled parser

@@ -30,8 +30,77 @@
                     <tr><td>Open Scene...</td><td>Chọn một file <code>.scene</code> bất kỳ và chuyển sang nó — <strong>có</strong> đổi luôn scene mà Save/Load Scene thao tác từ đó về sau, khác Save Scene As...</td></tr>
                     <tr><td>Save Scene As...</td><td>Ghi một <em>bản chụp</em> scene hiện tại ra file mới do người dùng chọn — <strong>không</strong> đổi scene Save/Load Scene đang thao tác. Cách để project có thêm scene thứ hai cho <code>SceneManager</code>/<code>LoadScene</code> nhắm tới.</td></tr>
                     <tr><td>Build for 3DS / Build for PC</td><td>Xem <a href="build-deploy.html">Build &amp; Deploy</a>.</td></tr>
+                    <tr><td>Build Settings...</td><td>Mở cửa sổ nổi (không dock) quản lý danh sách scene đóng gói vào bản build — xem mục <strong>Build Settings</strong> bên dưới.</td></tr>
                 </table>
+
+                <h3>Menu Edit</h3>
+                <p>Menu mới thêm phiên bản này, đặt cạnh File theo đúng vị trí quen thuộc của Unity (<strong>File → Build Settings</strong>, <strong>Edit → Project Settings/Preferences</strong>).</p>
+                <table>
+                    <tr><th>Mục</th><th>Hành vi</th></tr>
+                    <tr><td>Project Settings...</td><td>Mở panel xem thông tin project đang mở, chỉ đọc — xem mục <strong>Project Settings</strong> bên dưới.</td></tr>
+                    <tr><td>Preferences...</td><td>Mở panel cấu hình external editor dùng chung cho máy, không riêng project — xem mục <strong>Preferences</strong> bên dưới.</td></tr>
+                </table>
+
                 <p>Menu bar cũng hiện tên file scene đang active (<code>Scene: &lt;tên file&gt;</code>) — dễ theo dõi khi nhiều thao tác (Open Scene.../double-click/nút "Open Scene") có thể đổi nó.</p>
+
+                <h2>Build Settings</h2>
+                <p>
+                    Cửa sổ nổi (không dock vào layout chính), mở qua <strong>File → Build
+                    Settings...</strong>. Danh sách <strong>Scenes In Build</strong> ở trên — dòng
+                    trên cùng luôn đánh dấu <code>[Main]</code>, đây chính là Start Scene lúc chạy
+                    bản build thật. Kéo một dòng lên/xuống để đổi chỗ với dòng liền kề (đổi thứ
+                    tự), nút <strong>x</strong> cuối dòng để gỡ khỏi danh sách. Bên dưới là
+                    <strong>Other Scenes In Project</strong> — quét lại mọi file <code>.scene</code>
+                    trong <code>Assets/</code> của project mỗi lần cửa sổ render (trừ scene đã có ở
+                    danh sách trên), click một tên để thêm vào Scenes In Build. Mọi thay đổi
+                    (thêm/gỡ/đổi thứ tự) lưu project ngay lập tức, không cần Save riêng.
+                </p>
+                <p>
+                    Cuối cửa sổ là nút <strong>Build for 3DS</strong> — chạy đúng pipeline build
+                    như mục File → Build for 3DS (xem <a href="build-deploy.html">Build &amp;
+                    Deploy</a>), tiện chỉnh xong danh sách scene rồi build luôn không cần đóng cửa
+                    sổ này. Thanh tiến trình bên dưới không có mốc phần trăm thật — build 3DS không
+                    có bước nào đếm được — nên lúc build đang chạy nó chỉ dao động qua lại làm tín
+                    hiệu "vẫn đang chạy", xong hiện chữ xanh <strong>Build succeeded</strong> hoặc
+                    đỏ <strong>Build failed</strong> (xem Console để biết chi tiết lỗi).
+                </p>
+
+                <h2>Project Settings</h2>
+                <p>
+                    Mở qua <strong>Edit → Project Settings...</strong>. Hiện
+                    <strong>Name</strong>/<strong>Assets Directory</strong>/<strong>Scripts
+                    Directory</strong> của project đang mở — <strong>chỉ đọc</strong> ở phiên bản
+                    đầu này, chưa cho sửa trực tiếp: đổi những đường dẫn này lúc project đang chạy
+                    sẽ làm lệch (desync) mọi asset/script path đã resolve từ trước đó. Đây là điểm
+                    khởi đầu để phát triển thêm dần, chưa phải bản đầy đủ.
+                </p>
+                <p>
+                    Mục <strong>Icon (3DS)</strong> ngay dưới — khác với 3 field phía trên, đây là
+                    field <em>được sửa trực tiếp ở đây</em>: xem preview ảnh (48×48) rồi bấm
+                    <strong>Browse...</strong> chọn một file PNG bất kỳ làm icon cho bản build
+                    <code>.cia</code>. Đường dẫn lưu vào <code>ProjectConfig::IconPath</code> của
+                    project (không phải EditorSettings — icon gắn với project, không phải máy), đi
+                    xuyên suốt <strong>File → Build for 3DS</strong>/nút Build trong Build Settings
+                    ở trên vào đúng bước <code>bannertool makesmdh</code> đã có sẵn (xem
+                    <a href="build-deploy.html">Build &amp; Deploy</a>) — không chỉnh gì cũng vẫn
+                    build được, rơi về icon placeholder có sẵn của engine như trước giờ. Chỉ áp
+                    dụng cho bản 3DS — icon file <code>.exe</code> desktop cần cơ chế hoàn toàn
+                    khác (<code>.ico</code> + resource script biên dịch kèm), chưa làm ở đây.
+                </p>
+
+                <h2>Preferences</h2>
+                <p>
+                    Mở qua <strong>Edit → Preferences...</strong> — cấu hình cấp
+                    <strong>Editor</strong>, dùng chung cho mọi project trên máy (khác Project
+                    Settings ở mục trên, vốn gắn riêng theo từng <code>.dproj</code>) — lưu một lần
+                    tại <code>%APPDATA%\DualityEngine\EditorSettings.json</code>, không nằm trong
+                    file <code>.dproj</code> của bất kỳ project nào. Trường <strong>External
+                    Editor</strong> trỏ tới một file thực thi (vd <code>code.exe</code> của VS
+                    Code) — nút <strong>Browse...</strong> mở dialog chọn file thật, nút
+                    <strong>Open Project in External Editor</strong> chạy
+                    <code>&lt;external editor&gt; "&lt;thư mục project&gt;"</code> cho project đang
+                    mở.
+                </p>
 
                 <h2>Hierarchy</h2>
                 <p>
@@ -50,6 +119,14 @@
                     mới không cần sửa code Editor. Mọi entity có checkbox <strong>Active</strong>
                     ngay cạnh Transform/Name/Tag. Component không bắt buộc có nút "..." để gỡ; nút
                     <strong>+ Add Component</strong> ở cuối liệt kê mọi loại chưa có trên entity.
+                </p>
+                <p>
+                    Ví dụ một field kiểu này: <code>CameraComponent</code> có thêm
+                    <strong>Background</strong> — màu clear riêng cho camera đó, hiện dưới dạng
+                    color picker trong Properties; <code>SceneRenderer.cpp</code> dùng đúng màu
+                    này khi render màn có gắn camera, thay vì một màu clear hardcode như trước.
+                    Danh sách đầy đủ field từng component xem
+                    <a href="components.html">Components Reference</a>.
                 </p>
                 <p>
                     <strong>Lock</strong> (kiểu Unity Inspector) — ghim panel vào entity/asset đang
@@ -93,6 +170,16 @@
                     <strong>Translate / Rotate / Scale</strong> đổi chế độ gizmo cho entity đang
                     chọn — kéo handle sửa Transform trực tiếp, thấy ngay ở cả Scene, Game, và bản
                     build 3DS thật. <code>Transform.Rotation</code> luôn tính bằng độ.
+                </p>
+                <p>
+                    Collider (<code>BoxCollider2DComponent</code>/<code>CircleCollider2DComponent</code>/
+                    <code>BoxCollider3DComponent</code>/<code>SphereCollider3DComponent</code>) vẽ
+                    viền wireframe xanh lá — giờ chỉ hiện cho entity đang <strong>được
+                    chọn</strong>, không còn hiện đồng thời cho mọi collider trong scene như
+                    trước. Viền này có sẵn handle để kéo resize, nhưng handle chỉ phản hồi kéo khi
+                    checkbox <strong>Edit</strong> của đúng component đó (trong Properties) đang
+                    bật — mặc định tắt, để việc chọn/di chuyển entity trong viewport không vô tình
+                    bóp méo collider.
                 </p>
                 <div class="callout">
                     Entity <strong>inactive</strong> (checkbox Active tắt) biến mất khỏi cả hai

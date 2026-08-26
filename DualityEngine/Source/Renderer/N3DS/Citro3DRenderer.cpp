@@ -146,7 +146,7 @@ namespace Duality {
         // EndScene (this bracket exists for a future batched implementation to flush from).
     }
 
-    void Citro3DRenderer::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
+    void Citro3DRenderer::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
         m_DrawCallCount++;
 
         // Re-bind everything -- citro2d's own draws on the other screen this same frame will
@@ -187,7 +187,22 @@ namespace Duality {
         C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, m_UniformProjection, &m_Projection);
         C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, m_UniformModelView, &modelView);
 
-        C3D_DrawArrays(GPU_TRIANGLES, 0, mesh.VertexCount);
+        // An imported mesh with real submesh ranges draws only that one slice; everything else
+        // (procedural primitives, or an imported mesh with no material-group boundaries at all)
+        // draws as one whole mesh, exactly like before this feature.
+        if (meshHandle != 0 && subMeshIndex < mesh.SubMeshes.size()) {
+            const MeshData::SubMesh& subMesh = mesh.SubMeshes[subMeshIndex];
+            C3D_DrawArrays(GPU_TRIANGLES, static_cast<int>(subMesh.FirstVertex), static_cast<int>(subMesh.VertexCount));
+        } else {
+            C3D_DrawArrays(GPU_TRIANGLES, 0, mesh.VertexCount);
+        }
+    }
+
+    uint32_t Citro3DRenderer::GetSubMeshCount(uint32_t meshHandle) const {
+        if (meshHandle == 0)
+            return 1; // procedural primitive -- always one whole-mesh draw
+        const std::vector<MeshData::SubMesh>& subMeshes = m_ImportedMeshes[meshHandle - 1].SubMeshes;
+        return subMeshes.empty() ? 1 : static_cast<uint32_t>(subMeshes.size());
     }
 
     uint32_t Citro3DRenderer::LoadTexture(const std::string& path) {
@@ -231,7 +246,7 @@ namespace Duality {
             size_t byteSize = data.Vertices.size() * sizeof(MeshVertex);
             void* buffer = linearAlloc(byteSize);
             memcpy(buffer, data.Vertices.data(), byteSize);
-            m_ImportedMeshes.push_back({ buffer, static_cast<int>(data.Vertices.size()) });
+            m_ImportedMeshes.push_back({ buffer, static_cast<int>(data.Vertices.size()), data.SubMeshes });
             meshHandle = static_cast<uint32_t>(m_ImportedMeshes.size()); // 1-based, 0 reserved for "none"
         }
 

@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -96,7 +97,7 @@ namespace Duality {
     // The standard fix is to wrap the whole already-correct command in one MORE outer quote
     // pair -- cmd's stripping then removes exactly that synthetic layer, leaving the real
     // command intact underneath.
-    static int RunCommand(const std::string& command) {
+    int BuildPipeline::RunCommand(const std::string& command) {
         return std::system(("\"" + command + "\"").c_str());
     }
 
@@ -133,6 +134,24 @@ namespace Duality {
             if (srcPath.extension() == ".meta")
                 continue;
 
+            fs::path relPath = fs::relative(srcPath, assetsDir);
+
+            // Build Settings filtering: once a project has configured ScenesInBuild (Build
+            // Settings window), a .scene file NOT in that list is excluded from the device build
+            // entirely -- matches Unity, where only scenes explicitly added to Build Settings
+            // ship. An empty ScenesInBuild means "not configured yet", which preserves this
+            // function's original "cook every asset unfiltered" behavior exactly -- no back-compat
+            // break for a project that hasn't touched Build Settings.
+            if (srcPath.extension() == ".scene") {
+                auto activeProject = Project::GetActive();
+                if (activeProject && !activeProject->GetConfig().ScenesInBuild.empty()) {
+                    const auto& scenesInBuild = activeProject->GetConfig().ScenesInBuild;
+                    std::string relPathStr = relPath.generic_string();
+                    if (std::find(scenesInBuild.begin(), scenesInBuild.end(), relPathStr) == scenesInBuild.end())
+                        continue;
+                }
+            }
+
             // Reused as-is -- creates the .meta if missing, exactly like ContentBrowserPanel
             // does when browsing into a folder, so a texture never used in the Editor yet
             // still gets a stable guid to cook against.
@@ -140,7 +159,6 @@ namespace Duality {
             if (guid.empty())
                 continue;
 
-            fs::path relPath = fs::relative(srcPath, assetsDir);
             std::string romfsPath;
 
             if (srcPath.extension() == ".png") {
@@ -233,15 +251,34 @@ namespace Duality {
     }
 
     bool BuildPipeline::BuildFor3DS(const std::string& repoRoot, const std::string& sceneJsonPath) {
+        // Always the active project's real Assets/ root, NOT derived from sceneJsonPath's own
+        // parent folder -- that used to be the same thing only by coincidence (every scene
+        // happened to sit directly in Assets/ so far). A scene in a subfolder (e.g.
+        // "Assets/Scenes/Test.scene", a real, valid layout -- see Build Settings' own scene scan)
+        // would have derived ".../Assets/Scenes" instead of ".../Assets", silently breaking
+        // CookAssets for that project (a real latent bug, found while wiring up Build Settings
+        // below, fixed here rather than left for whoever hits it next).
+        auto activeProject = Project::GetActive();
+        std::string assetsDirectory = activeProject
+            ? activeProject->GetAssetsDirectory()
+            : std::filesystem::path(sceneJsonPath).parent_path().string(); // no active project -- best-effort fallback
+
+        // Build Settings' own Start Scene (ScenesInBuild[0], see ProjectConfig's own comment)
+        // wins once configured -- read straight off disk (NOT ctx.SceneRef/sceneJsonPath's live
+        // in-memory state, since the Start Scene may not be whatever's currently open in the
+        // Editor). Falls back to sceneJsonPath (today's "package whatever's open" behavior) for a
+        // project that hasn't configured Build Settings yet -- empty ScenesInBuild is always a
+        // no-op fallback, never an error, matching CookAssets' own filter below.
+        std::string mainScenePath = sceneJsonPath;
+        if (activeProject && !activeProject->GetConfig().ScenesInBuild.empty())
+            mainScenePath = assetsDirectory + "/" + activeProject->GetConfig().ScenesInBuild[0];
+
         std::string sceneDest = repoRoot + "\\DualityPlayer\\romfs\\Scene.scene";
-        if (!CopyFileA(sceneJsonPath.c_str(), sceneDest.c_str(), FALSE)) {
+        if (!CopyFileA(mainScenePath.c_str(), sceneDest.c_str(), FALSE)) {
             Log::Error("BuildPipeline: could not copy scene to '" + sceneDest + "'");
             return false;
         }
 
-        // The scene's own Assets/ directory sits right next to Scene.scene -- deriving it here
-        // avoids threading a new parameter through BuildFor3DSAsync/MenuBarPanel just for this.
-        std::string assetsDirectory = std::filesystem::path(sceneJsonPath).parent_path().string();
         if (!CookAssets(repoRoot, assetsDirectory))
             return false;
 
@@ -261,9 +298,16 @@ namespace Duality {
         // Resolved to absolute + forward-slash here for the exact same reason
         // ScriptEngine::Reload's own copy of this logic is -- see its comment there.
         std::string projectScriptsDir;
-        if (auto project = Project::GetActive())
-            projectScriptsDir = std::filesystem::absolute(project->GetScriptsDirectory()).generic_string();
-        std::string command = "\"" + repoRoot + "\\build-3ds.bat\" \"" + projectScriptsDir + "\"";
+        // Same absolute + forward-slash resolution as projectScriptsDir above, and for the same
+        // reason -- ProjectSettingsPanel's file dialog already returns an absolute path, so this
+        // is a safe no-op there; it only matters if IconPath is ever set some other way.
+        std::string projectIconPath;
+        if (activeProject) {
+            projectScriptsDir = std::filesystem::absolute(activeProject->GetScriptsDirectory()).generic_string();
+            if (!activeProject->GetConfig().IconPath.empty())
+                projectIconPath = std::filesystem::absolute(activeProject->GetConfig().IconPath).generic_string();
+        }
+        std::string command = "\"" + repoRoot + "\\build-3ds.bat\" \"" + projectScriptsDir + "\" \"" + projectIconPath + "\"";
         if (RunCommand(command) != 0) {
             Log::Error("BuildPipeline: 3DS build failed");
             return false;

@@ -10,6 +10,7 @@
 
 #include "DualityEditor/AssetInspectors.h"
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/EditorSettings.h"
 #include "DualityEditor/FileDialogs.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
@@ -111,7 +112,7 @@ namespace Duality {
         testCube.GetComponent<TransformComponent>().Scale = { 60.0f, 60.0f, 60.0f };
         auto& testCubeMesh = testCube.AddComponent<MeshRendererComponent>();
         testCubeMesh.Primitive = MeshPrimitive::Cube;
-        testCubeMesh.Material.Guid = materialGuid;
+        testCubeMesh.Materials.push_back(AssetRef{ materialGuid });
         // Same script class as the 2D ApiShowcase entity below -- demonstrates it adapting to a
         // 3D mesh entity instead of a sprite (ground-plane movement, yaw spin) via
         // GetEntity().HasComponent<T>(), see ApiShowcaseBehaviour.cpp.
@@ -163,7 +164,7 @@ namespace Duality {
         physicsGround3D.GetComponent<TransformComponent>().Scale = { 200.0f, 20.0f, 200.0f };
         auto& groundMesh3D = physicsGround3D.AddComponent<MeshRendererComponent>();
         groundMesh3D.Primitive = MeshPrimitive::Cube;
-        groundMesh3D.Material.Guid = materialGuid; // reuses the TestOrange material above, just for a visible surface
+        groundMesh3D.Materials.push_back(AssetRef{ materialGuid }); // reuses the TestOrange material above, just for a visible surface
         auto& groundBody3D = physicsGround3D.AddComponent<Rigidbody3DComponent>();
         groundBody3D.Type = BodyType::Static;
         auto& groundCollider3D = physicsGround3D.AddComponent<BoxCollider3DComponent>();
@@ -471,7 +472,8 @@ namespace Duality {
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
                 m_Fps, m_GameDrawCallCount,
                 m_ScenePath, m_BuildDirectory, m_RepoRoot, m_PlaySnapshot,
-                m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog
+                m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog,
+                m_RequestBrowseExternalEditor, m_RequestBrowseIcon, m_ShowBuildSettings, m_ShowProjectSettings, m_ShowPreferences
             };
 
             m_MenuBarPanel.OnImGuiRender(ctx);
@@ -506,6 +508,28 @@ namespace Duality {
                 if (!path.empty())
                     OpenScene(ctx, path);
             }
+            // Same native-dialog constraint as RequestOpenSceneDialog above -- PreferencesPanel
+            // itself has no window handle to call FileDialogs::OpenFile with.
+            if (m_RequestBrowseExternalEditor) {
+                m_RequestBrowseExternalEditor = false;
+                std::string path = FileDialogs::OpenFile(m_Window.GetNativeWindow(), "Executable (*.exe)\0*.exe\0");
+                if (!path.empty()) {
+                    EditorSettings::Get().ExternalEditorPath = path;
+                    EditorSettings::Get().Save();
+                }
+            }
+            // Same native-dialog constraint as the two blocks above -- ProjectSettingsPanel has
+            // no window handle of its own. Per-project (Project::GetConfig().IconPath +
+            // Save()), not EditorSettings -- an icon belongs to the project being built, not
+            // this machine's Editor install.
+            if (m_RequestBrowseIcon) {
+                m_RequestBrowseIcon = false;
+                std::string path = FileDialogs::OpenFile(m_Window.GetNativeWindow(), "PNG Image (*.png)\0*.png\0");
+                if (!path.empty() && m_Project) {
+                    m_Project->GetConfig().IconPath = path;
+                    m_Project->Save();
+                }
+            }
 
             m_ScenePanel.OnImGuiRender(ctx);
             m_GamePanel.OnImGuiRender(ctx);
@@ -513,6 +537,9 @@ namespace Duality {
             m_PropertiesPanel.OnImGuiRender(ctx);
             m_ContentBrowserPanel.OnImGuiRender(ctx);
             m_ConsolePanel.OnImGuiRender();
+            m_BuildSettingsPanel.OnImGuiRender(ctx);
+            m_ProjectSettingsPanel.OnImGuiRender(ctx);
+            m_PreferencesPanel.OnImGuiRender(ctx);
 
             m_Window.EndFrame();
         }

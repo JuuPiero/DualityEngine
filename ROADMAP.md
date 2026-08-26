@@ -44,6 +44,66 @@ this file whenever something below actually gets built, or a new deferred item c
       `Tests/MeshLoaderTests.cpp` (a realistic quad-faced/no-UV cube, a plain triangle mesh, and
       graceful failure on a missing file) and a scratch program confirming the fix against a
       real quad-faced test OBJ.
+- [x] Real per-submesh multi-material mesh rendering, replacing `MeshRendererComponent`'s single
+      `Material` field with `Materials` (`std::vector<AssetRef>`) -- `MeshLoader::Load` now reads
+      an OBJ's own `usemtl` lines purely as submesh BOUNDARY markers (never resolving/storing the
+      material name itself, since this engine's `.mat` asset pipeline has no `.mtl`-parsing
+      concept -- the user manually assigns a real `.mat` to each resulting slot index in the
+      Editor, same index-matched convention as Unity's own `Renderer.materials`), producing a
+      `MeshData::SubMeshes` list of `(FirstVertex, VertexCount)` ranges (a file with no `usemtl`
+      at all is still exactly one implicit submesh -- today's original single-material behavior
+      expressed as the 1-submesh case of the same mechanism, not a special case). `IRenderer3D::
+      DrawMesh` gained a `subMeshIndex` param + a new `GetSubMeshCount` method, and both backends
+      (`OpenGLRenderer3D`/`Citro3DRenderer`) now issue one real draw call per submesh, slicing the
+      same non-indexed vertex buffer (`glDrawArrays`/`C3D_DrawArrays` with a `(first, count)`
+      range) instead of always drawing the whole mesh. Submesh ranges are stored DIRECTLY on each
+      backend's own per-mesh object (`GLVertexArray`/`PrimitiveGpuMesh`), not a second parallel
+      container keyed by the same handle -- caught during design review that both backends'
+      `Shutdown()` clear their mesh caches SEPARATELY from their own `UnloadAllMeshes()` (4 total
+      clear sites across the two files), so a parallel container would need matching bookkeeping
+      at all 4 sites and silently desync (wrong submesh ranges for an unrelated mesh, no crash to
+      reveal it) if any one were missed. A submesh index beyond `Materials`' own length repeats
+      the LAST entry (confirmed to match Unity's real `MeshRenderer.materials` behavior, not just
+      an analogy); an empty list falls back to the default white `Material` for every submesh via
+      the existing `AssetRef{}` graceful-degradation path. No migration code for old scene files'
+      `"Material": "<guid>"` JSON key (matches this project's established no-migration-shim
+      precedent) -- `SampleProject/Assets/Scene.scene`'s 4 real entries were hand-migrated to
+      `"Materials": [...]` the same way the `BodyType` rename's data was, so the demo project
+      doesn't visually regress. Verified via new `Tests/MeshLoaderTests.cpp` cases (multi-`usemtl`
+      ranges, zero-`usemtl` single-submesh regression guard, back-to-back `usemtl` lines emitting
+      no empty entry) plus a real clean `build-3ds.bat` run.
+- [x] Reflection gained its first list-typed field: `FieldValue` (the `std::variant` every
+      component field's value round-trips through) now has a `std::vector<AssetRef>` alternative,
+      added specifically for `MeshRendererComponent::Materials` above -- not a generic "list of
+      any field type" mechanism, just this one concrete case. `TypeRegistry`/`MakeField`/
+      `EntitySerialization.cpp` needed zero changes (already fully generic over whatever
+      alternatives the variant holds); exactly two real dispatch sites needed one new `if
+      constexpr` branch each: `FieldEditorWidget.cpp`'s `DrawFieldWidget` (a per-row reuse of the
+      existing single-`AssetRef` drag-drop-target widget, plus add/remove-row buttons) and
+      `FieldSerialization.cpp`'s `FieldValueToJson`/`JsonToFieldValue` (a JSON array of GUIDs).
+      Deliberately manual-only slot management, no auto-sync to a mesh's real submesh count --
+      `FieldHandle::Get`/`Set` operate on an opaque `void*` with zero visibility into sibling
+      fields on the same component, so a "match submesh count" convenience would need to
+      special-case `MeshRendererComponent` specifically, undermining the point of generalizing
+      this into the generic widget dispatcher at all. `SpriteFlipbookComponent`'s own 8
+      hardcoded frame fields and `BehaviourComponent::Scripts` were the two prior workarounds for
+      this exact gap (see their own comments) -- this is the first real closing of it, for one
+      concrete field type.
+- [x] Editor-configurable 3DS `.cia` icon -- `ProjectConfig::IconPath` (new, absolute path to a
+      user-picked PNG, empty = use the engine's existing placeholder), set via a new "Icon"
+      section in the Project Settings panel (preview image + Browse... button, its own
+      `ThumbnailCache` instance for the preview). Threaded through `BuildPipeline::BuildFor3DS` ->
+      `build-3ds.bat`'s new second argument -> a new `DUALITY_PROJECT_ICON` CMake cache variable
+      in `DualityPlayer/CMakeLists.txt`, replacing the previously-hardcoded
+      `Packaging/icon.png` passed to `bannertool makesmdh`. Declared `CACHE STRING`, deliberately
+      NOT `PATH`/`FILEPATH`, with a derived MSYS-notation copy for the `EXISTS` check gated to
+      `CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS"` -- the exact same fix pattern already established
+      for `DUALITY_PROJECT_SCRIPTS_DIR` (the MSYS-hosted cmake this 3DS configure runs under
+      corrupts a PATH/FILEPATH-typed cache variable holding a Windows drive-letter path, and
+      separately, `EXISTS`/`file()` against a raw Windows-style path silently fails under that
+      same cmake even with an uncorrupted value). Desktop `.exe` icons are a deliberately separate,
+      out-of-scope toolchain (`.ico` + a compiled-in `.rc` resource script, unrelated to a
+      runtime-read PNG), not covered by this pass.
 - [x] 3D collider gizmos (`ScenePanel.cpp`'s `DrawBoxCollider3D`/`DrawSphereCollider3D`) -- the
       Scene view's 3D pane previously had no visualization at all for `BoxCollider3DComponent`/
       `SphereCollider3DComponent` (only the 2D pane's `BoxCollider2D`/`CircleCollider2D`
@@ -508,6 +568,74 @@ this file whenever something below actually gets built, or a new deferred item c
       isn't available here since there's only one real window. Still hardcoded to always run
       `SampleProject` (no project picker) and always 2x scale (no window resize handling) --
       both reasonable first-pass cuts, not attempted yet.
+- [x] Collider "Edit" mode + selected-only Scene view visibility
+      (`BoxCollider2D/CircleCollider2D/BoxCollider3D/SphereCollider3DComponent::EditMode`,
+      `ScenePanel.cpp`) -- the green collider wireframe used to draw for EVERY collider in the
+      scene, all the time, which got visually noisy fast in anything beyond a small demo scene;
+      it now draws only for the SELECTED entity, matching how the Translate/Rotate/Scale gizmo
+      itself already only shows for the selection. A new per-collider `EditMode` bool (off by
+      default) additionally gates whether the resize handles actually respond to a drag -- the
+      wireframe+handle markers still draw whenever selected regardless of `EditMode`, only
+      grabbing them is gated, matching Unity's own "always show the gizmo, only let you grab it
+      in edit mode" feel and specifically so moving/inspecting an entity in the viewport never
+      risks an accidental collider reshape from a stray drag. 2D colliders (`BoxCollider2D`/
+      `CircleCollider2D`) gained real draggable resize handles for the first time this pass
+      (`DragCollider2DHandle`, same `InvisibleButton`-driven-drag shape as the existing 3D
+      `DragCollider3DHandle`, just projected through the 2D pane's screen-space/zoom math
+      instead of `Projector3D`) -- previously only the 3D colliders had any drag-to-resize at
+      all, 2D `Size`/`Radius` could only be edited via the plain Properties panel fields.
+- [x] `CameraComponent::Background` (`glm::vec4`, `Scene/Components.h`) -- Unity's
+      `Camera.backgroundColor`, shown as a color picker on the Camera card in Properties.
+      `SceneRenderer.cpp`'s `RenderScreen` now reads a screen's real primary camera's own
+      `Background` as that screen's clear color whenever a camera exists, falling back to the
+      caller's previous hardcoded dark blue-gray default (`Application.cpp`/`DualityPlayer`'s
+      `Main.cpp`) only for a screen with no camera at all -- so an existing scene with no camera
+      on some screen renders identically to before, and `Background` defaults to that exact same
+      color so an existing scene WITH a camera also renders unchanged until someone actually
+      picks a new color.
+- [x] Build Settings window (`DualityEditor/Panels/BuildSettingsPanel.cpp`, File > Build
+      Settings...) -- Unity's own Build Settings dialog: a "Scenes In Build" list (drag a row to
+      reorder, an "x" button to remove; the topmost entry is the Start Scene, labeled `[Main]`)
+      backed by a new persisted `ProjectConfig::ScenesInBuild` field
+      (`DualityEngine/Project/Project.h`), plus an auto-scanned "Other Scenes In Project" list
+      (every `.scene` under the project's `Assets/` not already in the list above, click to add
+      -- same `fs::recursive_directory_iterator` scan `BuildPipeline::CookAssets` already uses)
+      and a "Build for 3DS" button + a wall-clock-cycling progress bar right in the window, so a
+      scene list can be configured and built without leaving it. Shares `BuildPipeline`'s/
+      `ScriptEngine`'s existing single-build-at-a-time status gate, same as `MenuBarPanel`'s own
+      "Build for 3DS" menu item. `ScenesInBuild` is a real behavior change, not just editor
+      chrome: `BuildPipeline::CookAssets` now excludes any `.scene` file NOT in the list once a
+      project has configured one (Unity's "only scenes added to Build Settings ship" rule), and
+      `BuildFor3DS` packages `ScenesInBuild[0]` as the on-device boot scene instead of always
+      whatever happens to be open in the Editor. An empty list (the default, unconfigured state)
+      is a no-op fallback to the old behavior on both counts -- ship every `.scene` found,
+      package whichever scene is currently open -- so an existing project sees zero change until
+      someone actually opens this window. **Real latent bug found and fixed while wiring this
+      up**: `BuildFor3DS`'s `assetsDirectory` used to be derived from the packaged scene file's
+      OWN parent folder, silently wrong for any scene not sitting directly at the Assets root
+      (e.g. `Assets/Scenes/Test.scene` would derive `.../Assets/Scenes` instead of
+      `.../Assets`, breaking `CookAssets` for that project) -- fixed to always derive from
+      `Project::GetActive()->GetAssetsDirectory()` directly instead, the same authoritative
+      source Build Settings' own scene scan already uses.
+- [x] Project Settings panel (`DualityEditor/Panels/ProjectSettingsPanel.cpp`, Edit > Project
+      Settings...) -- read-only Name/Assets Directory/Scripts Directory display for the active
+      project, matching Unity's menu placement (File > Build Settings, Edit > Project
+      Settings/Preferences). Explicitly a small first-pass starting point per this panel's own
+      source comment -- not editable yet, since `AssetsDirectory`/`ScriptsDirectory` aren't
+      safe to change live (every already-loaded asset/script reference would need re-resolving).
+- [x] Preferences panel (`DualityEditor/Panels/PreferencesPanel.cpp`,
+      `DualityEditor/EditorSettings.h`, Edit > Preferences...) -- pick an external editor
+      executable (e.g. VS Code's `code.exe`) via a "Browse..." native file dialog, then "Open
+      Project in External Editor" launches it with the active project's own directory as its
+      argument (`BuildPipeline::RunCommand`, same quote-wrapped `std::system` call every other
+      external-process launch in this codebase uses). Persisted per-machine, not per-project --
+      `EditorSettings` (new, `DualityEditor`-only) loads/saves
+      `%APPDATA%\DualityEngine\EditorSettings.json`, the same `nlohmann::json` load/save idiom
+      `Project::Load`/`Save` already uses, deliberately separate from any one project's own
+      `.dproj` since which external editor you prefer isn't a property of the project. Routed
+      through the same one-shot request-flag convention (`ctx.RequestBrowseExternalEditor`,
+      handled once in `Application::Run()`) `RequestOpenSceneDialog` already established, since
+      `PreferencesPanel` itself has no native window handle to call `FileDialogs::OpenFile` with.
 
 ## Assets
 
@@ -850,6 +978,58 @@ this file whenever something below actually gets built, or a new deferred item c
       both the desktop `GameScripts.dll` AND the STATIC 3DS-linked `GameScripts` library, its
       generated `Fields()` entry inspected directly, and a live Play-mode run showing its
       `OnCreate()` log line in the Console.
+- [x] `DUALITY_SERIALIZABLE()` -- nested struct fields, Unity's `[System.Serializable]`
+      class-as-a-field for this engine (user asked directly: "add one more macro to make plain
+      structs/classes serializable -- if Unity's Inspector can do it, Dear ImGui can too"). A
+      plain struct marked `DUALITY_SERIALIZABLE()` (an alias for the already-generic
+      `DUALITY_PROPERTIES_AUTO()` -- that declaration was never actually Behaviour-specific) can
+      be used as a `DUALITY_PROPERTY()`-marked field on a Behaviour or another such struct,
+      showing as an expandable/foldout group in Properties, editing recursively, and
+      serializing through Save Scene/Load Scene like any other field -- multi-level nesting
+      (a nested struct containing another nested struct) works for free via plain recursion.
+      `FieldValue` (`Field.h`) gained a 17th alternative, `NestedFieldValue` -- deliberately
+      VALUE-semantic (a snapshot of the nested struct's own field values, not a pointer into the
+      live owning instance), a real design flaw caught and fixed during review before
+      implementation: `PropertyOverrides` (a script's persisted field-override map) and
+      `EntitySerialization.cpp`'s own load path both build a `FieldValue` off a THROWAWAY
+      scratch instance that's destroyed moments later (`PropertiesPanel.cpp`'s per-frame scratch,
+      `EntitySerialization.cpp`'s own `ScriptRegistry::TryCreate`+`destroyScratch` at load time) --
+      a pointer-based design would dangle the instant that scratch is freed, and silently fail to
+      apply a nested override onto the genuinely fresh instance `Scene::OnRuntimeStart` creates at
+      Play. Both `NestedFieldValue` members are `std::any` (not their real types directly) since
+      it must be declared before `FieldValue`'s own variant (as one of its alternatives) and
+      before `FieldHandle` is complete -- `std::any` sidesteps the resulting incomplete-type
+      ordering problem entirely, recovered via `std::any_cast` at each real use site. New
+      `MakeNestedField<C,T>` (`Field.h`) builds/applies the snapshot via `T::Fields()`;
+      `FieldEditorWidget.cpp`'s `DrawFieldWidget` was split into a thin `Get`/`Set` wrapper around
+      a new, pure `DrawFieldValueWidget(name, FieldValue&, Scene*)` so the Nested branch can
+      recurse into it directly against the detached snapshot (no live instance available at that
+      point); `FieldSerialization.cpp`'s `FieldValueToJson`/`JsonToFieldValue` gained matching
+      branches (a nested JSON object keyed by the struct's own field names), both pure functions,
+      no side effects. `generate_fields.py` now collects every
+      `DUALITY_PROPERTIES_AUTO()`/`DUALITY_SERIALIZABLE()`-marked type name across ALL scanned
+      files first (a Behaviour subclass or a plain nested struct, identical codegen path either
+      way), then cross-references each field's own captured type token (on its last `::` segment)
+      against that set to decide `MakeField` vs `MakeNestedField` -- its `CLASS_RE` broadened from
+      matching only `class X : public Behaviour` to also matching a bare `class X`/`struct X`.
+      **Two real, confirmed bugs found and fixed while wiring up the first real demo**
+      (`BounceBehaviour`'s new `Wobble` field, a `BounceWobble` struct with `Amount`/`Frequency`,
+      defaulting to a no-op so the existing demo's visible behavior is unchanged unless a user
+      actually raises `Amount` above zero): (1) the broadened `CLASS_RE` matched the word
+      "struct" inside this very session's OWN prose comments (e.g. "...marks the struct itself as
+      nestable...", `struct` followed by a word, exactly the new regex's shape) -- the scanner had
+      no comment-awareness at all, previously masked by the old regex's much narrower, comment-
+      prose-unlikely shape. This didn't just fail to compile the generated code (a bogus class
+      named "itself"); it silently SWALLOWED the real `BounceWobble` definition later in the same
+      file (the exact "stray match consumes tracking state and hides the next real class" failure
+      mode a separate forward-declaration guard was already added to prevent, just triggered by a
+      comment instead of a forward declaration). Fixed by stripping a `//` line comment from every
+      line before ANY regex runs against it (class match, field match, AND brace-depth counting,
+      so a stray brace inside a comment can't desync tracking either) -- a real robustness gap
+      that was always latent given this whole codebase's comment-heavy style, just far less likely
+      to trigger with the original narrow-Behaviour-only regex. (2) Confirmed via a real, clean
+      `build-3ds.bat` run that `std::any`/the whole feature compiles clean under devkitARM's
+      libstdc++ too, not just desktop mingw.
 - [ ] Coroutines / a delayed-call helper (`Invoke`/`WaitForSeconds`-equivalent) -- right now
       a script can only act every frame from `OnUpdate`, with no built-in way to schedule
       "do X after N seconds" without hand-rolling a timer field.

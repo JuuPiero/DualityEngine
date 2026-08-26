@@ -87,12 +87,32 @@ or opened via the File menu.
   (saves the scene, then rebuilds `DualityPlayerDesktop` in the existing
   desktop build tree -- no romfs/asset-cooking step needed, since that
   target reads a project's `Assets/` directly off disk at its own launch
-  time; run it via `run-desktop-player.bat` once built). Both share one
-  build-status flag, so they can't run concurrently against the same build
-  tools. The menu bar also shows which scene file is currently active
+  time; run it via `run-desktop-player.bat` once built), and **Build
+  Settings...** (a separate window -- see below). Both build actions share
+  one build-status flag, so they can't run concurrently against the same
+  build tools. The menu bar also shows which scene file is currently active
   (`Scene: <filename>`), since **Open Scene...**/a Content Browser
   double-click/the Scene asset inspector's own "Open Scene" button can all
   change it.
+- **Build Settings...** window (File menu) -- Unity's own Build Settings
+  dialog: a **Scenes In Build** list (drag a row to reorder, "x" to remove;
+  the topmost entry is the Start Scene) plus an auto-scanned **Other Scenes
+  In Project** list to add from, and a **Build for 3DS** button + progress
+  bar right in the window. Backed by a persisted `ProjectConfig::ScenesInBuild`
+  field: once configured, only listed scenes are cooked into a 3DS build and
+  the topmost one ships as the on-device boot scene (an empty/unconfigured
+  list falls back to the old behavior -- ship every `.scene` found, package
+  whatever's currently open).
+- **Edit menu** (top) -- **Project Settings...** (Name/Assets Directory/Scripts
+  Directory are read-only for this first pass; an **Icon (3DS)** section is
+  editable though -- preview + **Browse...** to pick a PNG, persisted as
+  `ProjectConfig::IconPath` and threaded into the actual `.cia` build's
+  `bannertool makesmdh` step, falling back to the engine's placeholder icon
+  when unset) and **Preferences...** (pick an external
+  editor executable via **Browse...**, then **Open Project in External
+  Editor** launches it with the active project's folder as its argument --
+  persisted per-machine, not per-project, at
+  `%APPDATA%\DualityEngine\EditorSettings.json`).
 - **Hierarchy** (left) -- lists entities in the scene; click one to select
   it. **Create Entity** adds a new empty entity and selects it. A search box
   filters to a flat scene-wide list of matching entities while it has text
@@ -127,16 +147,21 @@ or opened via the File menu.
   look straight down that axis. The viewport always exactly fills the
   panel. Camera entities draw a real frustum wireframe (near/far planes,
   FOV) instead of a flat marker, so you can see exactly where a camera is
-  looking. **Translate / Rotate / Scale** buttons switch the selected
+  looking, and a camera's **Background** color field (Properties, Unity's
+  `Camera.backgroundColor`) is what that screen actually clears to whenever
+  a camera is present. **Translate / Rotate / Scale** buttons switch the selected
   entity's gizmo mode -- drag a handle to edit its Transform live, visible
   immediately in Scene, Game, and on a real 3DS build. `Transform.Rotation`
   is always in degrees. Colliders
   (`BoxCollider2D`/`CircleCollider2D`/`BoxCollider3D`/`SphereCollider3D`)
-  draw as green wireframe outlines for every entity that has one -- an
+  draw as a green wireframe outline for the SELECTED entity only -- an
   editor-only visualization, like Unity's Gizmos, never actually rendered
-  in the Game view or on-device. The selected entity's 3D collider also gets
-  a draggable resize handle per axis (box: one per face; sphere: one on the
-  equator) for editing `Size`/`Radius` directly in the 3D pane.
+  in the Game view or on-device. A per-collider **Edit** checkbox in
+  Properties (`EditMode`, off by default) gates whether that wireframe's
+  resize handles actually respond to a drag -- one handle per axis for 2D
+  (`Size.x`/`Size.y`, or a single radius handle) and 3D (box: one per face;
+  sphere: one on the equator) alike, editing `Size`/`Radius` directly in
+  whichever Scene pane the collider is drawn in.
 - **Game** (center, tabbed with Scene) -- exactly what the real
   TopCamera/BottomCamera entities render, stacked to match the console's
   physical layout (Top 400x240 above, Bottom 320x240 below). This is the
@@ -475,7 +500,8 @@ DualityEngine/       Shared engine core (ECS, reflection, scene, renderer
 DualityEditor/       Desktop editor (Dear ImGui) -- Application owns a Window
                      (GLFW/GL/ImGui backend) and every Panel (Scene, Game,
                      Hierarchy, Properties, MenuBar, Content Browser,
-                     Console); Main.cpp is just Application().Run()
+                     Console, Build Settings, Project Settings, Preferences);
+                     Main.cpp is just Application().Run()
 DualityPlayerDesktop/ Standalone desktop player (real GLFW window, no Editor UI)
 DualityPlayer/       3DS runtime executable + Packaging/ (icon/banner/RSF for .cia)
 GameScripts/         Gameplay scripts, built as a hot-reload DLL (desktop) or
@@ -499,6 +525,10 @@ repo (prebuilt binaries).
 
 - No Project Hub / recent-projects list -- New Project/Open Project are
   plain native file dialogs for now, no recent-project history.
+- The Project Settings window (Edit menu) is mostly read-only for this first
+  pass -- Name/Assets Directory/Scripts Directory are shown but not editable
+  (only the Icon picker is). Preferences (Edit menu) covers only a single
+  external-editor path so far.
 - `Entity` handles held across a "Load Scene"/"Open Project"/"New Project"
   click (e.g. the
   current selection) can go stale, since either replaces the whole registry
@@ -539,9 +569,11 @@ repo (prebuilt binaries).
 - The in-game UI system covers Panel/Image and Button widgets only -- no
   text/label widget yet (needs real font rendering, not built on desktop),
   no 9-slice/border scaling, and no visual drag-and-drop UI builder.
-- No 3D lighting/material system yet (meshes are unlit; `Material` is
-  currently just Color + Texture) and no skeletal/mesh animation for
-  imported OBJ meshes.
+- No 3D lighting system yet (meshes are unlit; `Material` is currently just
+  Color + Texture) and no skeletal/mesh animation for imported OBJ meshes.
+  A mesh CAN carry multiple materials now (`MeshRendererComponent::Materials`,
+  one real draw call per OBJ `usemtl` submesh group -- see `ROADMAP.md`), but
+  each submesh is still unlit, same Color+Texture-only `Material`.
 
 See `ROADMAP.md` at the repo root for the fuller list of planned/deferred
 work (kept up to date independently of this section).

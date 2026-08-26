@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Components Reference — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="components">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">API Reference</div>
+                <h1>Components Reference</h1>
+                <p class="lede">
+                    Danh sách đầy đủ mọi component dựng sẵn của engine — field thật, giá trị mặc
+                    định thật, lấy trực tiếp từ <code>Scene/Components.h</code> (struct C++) và
+                    <code>Reflection.cpp</code>'s <code>RegisterBuiltinComponents()</code> (nơi mỗi
+                    component đăng ký field nào thật sự hiện ở Properties panel <strong>và</strong>
+                    được ghi vào file <code>.scene</code>/<code>.prefab</code>). Đây là nguồn sự
+                    thật duy nhất Properties panel và <code>SceneSerializer</code> cùng đọc — field
+                    nào không nằm trong danh sách <code>MakeField</code>/<code>MakeColorField</code>
+                    của một component thì không bao giờ hiện ở Inspector hay round-trip qua
+                    Save/Load, dù vẫn tồn tại trong struct C++.
+                </p>
+
+                <div class="callout">
+                    <span class="callout-title">Cách đọc các bảng bên dưới</span>
+                    Mỗi bảng liệt kê <strong>toàn bộ</strong> field trong struct thật, kể cả field
+                    không đăng ký reflection. Field đánh dấu <em>runtime-only</em> là state chỉ có
+                    ý nghĩa giữa <code>Scene::OnRuntimeStart</code>/<code>OnRuntimeStop</code> (con
+                    trỏ physics body, frame animation đang phát, cờ hover/click...) — TypeRegistry
+                    cố ý không đăng ký các field này, nên chúng không hiện ở Properties panel và
+                    không được ghi vào file scene/prefab. Component nào được đăng ký với
+                    <code>Mandatory = true</code> (Name/Tag/Active/Transform) thì Properties panel
+                    không vẽ nút <strong>"..."</strong> để xoá nó khỏi entity.
+                </div>
+
+                <h2 style="border-top:none;margin-top:0">Core</h2>
+                <p>
+                    5 component mọi entity hầu như luôn có — <code>Scene::CreateEntity</code> tự
+                    gắn kèm cả 5 ngay khi tạo entity, không cần tự thêm tay. File scene cũ thiếu
+                    key nào trong số này khi load vẫn tự nhận giá trị mặc định, không cần code
+                    migrate.
+                </p>
+
+                <h3>NameComponent <span class="badge badge-2d">bắt buộc</span></h3>
+                <p>
+                    Định danh hiển thị của entity (nhãn trong Hierarchy, sau này dùng cho
+                    Find-by-name) — tách riêng khỏi <code>TagComponent</code> bên dưới vì Unity
+                    cũng coi hai thứ này độc lập (đổi tên một object thì tag/category vẫn giữ
+                    nguyên).
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Name</code></td><td><code>std::string</code></td><td><code>""</code></td><td>Tên hiển thị của entity.</td></tr>
+                </table>
+
+                <h3>TagComponent <span class="badge badge-2d">bắt buộc</span></h3>
+                <p>
+                    Một chuỗi category gameplay tự do, khớp <code>GameObject.tag</code> của Unity
+                    (Find-by-tag chưa implement, nhưng field cần tồn tại và round-trip qua
+                    Inspector/serializer sẵn trước khi bất kỳ thứ gì có thể query theo nó).
+                    <code>"Untagged"</code> khớp mặc định của chính Unity.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Tag</code></td><td><code>std::string</code></td><td><code>"Untagged"</code></td><td>Category gameplay tự do.</td></tr>
+                </table>
+
+                <h3>ActiveComponent <span class="badge badge-2d">bắt buộc</span></h3>
+                <p>
+                    Khớp <code>GameObject.activeSelf</code> của Unity. Sống trong header riêng
+                    (<code>Scene/ActiveComponent.h</code>, không phải <code>Components.h</code>) vì
+                    <code>Behaviour.h</code>'s <code>SetActive</code>/<code>IsActive</code> cần định
+                    nghĩa đầy đủ của nó ngay trong header, trong khi <code>Components.h</code> lại
+                    include <code>Behaviour.h</code> — tách riêng để cả hai include nhau mà không
+                    vòng lặp. Một bool đơn lẻ cố ý <strong>không đủ</strong> để tự nó trả lời "entity
+                    này có đang thật sự render/simulate/tick không" — xem
+                    <code>Scene::IsEffectivelyActive</code>, nó còn đi ngược lên
+                    <code>HierarchyComponent::Parent</code> (khớp <code>activeInHierarchy</code> của
+                    Unity), vì con của một cha đã tắt thì cũng ngầm bị tắt theo dù
+                    <code>Active</code> của chính nó vẫn <code>true</code>.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Active</code></td><td><code>bool</code></td><td><code>true</code></td><td>Cờ active của riêng entity này (chưa tính cascade từ cha).</td></tr>
+                </table>
+
+                <h3>TransformComponent <span class="badge badge-2d">bắt buộc</span></h3>
+                <p>
+                    Vị trí/xoay/tỉ lệ giữ đủ 3 chiều dù hiện chỉ có render 2D — kiến trúc là
+                    2D-first, không phải 2D-only. <code>Rotation</code> tính bằng
+                    <strong>độ</strong>, không phải radian (áp dụng cho mọi trục, kể cả
+                    <code>Rotation.z</code> dùng để xoay sprite 2D).
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Translation</code></td><td><code>glm::vec3</code></td><td><code>{0, 0, 0}</code></td><td>Vị trí world-space.</td></tr>
+                    <tr><td><code>Rotation</code></td><td><code>glm::vec3</code></td><td><code>{0, 0, 0}</code></td><td>Góc xoay, độ (không phải radian).</td></tr>
+                    <tr><td><code>Scale</code></td><td><code>glm::vec3</code></td><td><code>{1, 1, 1}</code></td><td>Tỉ lệ. Với <code>MeshRendererComponent</code>, đây trực tiếp là kích thước mesh world-space (khác <code>SpriteRendererComponent</code>, có field <code>Size</code> riêng).</td></tr>
+                </table>
+
+                <h3>HierarchyComponent</h3>
+                <div class="callout warn">
+                    <span class="callout-title">Không nằm trong TypeRegistry</span>
+                    Cây parent/child kiểu Unity/Cocos này <strong>không</strong> đăng ký với
+                    <code>TypeRegistry</code> — giống <code>Rigidbody2DComponent::RuntimeBody</code>,
+                    đây là bookkeeping do engine tự quản lý, không phải field người dùng tự nhập,
+                    nên không bao giờ hiện ở Properties panel/Add Component, và vòng lặp field
+                    generic của <code>SceneSerializer</code> bỏ qua nó hoàn toàn —
+                    <code>SceneSerializer</code> tự đọc/ghi quan hệ parent riêng, dưới dạng index,
+                    vì handle <code>entt::entity</code>/con trỏ <code>Entity</code> thô không sống
+                    sót qua save/load. <code>Parent</code>/<code>Children</code> chỉ nên bị sửa qua
+                    <code>Scene::SetParent</code>, không bao giờ gán trực tiếp — đó là hàm giữ
+                    <code>Scene::m_RootEntities</code> và tính an toàn chống-cycle nhất quán.
+                    <code>Scene::CreateEntity</code> vẫn luôn gắn component này (như 4 component
+                    "Core" khác) — nó chỉ vô hình với reflection, không phải không tồn tại.
+                </div>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Parent</code></td><td><code>Entity</code></td><td>Entity rỗng</td><td>Entity rỗng (falsy) = entity gốc (root).</td></tr>
+                    <tr><td><code>Children</code></td><td><code>std::vector&lt;Entity&gt;</code></td><td>rỗng</td><td>Thứ tự trong vector = thứ tự hiển thị/serialize giữa các sibling.</td></tr>
+                </table>
+
+                <h2>Rendering</h2>
+                <p>Vẽ world-space — Sprite/Flipbook/Mesh cần một <code>CameraComponent</code> đang active trên đúng màn mới lên hình; xem thêm ở <a href="rendering.html">Rendering &amp; UI</a>.</p>
+
+                <h3>SpriteRendererComponent</h3>
+                <p>
+                    Vẽ một quad kích thước <code>Size</code> (pixel), căn giữa tại
+                    <code>TransformComponent::Translation</code> của entity. <code>Texture</code>
+                    là <code>AssetRef</code> (Guid rỗng = chưa gán) — khi chưa resolve/rỗng thì vẽ
+                    ô <code>Color</code> đặc; khi resolve được ảnh, <code>Color</code> vẫn nhân
+                    (modulate) lên trên (trắng = không đổi màu texture gốc). Nếu entity còn có
+                    <code>SpriteFlipbookComponent</code>, frame hiện tại của component đó ghi đè
+                    hoàn toàn <code>Texture</code> này, miễn là frame đang gán không rỗng.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Color</code></td><td><code>glm::vec4</code></td><td><code>{1, 1, 1, 1}</code></td><td>Màu nhân lên texture, hoặc màu ô đặc khi không có texture.</td></tr>
+                    <tr><td><code>Size</code></td><td><code>glm::vec2</code></td><td><code>{32, 32}</code></td><td>Kích thước quad, pixel.</td></tr>
+                    <tr><td><code>Texture</code></td><td><code>AssetRef</code></td><td>rỗng</td><td>GUID ảnh — rỗng = không gán, vẽ ô <code>Color</code> đặc.</td></tr>
+                </table>
+
+                <h3>SpriteFlipbookComponent</h3>
+                <p>
+                    Animation kiểu flipbook 2D: danh sách <strong>cố định</strong> (không phải list
+                    động) frame texture, phát ở nhịp cố định. Cố định đúng 8 slot vì hệ reflection
+                    (<code>Field.h</code>) chỉ model field vô hướng — mỗi field một widget ImGui —
+                    một list editor độ dài thay đổi thật sự cần mở rộng riêng cho
+                    <code>TypeRegistry</code>/<code>SceneSerializer</code>/<code>PropertiesPanel</code>,
+                    lớn hơn nhiều so với phạm vi hiện tại. Chỉ chạy lúc Play
+                    (<code>Scene::OnRuntimeUpdate</code>), giống <code>Behaviour</code>/physics —
+                    chưa có preview/tua ở Edit mode.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Frame0</code> … <code>Frame7</code></td><td><code>AssetRef</code> ×8</td><td>rỗng</td><td>Frame thứ n, theo đúng thứ tự phát (0 → 7).</td></tr>
+                    <tr><td><code>FrameDuration</code></td><td><code>float</code></td><td><code>0.1f</code></td><td>Số giây mỗi frame hiển thị.</td></tr>
+                    <tr><td><code>Loop</code></td><td><code>bool</code></td><td><code>true</code></td><td>Hết <code>Frame7</code> quay lại <code>Frame0</code> hay dừng.</td></tr>
+                    <tr><td><code>Playing</code></td><td><code>bool</code></td><td><code>true</code></td><td>Có đang chạy animation không.</td></tr>
+                    <tr><td><code>ElapsedTime</code></td><td><code>float</code></td><td><code>0.0f</code></td><td><em>Runtime-only</em> — thời gian đã trôi trong frame hiện tại.</td></tr>
+                    <tr><td><code>CurrentFrame</code></td><td><code>int</code></td><td><code>0</code></td><td><em>Runtime-only</em> — index frame renderer đang đọc để vẽ.</td></tr>
+                </table>
+
+                <h3>CameraComponent</h3>
+                <p>
+                    <code>Screen</code> là màn 3DS vật lý mà camera này render tới — cơ chế cụ thể
+                    đằng sau khẩu hiệu "dual-screen aware từ đầu" của engine. Chính
+                    <code>TransformComponent::Translation</code> của camera là điểm world nó nhìn
+                    vào; <code>Zoom</code> là tỉ lệ world-to-pixel đều (<code>1.0</code> = 1 world
+                    unit / 1 pixel, khớp mọi scene dựng trước khi <code>Zoom</code> tồn tại).
+                    <code>Projection</code> chọn pipeline màn này dùng cho cả frame.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Screen</code></td><td><code>Screen</code></td><td><code>Top</code></td><td>Màn Top hay Bottom nhận output camera này.</td></tr>
+                    <tr><td><code>Primary</code></td><td><code>bool</code></td><td><code>true</code></td><td>Camera chính của <code>Screen</code> đó — <code>Scene::GetPrimaryCamera(screen)</code> chỉ đọc đúng 1 camera <code>Primary</code> mỗi màn.</td></tr>
+                    <tr><td><code>Zoom</code></td><td><code>float</code></td><td><code>1.0f</code></td><td>Chỉ dùng khi <code>Projection = Orthographic</code>.</td></tr>
+                    <tr><td><code>Projection</code></td><td><code>ProjectionType</code></td><td><code>Orthographic</code></td><td><code>Orthographic</code> → pipeline sprite 2D hiện có; <code>Perspective</code> → chuyển màn đó sang pipeline mesh 3D cho cả frame — một màn luôn hoàn toàn một trong hai, không bao giờ composite cả hai cùng lúc.</td></tr>
+                    <tr><td><code>FovDegrees</code></td><td><code>float</code></td><td><code>60.0f</code></td><td>Chỉ <code>Perspective</code>.</td></tr>
+                    <tr><td><code>NearPlane</code></td><td><code>float</code></td><td><code>0.1f</code></td><td>Chỉ <code>Perspective</code>.</td></tr>
+                    <tr><td><code>FarPlane</code></td><td><code>float</code></td><td><code>1000.0f</code></td><td>Chỉ <code>Perspective</code>.</td></tr>
+                    <tr><td><code>Background</code></td><td><code>glm::vec4</code></td><td><code>{0.08, 0.08, 0.12, 1.0}</code></td><td><strong>Mới.</strong> Màu clear riêng của camera này — xem callout bên dưới.</td></tr>
+                </table>
+                <div class="callout note">
+                    <span class="callout-title">Mới: Background — màu clear riêng từng camera</span>
+                    Trước đây <code>SceneRenderer.cpp</code>'s <code>RenderScreen</code> clear màn
+                    bằng một màu hardcode cố định, do <code>Application.cpp</code> (Editor)/
+                    <code>DualityPlayer</code>'s <code>Main.cpp</code> truyền vào — giống nhau cho
+                    mọi scene, không chỉnh được qua Inspector. Giờ, hễ màn có ít nhất một camera,
+                    <code>RenderScreen</code> đọc <code>Background</code> của chính camera đó để
+                    clear thay vào; giá trị caller cũ truyền vào chỉ còn là fallback cho màn không
+                    có camera nào cả. Muốn đổi màu nền một màn hình giờ chỉ cần sửa
+                    <code>Background</code> trên <code>CameraComponent</code> ở Properties panel,
+                    không cần sửa code C++ nữa.
+                </div>
+
+                <h3>MeshRendererComponent</h3>
+                <p>
+                    Unlit — chưa có hệ lighting thật (xem ROADMAP.md). Một primitive dựng thủ tục
+                    (khi không import mesh) đặt kích thước/hướng theo chính
+                    <code>TransformComponent</code> của entity — world-space <code>Scale</code>
+                    chính là kích thước mesh (khác <code>SpriteRendererComponent</code> có field
+                    <code>Size</code> riêng, vì mesh 3D không có "kích thước pixel" nào có nghĩa
+                    theo cách một quad 2D có). Chỉ được vẽ trên màn có camera chính đang
+                    <code>ProjectionType::Perspective</code>.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Primitive</code></td><td><code>MeshPrimitive</code></td><td><code>Cube</code></td><td>Dùng khi <code>Mesh</code> (bên dưới) rỗng/chưa resolve — <code>Cube</code> | <code>Sphere</code> | <code>Plane</code>, dựng thủ tục, không cần asset.</td></tr>
+                    <tr><td><code>Materials</code></td><td><code>std::vector&lt;AssetRef&gt;</code></td><td>rỗng</td><td><strong>Mới — trước đây là <code>Material</code> đơn.</strong> Một GUID asset <code>.mat</code> cho mỗi submesh, khớp theo index — xem callout bên dưới.</td></tr>
+                    <tr><td><code>Mesh</code></td><td><code>AssetRef</code></td><td>rỗng</td><td>GUID mesh <code>.obj</code> import — rỗng/chưa resolve = dùng lại <code>Primitive</code> ở trên.</td></tr>
+                </table>
+                <div class="callout note">
+                    <span class="callout-title">Mới: Materials — danh sách material thật theo từng submesh</span>
+                    Trước đây một <code>MeshRendererComponent</code> chỉ có đúng một
+                    <code>Material</code>, vẽ nguyên cả mesh bằng một màu/texture. Giờ
+                    <code>MeshLoader</code> đọc directive <code>usemtl</code> trong file
+                    <code>.obj</code> làm ranh giới submesh (chỉ dùng để tách vùng vertex — tên
+                    material sau <code>usemtl</code> không được resolve/lưu lại gì cả, vì pipeline
+                    asset <code>.mat</code> của engine không đọc <code>.mtl</code>), và cả hai
+                    renderer backend (<code>OpenGLRenderer3D</code> desktop lẫn
+                    <code>Citro3DRenderer</code> 3DS) vẽ một draw call thật riêng cho mỗi submesh.
+                    Bạn tự gán một asset <code>.mat</code> cho từng slot trong
+                    <code>Materials</code> ở Properties (kéo-thả từ Content Browser, nút "+ Add"
+                    thêm slot mới) — khớp theo <em>thứ tự</em> submesh, giống hệt
+                    <code>Renderer.materials</code> của Unity, không khớp theo tên
+                    <code>usemtl</code>. File <code>.obj</code> không có <code>usemtl</code> nào
+                    vẫn là đúng một submesh như hành vi gốc trước đây — không có gì thay đổi cho
+                    mesh chỉ cần một material. Danh sách ngắn hơn số submesh thực tế thì material
+                    <em>cuối cùng</em> lặp lại cho các submesh còn thiếu (khớp hành vi thật của
+                    Unity); danh sách rỗng thì mọi submesh dùng Material trắng mặc định.
+                </div>
+
+                <h3>ScreenGroupComponent</h3>
+                <p>
+                    Tag opt-in đánh dấu entity là gốc tổ chức của một màn — gắn vào entity kiểu
+                    "TopGroup"/"BottomGroup" (hoặc bất kỳ entity nào) để gán cả subtree của nó cho
+                    một màn, phục vụ <code>Scene::FindEntityInScreen</code> và marker màu trong
+                    Hierarchy panel. Entity không bao giờ bị "sở hữu" độc quyền bởi một màn trong
+                    engine này (một sprite vẫn vẽ theo vị trí tương đối với camera đang active bất
+                    kể tag này) — đây thuần là công cụ tổ chức/tra cứu, không phải hard partition.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Screen</code></td><td><code>Screen</code></td><td><code>Top</code></td><td>Màn mà subtree gốc tại entity này thuộc về.</td></tr>
+                </table>
+
+                <h2>UI</h2>
+                <p>
+                    Tách hẳn khỏi <code>TransformComponent</code>/render world-space: một UI
+                    element sống trong không gian pixel <strong>cố định</strong> của một
+                    <code>Screen</code> vật lý, không camera nào can thiệp (không pan/zoom theo
+                    gameplay) — khớp chế độ Canvas <strong>"Screen Space - Overlay"</strong> của
+                    Unity, chế độ duy nhất engine hỗ trợ (chưa có "Screen Space - Camera"/"World
+                    Space"). Mọi widget UI theo cùng một khuôn 2 component:
+                    <code>UIRectComponent</code> lo vị trí/kích thước, một component thứ hai lo
+                    hình dạng/hành vi — thêm widget mới (vd slider) sau này chỉ cần thêm 1 component
+                    + 1 vòng lặp trong <code>UIRenderer.cpp</code>, không đụng tới
+                    <code>UIRectComponent</code>.
+                </p>
+
+                <h3>UIRectComponent</h3>
+                <p>
+                    Vị trí/kích thước một UI element: <code>Anchor</code> + <code>Offset</code>
+                    (pixel tính từ góc/cạnh neo đó) + <code>Size</code> (pixel) resolve thành một
+                    rect trong không gian pixel cố định của <code>Screen</code> (xem
+                    <code>UIRenderer.h</code>'s <code>ResolveUIRect</code>) — hoàn toàn độc lập với
+                    mọi <code>CameraComponent</code>.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Screen</code></td><td><code>Screen</code></td><td><code>Top</code></td><td>Màn chứa UI element này.</td></tr>
+                    <tr><td><code>Anchor</code></td><td><code>UIAnchor</code></td><td><code>TopLeft</code></td><td>1 trong 9 preset kiểu <code>RectTransform</code> Unity — góc/cạnh nào của <code>Screen</code> mà <code>Offset</code> đo từ đó.</td></tr>
+                    <tr><td><code>Offset</code></td><td><code>glm::vec2</code></td><td><code>{0, 0}</code></td><td>Pixel tính từ <code>Anchor</code>.</td></tr>
+                    <tr><td><code>Size</code></td><td><code>glm::vec2</code></td><td><code>{100, 40}</code></td><td>Kích thước rect, pixel.</td></tr>
+                </table>
+
+                <h3>UIImageComponent</h3>
+                <p>
+                    Nửa "hình ảnh" của một widget Panel/Image cơ bản (ghép với
+                    <code>UIRectComponent</code>). Cùng quy ước Color/Texture như
+                    <code>SpriteRendererComponent</code> (Texture rỗng = ô <code>Color</code> đặc).
+                    Nếu entity còn có <code>UIButtonComponent</code>, màu
+                    Normal/Hover/Pressed của component đó thay thế hẳn <code>Color</code> này.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Color</code></td><td><code>glm::vec4</code></td><td><code>{1, 1, 1, 1}</code></td><td>Màu nhân lên texture, hoặc màu ô đặc khi không có texture.</td></tr>
+                    <tr><td><code>Texture</code></td><td><code>AssetRef</code></td><td>rỗng</td><td>GUID ảnh — rỗng = không gán.</td></tr>
+                </table>
+
+                <h3>UIButtonComponent</h3>
+                <p>
+                    Làm một cặp (<code>UIRectComponent</code>, <code>UIImageComponent</code>) trở
+                    nên bấm được — ghép cả 3 trên một entity để có một Button cơ bản.
+                    <code>IsHovered</code>/<code>IsPressed</code>/<code>WasClicked</code> được cập
+                    nhật mỗi frame bởi <code>UIRenderer.cpp</code>'s <code>UpdateUIInteractions</code>
+                    (gọi 1 lần/frame bởi entry point ứng dụng, trước
+                    <code>Scene::OnRuntimeUpdate</code> để script thấy đúng state của frame đó), và
+                    được đọc từ script kiểu poll giống <code>GetKeyDown()</code>:
+                    <code>GetComponent&lt;UIButtonComponent&gt;().WasClicked</code>.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>NormalColor</code></td><td><code>glm::vec4</code></td><td><code>{0.85, 0.85, 0.85, 1}</code></td><td>Màu khi không tương tác.</td></tr>
+                    <tr><td><code>HoverColor</code></td><td><code>glm::vec4</code></td><td><code>{0.95, 0.95, 0.6, 1}</code></td><td>Màu khi pointer đang hover.</td></tr>
+                    <tr><td><code>PressedColor</code></td><td><code>glm::vec4</code></td><td><code>{0.7, 0.7, 0.4, 1}</code></td><td>Màu khi đang giữ nhấn.</td></tr>
+                    <tr><td><code>IsHovered</code></td><td><code>bool</code></td><td><code>false</code></td><td><em>Runtime-only.</em></td></tr>
+                    <tr><td><code>IsPressed</code></td><td><code>bool</code></td><td><code>false</code></td><td><em>Runtime-only.</em></td></tr>
+                    <tr><td><code>WasClicked</code></td><td><code>bool</code></td><td><code>false</code></td><td><em>Runtime-only</em> — <code>true</code> đúng 1 frame khi thả pointer trong lúc còn ở trên nút.</td></tr>
+                </table>
+                <p>Chỉ phản ứng với pointer đang ở <strong>đúng màn</strong> của chính nó (<code>UIRectComponent::Screen</code>) — Top/Bottom có vùng toạ độ local trùng nhau nên việc phân biệt cần <code>GetPointerScreen()</code>.</p>
+
+                <h3>UITextComponent</h3>
+                <p>
+                    Nội dung chuỗi của một text label (ghép với <code>UIRectComponent</code> cho
+                    widget <code>&lt;Text&gt;</code>, xem <code>UIDocument.h</code>). Chỉ giữ dữ
+                    liệu, cố ý — chưa có hệ render font/glyph trên backend nào (citro2d trên 3DS có
+                    sẵn, nhưng <code>OpenGLRenderer2D</code> phía desktop là fixed-function cũ,
+                    chưa có font atlas nào), nên <code>UIRenderer.cpp</code> chưa vẽ
+                    <code>Text</code> này ra đâu cả. Field tồn tại từ bây giờ để markup
+                    <code>UIDocument</code> đã có thể tác giả/round-trip nội dung text trước khi
+                    phần renderer đó xong, thay vì gộp chung hai việc thành một thay đổi lớn.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Text</code></td><td><code>std::string</code></td><td><code>""</code></td><td>Nội dung text — chưa được vẽ ra màn hình ở bản hiện tại.</td></tr>
+                </table>
+
+                <h2>Physics 2D <span class="badge badge-2d">2D</span></h2>
+                <p>
+                    Box2D-backed (API v2.4 cổ điển, <code>b2World</code> do <code>Scene</code> sở
+                    hữu). <code>RuntimeBody</code>/<code>RuntimeFixture</code> là con trỏ opaque
+                    (<code>void*</code>, thật ra là <code>b2Body*</code>/<code>b2Fixture*</code>) để
+                    header <code>Components.h</code> không cần include Box2D — chỉ hợp lệ giữa
+                    <code>Scene::OnRuntimeStart</code>/<code>OnRuntimeStop</code>, không bao giờ
+                    serialize (TypeRegistry chỉ đăng ký field tác giả bên dưới).
+                </p>
+
+                <h3>Rigidbody2DComponent</h3>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Type</code></td><td><code>BodyType</code></td><td><code>Dynamic</code></td><td><code>Static</code>/<code>Kinematic</code>/<code>Dynamic</code> — xem <a href="physics.html">trang Physics</a>.</td></tr>
+                    <tr><td><code>FixedRotation</code></td><td><code>bool</code></td><td><code>false</code></td><td>Khoá không cho vật xoay do va chạm (vd nhân vật đứng thẳng không bị lật).</td></tr>
+                    <tr><td><code>RuntimeBody</code></td><td><code>void*</code></td><td><code>nullptr</code></td><td><em>Runtime-only</em> — <code>b2Body*</code> thật, chỉ sống giữa Play.</td></tr>
+                </table>
+
+                <h3>BoxCollider2DComponent &amp; CircleCollider2DComponent</h3>
+                <p>
+                    Cả hai chia sẻ hệt cùng bộ field (chỉ khác hình dạng) và cùng vừa nhận thêm
+                    <code>EditMode</code> — xem callout bên dưới bảng.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Offset</code></td><td><code>glm::vec2</code></td><td><code>{0, 0}</code></td><td>Lệch tâm collider so với <code>Transform</code>.</td></tr>
+                    <tr><td><code>Size</code></td><td><code>glm::vec2</code></td><td><code>{16, 16}</code></td><td>Chỉ Box — nửa-kích-thước (half-extents), cùng đơn vị world với Transform.</td></tr>
+                    <tr><td><code>Radius</code></td><td><code>float</code></td><td><code>16.0f</code></td><td>Chỉ Circle.</td></tr>
+                    <tr><td><code>Density</code></td><td><code>float</code></td><td><code>1.0f</code></td><td>Mật độ — cùng Size/Radius quyết định mass khi <code>Type = Dynamic</code>.</td></tr>
+                    <tr><td><code>Friction</code></td><td><code>float</code></td><td><code>0.5f</code></td><td>Ma sát bề mặt.</td></tr>
+                    <tr><td><code>Restitution</code></td><td><code>float</code></td><td><code>0.0f</code></td><td>Độ nảy (0 = không nảy).</td></tr>
+                    <tr><td><code>IsTrigger</code></td><td><code>bool</code></td><td><code>false</code></td><td>Cờ sensor native của Box2D (<code>fixtureDef.isSensor</code>) — trigger vẫn sinh Begin/EndContact (bắn <code>OnTriggerEnter</code>/<code>Exit</code>) nhưng không bao giờ phản ứng vật lý. Quy tắc: một cặp tính là Trigger nếu <strong>bất kỳ bên nào</strong> trong cặp là trigger (giống Unity).</td></tr>
+                    <tr><td><code>EditMode</code></td><td><code>bool</code></td><td><code>false</code></td><td><strong>Mới.</strong> Xem callout ngay bên dưới.</td></tr>
+                    <tr><td><code>RuntimeFixture</code></td><td><code>void*</code></td><td><code>nullptr</code></td><td><em>Runtime-only</em> — <code>b2Fixture*</code> thật, chỉ sống giữa Play.</td></tr>
+                </table>
+                <div class="callout note">
+                    <span class="callout-title">Mới: EditMode + outline chỉ hiện cho entity đang chọn</span>
+                    Bật <code>EditMode</code> thì Scene view hiện handle kéo trên outline của
+                    <strong>đúng</strong> collider đó để resize trực tiếp trong viewport (xem
+                    <code>ScenePanel.cpp</code>'s <code>DragCollider2DHandle</code>) — tắt mặc định
+                    để việc di chuyển/chọn entity trong viewport không vô tình làm méo collider do
+                    một cú kéo lỡ tay. Khung wireframe xanh lá của outline bản thân nó giờ
+                    <strong>chỉ vẽ cho entity đang được chọn</strong>, không còn vẽ cho mọi collider
+                    trong scene cùng lúc như trước — <code>EditMode</code> chỉ quyết định outline đó
+                    có handle kéo được hay không, không quyết định outline có hiện hay không. Cùng
+                    field, cùng hành vi trên cả 4 loại collider (2D lẫn 3D, xem bên dưới).
+                </div>
+
+                <h2>Physics 3D <span class="badge badge-3d">3D</span></h2>
+                <p>
+                    Bullet-backed (<code>btDiscreteDynamicsWorld</code> do <code>Scene</code> sở
+                    hữu, xem <code>Physics3DWorld</code> trong <code>Scene.cpp</code>) — cùng quy
+                    ước shape/lifetime như bộ Box2D ở trên: <code>RuntimeBody</code> là con trỏ
+                    opaque (thật ra <code>btRigidBody*</code>), chỉ hợp lệ giữa
+                    <code>OnRuntimeStart</code>/<code>OnRuntimeStop</code>, không bao giờ serialize.
+                    Khác Box2D (<code>b2World</code> tự sở hữu và free mọi fixture nó tạo), Bullet
+                    <strong>không</strong> sở hữu <code>btCollisionShape</code> của một body — caller
+                    phải tự free. <code>RuntimeCollisionShape</code> (nằm trên
+                    <code>Rigidbody3DComponent</code>, không phải trên từng collider) theo dõi đúng
+                    một shape đó (box/sphere thô, hoặc — khi <code>Offset</code> collider khác 0 —
+                    <code>btCompoundShape</code> bọc quanh nó) để <code>OnRuntimeStop</code> xoá được
+                    bất kể entity đang có collider component nào; nhờ vậy 2 collider component 3D
+                    bên dưới không cần con trỏ runtime riêng của chính mình.
+                </p>
+
+                <h3>Rigidbody3DComponent</h3>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Type</code></td><td><code>BodyType</code></td><td><code>Dynamic</code></td><td>Bullet không có enum body-type sẵn — <code>Static</code>/<code>Kinematic</code> đều dùng mass 0, <code>Kinematic</code> thêm <code>CF_KINEMATIC_OBJECT</code> + <code>DISABLE_DEACTIVATION</code>. Xem <a href="physics.html">trang Physics</a>.</td></tr>
+                    <tr><td><code>RuntimeBody</code></td><td><code>void*</code></td><td><code>nullptr</code></td><td><em>Runtime-only</em> — <code>btRigidBody*</code> thật.</td></tr>
+                    <tr><td><code>RuntimeCollisionShape</code></td><td><code>void*</code></td><td><code>nullptr</code></td><td><em>Runtime-only</em> — shape Bullet cần tự free lúc <code>OnRuntimeStop</code>, xem đoạn giải thích ở trên.</td></tr>
+                </table>
+                <p>Không có <code>FixedRotation</code>/mass/drag riêng chỉnh qua Inspector ở bản hiện tại như bên 2D — dùng giá trị mặc định của Bullet.</p>
+
+                <h3>BoxCollider3DComponent &amp; SphereCollider3DComponent</h3>
+                <p>
+                    Không có con trỏ runtime riêng trên chính 2 struct này — con trỏ shape dùng
+                    chung nằm trên <code>Rigidbody3DComponent::RuntimeCollisionShape</code> ở trên.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Offset</code></td><td><code>glm::vec3</code></td><td><code>{0, 0, 0}</code></td><td>Lệch tâm collider so với <code>Transform</code>.</td></tr>
+                    <tr><td><code>Size</code></td><td><code>glm::vec3</code></td><td><code>{16, 16, 16}</code></td><td>Chỉ Box — nửa-kích-thước (half-extents), cùng đơn vị world với Transform.</td></tr>
+                    <tr><td><code>Radius</code></td><td><code>float</code></td><td><code>16.0f</code></td><td>Chỉ Sphere.</td></tr>
+                    <tr><td><code>Density</code></td><td><code>float</code></td><td><code>1.0f</code></td><td>Mật độ.</td></tr>
+                    <tr><td><code>Friction</code></td><td><code>float</code></td><td><code>0.5f</code></td><td>Ma sát bề mặt.</td></tr>
+                    <tr><td><code>Restitution</code></td><td><code>float</code></td><td><code>0.0f</code></td><td>Độ nảy.</td></tr>
+                    <tr><td><code>IsTrigger</code></td><td><code>bool</code></td><td><code>false</code></td><td>Bullet không có cờ sensor per-shape sẵn như Box2D — body trigger được gắn <code>CF_NO_CONTACT_RESPONSE</code> lúc tạo thay vào (contact manifold vẫn sinh ra nên phần diff enter/exit thủ công trong <code>Scene.cpp</code> vẫn phát hiện được, chỉ tắt phản ứng đẩy vật lý). Cùng quy tắc "một bên trigger = cả cặp Trigger" như 2D.</td></tr>
+                    <tr><td><code>EditMode</code></td><td><code>bool</code></td><td><code>false</code></td><td><strong>Mới</strong> — cùng field, cùng hành vi <code>EditMode</code> như collider 2D (callout ở mục Physics 2D phía trên): bật thì Scene view hiện handle kéo resize (3D: một handle mỗi mặt cho Box, một handle trên xích đạo cho Sphere); outline cũng chỉ hiện cho entity đang chọn.</td></tr>
+                </table>
+
+                <h2>Scripting</h2>
+                <h3>BehaviourComponent</h3>
+                <p>
+                    Đăng ký với <code>TypeRegistry</code> nhưng với <strong>0 field</strong> —
+                    không đi theo đường generic "1 field ↔ 1 <code>FieldValue</code>" thông thường,
+                    vì bản thân nó không giữ field đơn nào theo nghĩa đó mà giữ hẳn
+                    <code>std::vector&lt;ScriptInstance&gt; Scripts</code>. Mỗi
+                    <code>ScriptInstance</code> là một script đính vào entity, tra theo tên class
+                    qua <code>ScriptRegistry</code> lúc Play (không bind cứng lúc compile, nên một
+                    DLL script hot-reload có thể cấp instance mới mà entity không cần đổi gì). Một
+                    entity mang được nhiều <code>ScriptInstance</code> cùng lúc (kể cả cùng một
+                    class nhiều lần), giống Unity cho một GameObject mang nhiều MonoBehaviour khác
+                    nhau.
+                </p>
+                <p>
+                    Vẫn đăng ký (<code>DisplayName = "Scripts"</code>) chỉ để
+                    <code>PropertiesPanel.cpp</code>'s <code>type.Has(selected)</code> tìm thấy
+                    component này rồi vẽ đúng section <strong>Scripts</strong>, và để nó bị loại
+                    khỏi danh sách <strong>+ Add Component</strong> phẳng giống mọi type 0-field
+                    khác — còn việc vẽ/serialize từng slot thật sự thì
+                    <code>PropertiesPanel.cpp</code> và <code>EntitySerialization.cpp</code> đều
+                    special-case theo <code>DisplayName == "Scripts"</code>, không qua vòng field
+                    generic.
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>ClassName</code></td><td><code>std::string</code></td><td>Tên class <code>Behaviour</code>, tra qua <code>ScriptRegistry</code> lúc Play. Field này (cộng <code>PropertyOverrides</code> bên dưới) được <code>EntitySerialization.cpp</code> serialize riêng — không qua <code>TypeRegistry</code>.</td></tr>
+                    <tr><td><code>Instance</code></td><td><code>Behaviour*</code></td><td><em>Runtime-only</em> — con trỏ instance thật, chỉ sống giữa Play.</td></tr>
+                    <tr><td><code>Destroy</code></td><td><code>void(*)(Behaviour*)</code></td><td><em>Runtime-only</em> — con trỏ hàm free đúng instance qua đúng DLL đã cấp phát nó.</td></tr>
+                    <tr><td><code>PropertyOverrides</code></td><td><code>std::unordered_map&lt;std::string, FieldValue&gt;</code></td><td>Giá trị Edit-mode cho field <code>DUALITY_PROPERTY()</code> mà script khai báo — không phải một <code>FieldValue</code> đơn nên không đăng ký qua <code>TypeRegistry</code> theo cách thường, tương tự <code>Parent</code> của <code>HierarchyComponent</code>. Áp vào <code>Instance</code> thật ngay trước <code>OnCreate()</code> lúc Play bắt đầu; trong lúc <code>Instance</code> còn sống, Properties panel sửa trực tiếp lên nó thay vì map này (map giữ nguyên, "cũ" cho tới khi Stop).</td></tr>
+                    <tr><td><code>WasActiveLastFrame</code></td><td><code>bool</code></td><td><em>Runtime-only</em> — cờ edge-detect để <code>Scene::OnRuntimeUpdate</code> bắn đúng 1 lần <code>OnEnable</code>/<code>OnDisable</code> mỗi lần <code>ActiveComponent</code> đổi trạng thái, thay vì bắn mỗi frame trong lúc active/inactive.</td></tr>
+                </table>
+                <p>
+                    Vòng đời <code>OnCreate</code>/<code>OnEnable</code>/<code>OnUpdate</code>/<code>OnDestroy</code>...
+                    của từng <code>Behaviour</code>, cách tạo script mới, và
+                    <code>DUALITY_PROPERTY()</code>: xem <a href="scripting-api.html">Scripting
+                    API</a> — không nhắc lại ở đây.
+                </p>
+
+                <div class="page-nav">
+                    <a class="prev" href="assets.html"><span class="dir">← Trước</span>Asset Pipeline</a>
+                    <a class="next" href="editor.html"><span class="dir">Tiếp →</span>Editor Panels</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

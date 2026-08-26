@@ -64,6 +64,18 @@ namespace Duality {
                     SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath);
                     BuildPipeline::BuildForPCAsync(ctx.BuildDirectory);
                 }
+                ImGui::Separator();
+                // Built-in checkbox-style toggle (the bool* overload) rather than a manual
+                // assignment -- ImGui::MenuItem itself flips *ctx.ShowBuildSettings on click.
+                ImGui::MenuItem("Build Settings...", nullptr, &ctx.ShowBuildSettings);
+                ImGui::EndMenu();
+            }
+
+            // Matches Unity's own menu placement (File > Build Settings, Edit > Project
+            // Settings/Preferences) -- a familiar convention for this Unity-inspired editor.
+            if (ImGui::BeginMenu("Edit")) {
+                ImGui::MenuItem("Project Settings...", nullptr, &ctx.ShowProjectSettings);
+                ImGui::MenuItem("Preferences...", nullptr, &ctx.ShowPreferences);
                 ImGui::EndMenu();
             }
 

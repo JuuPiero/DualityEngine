@@ -86,7 +86,24 @@ TypeRegistry::Register&lt;SpriteRendererComponent&gt;(<span class="tok-str">"Spr
                     engine hỗ trợ: <code>int</code>, <code>float</code>, <code>bool</code>,
                     <code>std::string</code>, <code>glm::vec2/vec3/vec4</code>, <code>Color4</code>,
                     <code>AssetRef</code>, <code>EntityRef</code>, và các enum riêng của engine
-                    (<code>Screen</code>, <code>ProjectionType</code>, <code>BodyType</code>...).
+                    (<code>Screen</code>, <code>ProjectionType</code>, <code>BodyType</code>...) —
+                    cùng đúng một kiểu list, <code>std::vector&lt;AssetRef&gt;</code> (dùng bởi
+                    <code>MeshRendererComponent::Materials</code>, xem
+                    <a href="components.html">Components Reference</a>). Đây không phải một cơ
+                    chế "list tổng quát cho mọi kiểu field" — chỉ một trường hợp cụ thể được thêm
+                    vào variant. <code>TypeRegistry</code>/<code>MakeField</code>/
+                    <code>EntitySerialization.cpp</code> không cần sửa gì cả (đã tổng quát hoá sẵn
+                    trên mọi alternative của <code>FieldValue</code>) — chỉ hai điểm dispatch thật
+                    sự cần thêm một nhánh <code>if constexpr</code> mới:
+                    <code>FieldEditorWidget.cpp</code>'s <code>DrawFieldWidget</code> (vẽ danh sách
+                    kéo-thả từng phần tử, nút thêm/xoá) và
+                    <code>FieldSerialization.cpp</code>'s
+                    <code>FieldValueToJson</code>/<code>JsonToFieldValue</code> (serialize thành
+                    JSON array các GUID). Widget quản lý slot hoàn toàn thủ công — không tự đồng
+                    bộ số lượng slot theo số submesh thật của field <code>Mesh</code> cùng
+                    component, vì <code>FieldHandle::Get</code>/<code>Set</code> chỉ thấy một
+                    <code>void*</code> instance, không có cách nào biết field khác trên cùng
+                    component.
                 </p>
 
                 <div class="callout">
@@ -95,6 +112,12 @@ TypeRegistry::Register&lt;SpriteRendererComponent&gt;(<span class="tok-str">"Spr
                     giản, dễ đọc, đủ dùng cho quy mô editor này, thay vì phụ thuộc một hệ
                     reflection tổng quát nặng hơn nhiều so với nhu cầu thực tế.
                 </div>
+                <p>
+                    Ví dụ ở trên chỉ demo một component (<code>SpriteRendererComponent</code>) cho
+                    gọn — xem đầy đủ field của mọi component engine đã đăng ký (Transform, Camera,
+                    Rigidbody2D/3D, Collider, UI...) tại <a href="components.html">Components
+                    Reference</a>.
+                </p>
 
                 <h2>DUALITY_PROPERTY() — reflection cho script</h2>
                 <p>
@@ -146,6 +169,53 @@ TypeRegistry::Register&lt;SpriteRendererComponent&gt;(<span class="tok-str">"Spr
                     thật do script sinh ra từ source.
                 </div>
 
+                <h3>DUALITY_SERIALIZABLE() — nested struct làm field, kiểu Unity [System.Serializable]</h3>
+                <p>
+                    Một field không nhất thiết phải là kiểu vô hướng (float/bool/AssetRef...) —
+                    đánh dấu một struct thuần bằng <code>DUALITY_SERIALIZABLE()</code> (chính là
+                    <code>DUALITY_PROPERTIES_AUTO()</code>, chỉ đổi tên cho đúng ngữ cảnh khai báo
+                    struct, không phải property) rồi dùng struct đó làm field trên
+                    <code>Behaviour</code>/struct khác — field ấy hiện thành một khối gấp/mở
+                    (foldout) riêng trong Properties, sửa đệ quy, và lưu/đọc scene y hệt field
+                    thường:
+                </p>
+                <pre><code><span class="tok-kw">struct</span> BounceWobble {
+    DUALITY_PROPERTY() <span class="tok-type">float</span> Amount = <span class="tok-num">0.0f</span>;
+    DUALITY_PROPERTY() <span class="tok-type">float</span> Frequency = <span class="tok-num">3.0f</span>;
+
+    DUALITY_SERIALIZABLE()
+};
+
+<span class="tok-kw">class</span> BounceBehaviour : <span class="tok-kw">public</span> Duality::Behaviour {
+<span class="tok-kw">public</span>:
+    DUALITY_PROPERTY() BounceWobble Wobble; <span class="tok-com">// hiện thành khối foldout riêng</span>
+    DUALITY_PROPERTIES_AUTO()
+};</code></pre>
+                <p>
+                    <code>generate_fields.py</code> gom tên MỌI struct/class được đánh dấu
+                    <code>DUALITY_PROPERTIES_AUTO()</code>/<code>DUALITY_SERIALIZABLE()</code>
+                    trong toàn bộ lần quét (không phân biệt Behaviour hay struct thuần, cùng một
+                    đường codegen) trước, rồi mới quyết định emit
+                    <code>MakeField</code> (kiểu vô hướng bình thường) hay <code>MakeNestedField</code>
+                    (kiểu field là một struct đã biết) cho từng field — so khớp theo tên struct,
+                    không cần khai báo gì thêm ở field. Lồng nhiều cấp (struct chứa struct lồng
+                    khác) hoạt động tự nhiên vì cơ chế đệ quy chung.
+                </p>
+                <div class="callout warn">
+                    <span class="callout-title">Vì sao FieldValue giữ giá trị nested bằng bản sao, không phải con trỏ?</span>
+                    Một field nested lưu snapshot các field con của nó (kiểu
+                    <code>NestedFieldValue</code> trong <code>Field.h</code>), <strong>không</strong>
+                    giữ con trỏ vào chính instance đang sống — phát hiện thật lúc thiết kế tính
+                    năng này: <code>PropertyOverrides</code> (map field đã sửa của một script) là
+                    dữ liệu tồn tại lâu hơn một lần gọi hàm — Properties panel tạo một instance
+                    "scratch" tạm mỗi frame rồi huỷ ngay, còn <code>Scene::OnRuntimeStart</code>
+                    tạo instance thật hoàn toàn mới lúc Play rồi mới áp override lên đó. Nếu giữ
+                    con trỏ, nó sẽ trỏ vào vùng nhớ đã giải phóng ngay khi scratch bị huỷ — snapshot
+                    theo giá trị (qua <code>std::any</code>, tránh vấn đề kiểu chưa hoàn chỉnh lúc
+                    khai báo) tránh hẳn lỗi này, giống mọi alternative khác của
+                    <code>FieldValue</code> vốn đã theo quy ước copy-ra/sửa/copy-lại.
+                </div>
+
                 <h2>Vòng đời Play/Stop</h2>
                 <p>
                     <code>Scene::OnRuntimeStart()</code> tạo body Box2D/Bullet cho mọi
@@ -164,6 +234,107 @@ TypeRegistry::Register&lt;SpriteRendererComponent&gt;(<span class="tok-str">"Spr
                     thái trước Play — mọi thay đổi Transform do script, kết quả vật lý, entity
                     Instantiate/destroy lúc Play đều bị hoàn tác, giống hệt Unity.
                 </p>
+
+                <h2>Scene Manager</h2>
+                <p>
+                    <code>Behaviour::LoadScene</code> (xem <a href="scripting-api.html">Scripting
+                    API</a>) không chuyển scene ngay lập tức — nó chỉ gọi vào
+                    <code>Duality::SceneManager</code>, một "hộp thư" đúng <strong>một chỗ</strong>
+                    (<em>không phải</em> hàng đợi), sống trong <code>Scene/SceneManager.h</code>:
+                </p>
+                <pre><code><span class="tok-kw">class</span> SceneManager {
+<span class="tok-kw">public</span>:
+    <span class="tok-kw">static</span> <span class="tok-type">void</span> <span class="tok-fn">RequestLoadScene</span>(<span class="tok-kw">const</span> std::string&amp; assetsRelativePath);
+    <span class="tok-kw">static</span> <span class="tok-type">bool</span> <span class="tok-fn">HasPendingLoad</span>();
+    <span class="tok-kw">static</span> std::string <span class="tok-fn">ConsumePendingLoad</span>(); <span class="tok-com">// xoá cờ + trả path -- gọi đúng 1 lần/frame</span>
+};</code></pre>
+                <p>
+                    "Một chỗ" đúng nghĩa đen: <code>RequestLoadScene</code> chỉ ghi vào một cờ
+                    <code>bool</code> + một <code>std::string</code> static duy nhất. Gọi
+                    <code>LoadScene</code> hai lần trước khi frame nào đó kịp tiêu thụ request đầu
+                    thì lần gọi sau <strong>ghi đè</strong> lần gọi trước — không có hàng đợi, và
+                    không có cách nào xếp lịch "chuyển qua scene A rồi B" bằng hai lời gọi
+                    <code>LoadScene</code> liên tiếp trong cùng một frame.
+                </p>
+                <p>
+                    Vì sao phải hoãn lại thay vì chuyển ngay? <code>LoadScene</code> luôn được gọi
+                    từ bên trong một <code>Behaviour::OnUpdate</code> — tức đang chạy giữa chừng
+                    <code>Scene::OnRuntimeUpdate</code> của chính <code>Scene</code> mà entity đó
+                    thuộc về. Phá huỷ/thay thế <code>Scene</code> ngay tại chỗ nghĩa là entity vừa
+                    gọi <code>LoadScene</code> (và mọi entity/Behaviour khác đang được update cùng
+                    frame) bị huỷ ngay dưới chân call stack đang chạy nó — gần như chắc chắn crash.
+                    Nên <code>SceneManager</code> chỉ đặt một cờ; ai thật sự sở hữu biến
+                    <code>Scene</code> mới là người thực hiện việc chuyển đổi, và chỉ làm vậy sau
+                    khi <code>OnRuntimeUpdate</code> của frame đó đã chạy xong hẳn.
+                </p>
+                <p>
+                    "Ai thật sự sở hữu" là vòng lặp chính của từng nền tảng — ba nơi khác nhau,
+                    cùng một khuôn mẫu: <code>Application::Run</code> của Editor (lúc đang Play),
+                    <code>DualityPlayerDesktop/Source/Main.cpp</code>, và
+                    <code>DualityPlayer/Source/Main.cpp</code> (3DS). Mỗi vòng lặp poll
+                    <code>HasPendingLoad()</code> đúng một lần/frame, ngay sau khi
+                    <code>OnRuntimeUpdate</code> của frame đó trả về (không bao giờ ở giữa update):
+                </p>
+                <pre><code><span class="tok-kw">if</span> (SceneManager::<span class="tok-fn">HasPendingLoad</span>()) {
+    std::string path = SceneManager::<span class="tok-fn">ConsumePendingLoad</span>();
+    scene.<span class="tok-fn">OnRuntimeStop</span>();
+    renderer.<span class="tok-fn">UnloadAllTextures</span>();      <span class="tok-com">// scene cũ không còn ai tham chiếu asset của nó nữa</span>
+    renderer3D.<span class="tok-fn">UnloadAllTextures</span>();
+    renderer3D.<span class="tok-fn">UnloadAllMeshes</span>();
+    scene = Scene();                        <span class="tok-com">// reset sạch, không phải Clear() tại chỗ</span>
+    SceneSerializer(scene).<span class="tok-fn">Deserialize</span>(resolvedPath);
+    scene.<span class="tok-fn">OnRuntimeStart</span>();
+}</code></pre>
+                <p>
+                    Trong Editor, chuỗi này chạy ngay trong nhánh <code>m_IsPlaying</code> của
+                    <code>Application::Run</code> — vẫn ở trong Play (<code>m_IsPlaying</code>
+                    không đổi), vì đây là chuyển scene-sang-scene giữa lúc Play, khác hẳn bấm
+                    <strong>Stop</strong> (không snapshot/restore JSON như mục "Vòng đời Play/Stop"
+                    ở trên). Entity đang chọn trong Hierarchy (<code>m_Selected</code>) bị reset về
+                    rỗng, vì handle entity của scene cũ không sống sót qua lần swap này.
+                </p>
+                <p>
+                    <code>resolvedPath</code> lại do từng nền tảng tự resolve theo root asset
+                    riêng của mình — <code>SceneManager</code> tự nó không biết gì về filesystem:
+                </p>
+                <ul>
+                    <li>Editor &amp; <code>DualityPlayerDesktop</code>: <code>project-&gt;GetAssetsDirectory() + "/" + path</code>.</li>
+                    <li><code>DualityPlayer</code> (3DS): <code>"romfs:/Assets/" + path</code> — cùng root romfs mà <code>BuildPipeline::CookAssets</code> đã đóng gói asset vào.</li>
+                </ul>
+
+                <h3>ScenesInBuild và Start Scene</h3>
+                <p>
+                    <code>ProjectConfig::ScenesInBuild</code> (<code>std::vector&lt;std::string&gt;</code>,
+                    đường dẫn tương đối <code>Assets/</code>, theo đúng thứ tự build) là danh sách
+                    scene "được phép" có trong build — cấu hình qua cửa sổ Build Settings mới của
+                    Editor (<strong>File → Build Settings...</strong>, xem
+                    <a href="editor.html">Editor Panels</a>). Phần tử 0 là
+                    <strong>Start Scene</strong> — scene thật sự boot khi chạy build, giống quy ước
+                    của Unity ("scene trên cùng còn bật trong Build Settings"):
+                    <code>BuildPipeline::BuildFor3DS</code> đóng gói <code>ScenesInBuild[0]</code>
+                    thành <code>Scene.scene</code> của bản 3DS, còn <code>DualityPlayerDesktop</code>
+                    đọc thẳng nó lúc khởi động thay vì literal <code>"Scene.scene"</code> cố định
+                    như trước.
+                </p>
+                <p>
+                    Danh sách này <strong>rỗng theo mặc định</strong>, và rỗng là một trạng thái
+                    hợp lệ chứ không phải "chưa cấu hình xong" — một project chưa từng mở Build
+                    Settings hoạt động y hệt như trước khi field này tồn tại: mọi scene đều được
+                    đóng gói, Start Scene fallback về literal <code>"Scene.scene"</code>. Chỉ khi
+                    danh sách có ít nhất 1 phần tử thì phần lọc dưới đây mới bắt đầu áp dụng.
+                </p>
+                <div class="callout warn">
+                    <span class="callout-title">LoadScene tới scene không có trong Build Settings — chạy được ở Editor, thất bại trên máy 3DS thật</span>
+                    Một khi <code>ScenesInBuild</code> khác rỗng, <code>BuildPipeline::CookAssets</code>
+                    khi đóng gói bản 3DS sẽ <strong>bỏ qua</strong> mọi file <code>.scene</code>
+                    không nằm trong danh sách đó — file đó đơn giản không tồn tại trong romfs của
+                    build. Một script gọi <code>LoadScene("SomeScene.scene")</code> tới scene quên
+                    thêm vào Build Settings vẫn chạy hoàn toàn bình thường trong Editor và trên
+                    <code>DualityPlayerDesktop</code> (cả hai đọc thẳng file <code>.scene</code> từ
+                    đĩa dự án, không qua bước đóng gói/lọc nào) — nhưng lặng lẽ thất bại trên máy
+                    3DS thật vì <code>Deserialize</code> không tìm thấy file. Nhớ thêm scene mới
+                    vào Build Settings ngay khi có script bắt đầu <code>LoadScene</code> tới nó.
+                </div>
 
                 <h2>Screen: "hai thế giới" Top/Bottom</h2>
                 <p>

@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <vector>
+
+#include "DualityEngine/Asset/MeshLoader.h"
 
 namespace Duality {
 
@@ -35,10 +38,21 @@ namespace Duality {
 
         int GetVertexCount() const { return m_VertexCount; }
 
+        // Submesh ranges (see MeshData::SubMesh) for an imported mesh -- empty for the 3
+        // built-in procedural primitives, which have no material-group concept and are always
+        // drawn as one whole mesh. Stored directly on this object (not a separate parallel
+        // container elsewhere) so it's cleared for free by every existing move/cache-eviction
+        // site that already handles the rest of this object's lifetime -- a second, independently
+        // maintained container keyed by the same handle would risk desyncing after a cache
+        // eviction, silently corrupting an unrelated mesh's draw range.
+        void SetSubMeshes(std::vector<MeshData::SubMesh> subMeshes) { m_SubMeshes = std::move(subMeshes); }
+        const std::vector<MeshData::SubMesh>& GetSubMeshes() const { return m_SubMeshes; }
+
     private:
         unsigned int m_Vao = 0;
         unsigned int m_Vbo = 0;
         int m_VertexCount = 0;
+        std::vector<MeshData::SubMesh> m_SubMeshes;
     };
 
 }

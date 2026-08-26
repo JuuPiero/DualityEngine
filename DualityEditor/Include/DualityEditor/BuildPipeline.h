@@ -51,6 +51,16 @@ namespace Duality {
 
         static BuildStatus GetStatus() { return s_Status; }
 
+        // std::system() on Windows runs `cmd.exe /c "<command>"`, whose own `/c` quote-parsing
+        // only preserves the outer quote pair for a bare quoted executable path -- any command
+        // with more than one quoted argument needs the whole string wrapped in one extra outer
+        // quote pair, or cmd.exe's *old*-style stripping corrupts it (see this method's own .cpp
+        // definition for the full empirically-confirmed explanation). Exposed publicly (was
+        // originally BuildPipeline.cpp-local) so PreferencesPanel can reuse it to launch an
+        // external editor -- `"<exe>" "<projectDir>"` is exactly the multi-quoted-argument shape
+        // this exists for.
+        static int RunCommand(const std::string& command);
+
     private:
         // Cooks every asset under `assetsDirectory` into `DualityPlayer/romfs/Assets/` (images
         // to .t3x via tex3ds, everything else copied verbatim) and writes a guid->romfs-path

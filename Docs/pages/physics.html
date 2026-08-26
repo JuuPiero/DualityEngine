@@ -71,6 +71,18 @@
                     <code>Size</code>/<code>Radius</code> trực tiếp trong viewport (3D: một handle
                     mỗi mặt cho box, một handle trên xích đạo cho sphere).
                 </p>
+                <div class="callout note">
+                    <span class="callout-title">Mới: EditMode + outline chỉ hiện cho entity đang chọn</span>
+                    Cả 4 collider (Box/Circle 2D, Box/Sphere 3D) giờ có thêm field
+                    <code>EditMode</code> (checkbox, tắt mặc định) — chỉ khi bật, outline của đúng
+                    collider đó mới có handle kéo được để resize trực tiếp trong Scene view như mô
+                    tả ở trên. Cập nhật so với đoạn trên: khung wireframe xanh lá bản thân nó giờ
+                    <strong>chỉ vẽ cho entity đang được chọn</strong>, không còn vẽ cho mọi collider
+                    trong scene cùng lúc — <code>EditMode</code> chỉ quyết định outline đó có kéo
+                    được hay không, không quyết định outline có hiện hay không. Chi tiết đầy đủ
+                    field từng loại collider: xem <a href="components.html">Components
+                    Reference</a>.
+                </div>
 
                 <h2>Collision vs Trigger</h2>
                 <p>

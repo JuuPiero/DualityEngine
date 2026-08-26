@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Scans one or more script directories for DUALITY_PROPERTY()-marked fields and generates the
-out-of-class Fields() definitions DUALITY_PROPERTIES_AUTO() only declares.
+out-of-class Fields() definitions DUALITY_PROPERTIES_AUTO()/DUALITY_SERIALIZABLE() only declares.
 
 Deliberately a plain regex/line scanner, NOT a real C++ parser -- every field this project's
 reflection system supports (see DualityEngine/Reflection/Field.h's FieldValue variant) is a
 single-token type with no template arguments or embedded spaces (float, bool, Duality::EntityRef,
-glm::vec3, ...), so "DUALITY_PROPERTY() <Type> <Name> [= <Default>];" is a fully reliable shape
-to match without needing to actually understand C++ grammar. This mirrors how Unreal Header Tool
-and Polyphase-Engine's C# Roslyn source-rewriter solve the same "real per-field attribute"
-problem -- a real code-generation pass over the source text, run before the real compiler.
+glm::vec3, DamageInfo, ...), so "DUALITY_PROPERTY() <Type> <Name> [= <Default>];" is a fully
+reliable shape to match without needing to actually understand C++ grammar. This mirrors how
+Unreal Header Tool and Polyphase-Engine's C# Roslyn source-rewriter solve the same "real per-field
+attribute" problem -- a real code-generation pass over the source text, run before the real
+compiler.
 
 Scans multiple directories -- GameScripts/Include (the engine's own shared/demo scripts) AND,
 when set, the active Project's own Assets/Scripts directory (see
@@ -18,6 +19,15 @@ full absolute path rather than a bare filename, so this works regardless of whic
 on GameScripts' own include path (a project's Scripts directory deliberately isn't -- project
 scripts live flat, .h next to .cpp, resolved via the compiler's own same-directory quoted-include
 search instead).
+
+Every DUALITY_PROPERTIES_AUTO()/DUALITY_SERIALIZABLE()-marked type found across ALL scanned
+files/directories -- a Behaviour subclass or a plain nested struct alike, identical codegen path
+either way, see PropertyMacros.h's own comment on why DUALITY_SERIALIZABLE() is just a
+semantically-distinct alias -- is collected into one project-wide set BEFORE any field gets
+emitted. A DUALITY_PROPERTY()-marked field whose own type token (matched on its LAST "::"
+segment, since GameScripts/Include classes are never themselves namespace-qualified in this
+codebase's real convention) is in that set gets ::Duality::MakeNestedField instead of the
+ordinary ::Duality::MakeField -- Unity's [System.Serializable]-class-as-a-field, for this engine.
 
 Run as: python generate_fields.py <output .cpp path> <scan_dir_1> [scan_dir_2 ...]
 Each scan_dir that's empty or doesn't exist is silently skipped (e.g. no active Project yet).
@@ -33,7 +43,7 @@ import os
 import re
 import sys
 
-CLASS_RE = re.compile(r"\bclass\s+(\w+)\s*:\s*public\s+(?:Duality::)?Behaviour\b")
+CLASS_RE = re.compile(r"\b(?:class|struct)\s+(\w+)\b(?:\s*:\s*public\s+(?:Duality::)?Behaviour\b)?")
 FIELD_RE = re.compile(r"\bDUALITY_PROPERTY\(\)\s+([\w:<>]+)\s+(\w+)\s*(?:=.*)?;")
 MSYS_DRIVE_PATH_RE = re.compile(r"^/([A-Za-z])/(.*)$")
 
@@ -55,8 +65,10 @@ def format_include_path(path):
 
 
 def scan_header(path):
-    """Returns a list of (class_name, [field_name, ...]) for every Behaviour subclass in this
-    file that has at least one DUALITY_PROPERTY() field."""
+    """Returns a list of (class_name, [(field_name, field_type), ...]) for every class/struct in
+    this file that has at least one DUALITY_PROPERTY() field -- a Behaviour subclass (matched by
+    its own ": public Behaviour" base clause, kept for a reader's sake even though it's no longer
+    load-bearing for the regex match itself) or a plain DUALITY_SERIALIZABLE() struct alike."""
     with open(path, "r", encoding="utf-8") as f:
         text = f.read()
 
@@ -66,17 +78,44 @@ def scan_header(path):
     depth = 0
     tracking_depth = None  # brace depth at which the tracked class's body started
 
-    for line in text.splitlines():
+    for raw_line in text.splitlines():
+        # Strip a "//" line comment before matching anything against this line -- a real,
+        # confirmed bug found while adding this feature: broadening CLASS_RE to match a bare
+        # "class X"/"struct X" (not just "class X : public Behaviour") makes it FAR more likely
+        # to false-positive on ordinary prose ("...marks the struct itself as nestable..."
+        # matched as a class named "itself", corrupting tracking state and silently swallowing
+        # the REAL class definition later in the same file -- the exact "swallowed by stray
+        # state" failure mode the forward-declaration guard above exists for, just triggered by
+        # a comment instead). This codebase's own style is comment-heavy, so this was always a
+        # latent risk, just far less likely to trigger with the original narrow regex. A plain
+        # split on the first "//" (not comment-aware of string literals containing "//", which
+        # essentially never occurs in this codebase's real header style) matches this whole
+        # script's own "plain regex scanner, not a real parser" philosophy -- computed once and
+        # used for EVERY check below (class match, field match, brace counting) so a stray brace
+        # inside a comment can't desync depth tracking either.
+        line = raw_line.split("//", 1)[0]
+
         class_match = CLASS_RE.search(line)
         if class_match and current_class is None:
-            current_class = class_match.group(1)
-            current_fields = []
-            tracking_depth = None
+            # A forward declaration ("struct DamageInfo;") matches this same class-name pattern
+            # but never opens a body -- skip it rather than start tracking, so it doesn't swallow
+            # tracking state and hide the NEXT real class definition in this file. Only a live
+            # risk now that a bare "class X"/"struct X" (not just "class X : public Behaviour")
+            # is matched -- no GameScripts header forward-declares anything today (confirmed),
+            # but this guard makes that safe going forward. A real definition's own declaration
+            # line never ends in ";" (only the closing "};" at the end of its body does, on a
+            # different line by the time brace-tracking below closes it out).
+            if "{" not in line and line.rstrip().endswith(";"):
+                pass
+            else:
+                current_class = class_match.group(1)
+                current_fields = []
+                tracking_depth = None
 
         if current_class is not None:
             field_match = FIELD_RE.search(line)
             if field_match:
-                current_fields.append(field_match.group(2))
+                current_fields.append((field_match.group(2), field_match.group(1)))
 
         depth += line.count("{") - line.count("}")
 
@@ -110,12 +149,18 @@ def main():
     # every downstream use (scanning AND the #include line) consistent and CWD-independent.
     scan_dirs = [os.path.abspath(d) for d in sys.argv[2:] if d and os.path.isdir(d)]
 
-    all_classes = []  # (full_header_path, class_name, [field_name, ...])
+    all_classes = []  # (full_header_path, class_name, [(field_name, field_type), ...])
     for scan_dir in scan_dirs:
         for header in sorted(f for f in os.listdir(scan_dir) if f.endswith(".h")):
             full_path = os.path.join(scan_dir, header)
             for class_name, fields in scan_header(full_path):
                 all_classes.append((full_path, class_name, fields))
+
+    # Every Fields()-generated type name, project-wide, collected BEFORE any field is emitted --
+    # a nested struct can be defined in one header and used as a field in another. See this
+    # module's own docstring for why a field's type is matched against this set on its LAST "::"
+    # segment.
+    nested_type_names = {class_name for _, class_name, _ in all_classes}
 
     lines = [
         "// AUTO-GENERATED by GameScripts/CodeGen/generate_fields.py -- do not edit by hand.",
@@ -130,8 +175,10 @@ def main():
     for _, class_name, fields in all_classes:
         lines.append(f"std::vector<::Duality::FieldHandle> {class_name}::Fields() {{")
         lines.append("    return {")
-        for field in fields:
-            lines.append(f'        ::Duality::MakeField("{field}", &{class_name}::{field}),')
+        for field_name, field_type in fields:
+            type_leaf = field_type.rsplit("::", 1)[-1]
+            maker = "MakeNestedField" if type_leaf in nested_type_names else "MakeField"
+            lines.append(f'        ::Duality::{maker}("{field_name}", &{class_name}::{field_name}),')
         lines.append("    };")
         lines.append("}")
         lines.append("")

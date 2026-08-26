@@ -26,8 +26,9 @@
                     <div class="api-body">
                         <p>
                             Chạy trên thread nền riêng (không block UI Editor lúc build tới gần 1
-                            phút) — copy scene hiện tại vào <code>DualityPlayer/romfs/Scene.scene</code>
-                            rồi tự chạy <code>build-3ds.bat</code>. Cook asset (texture...) qua
+                            phút) — copy scene khởi động vào <code>DualityPlayer/romfs/Scene.scene</code>
+                            (Start Scene lấy từ Build Settings nếu đã cấu hình, xem mục "Cook asset
+                            lên romfs" bên dưới) rồi tự chạy <code>build-3ds.bat</code>. Cook asset (texture...) qua
                             <code>tex3ds</code>, đường dẫn <strong>không hardcode</strong> — tự
                             tìm theo thứ tự: biến môi trường <code>DEVKITPRO</code> (chỉ nếu trỏ
                             tới đường dẫn Windows thật) → registry key
@@ -57,7 +58,7 @@
                 </div>
 
                 <h2>Cook asset lên romfs (3DS)</h2>
-                <p>Mọi file không phải <code>.png</code> trong <code>Assets/</code> được copy nguyên văn vào romfs kèm một manifest — không cần cấu hình gì thêm khi thêm asset type mới, kể cả một file scene thứ hai cho <code>SceneManager.LoadScene</code> nhắm tới.</p>
+                <p>Mọi file không phải <code>.png</code> trong <code>Assets/</code> được copy nguyên văn vào romfs kèm một manifest — không cần cấu hình gì thêm khi thêm asset type mới, kể cả một file scene thứ hai cho <code>SceneManager.LoadScene</code> nhắm tới (miễn scene đó có mặt trong Build Settings, một khi project đã cấu hình danh sách này — xem ngay bên dưới).</p>
                 <table>
                     <tr><th>Asset</th><th>Xử lý lúc cook</th></tr>
                     <tr><td><code>.png</code>/<code>.jpg</code>/...</td><td>Convert sang <code>.t3x</code> qua <code>tex3ds</code> — Mipmap bake vào đây (cờ <code>-m box</code> nếu bật trong Import Settings); Filter/Wrap Mode <strong>không</strong> bake, áp dụng runtime.</td></tr>
@@ -65,12 +66,70 @@
                     <tr><td><code>.meta</code> của mỗi asset đã cook</td><td>Một bản <code>.meta</code> "chỉ chứa Import Settings" (không có <code>"guid"</code>) được cook cạnh file — để code chạy trên máy gọi đúng <code>Load()</code> giống hệt desktop, không phân nhánh theo nền tảng.</td></tr>
                 </table>
 
+                <h3>Build Settings quyết định scene nào lên máy thật</h3>
+                <p>
+                    <code>ProjectConfig::ScenesInBuild</code> — danh sách scene cấu hình qua panel
+                    <strong>Build Settings</strong> trong Editor (xem <a href="editor.html">Editor
+                    Panels</a> để biết cách thêm/xoá/sắp xếp) — là danh sách đường dẫn scene tính
+                    từ <code>Assets/</code>, theo đúng thứ tự build; phần tử đầu tiên
+                    (<code>ScenesInBuild[0]</code>) là <strong>Start Scene</strong>. Danh sách này
+                    thay đổi cả bước cook romfs lẫn scene nào được đóng gói làm boot scene:
+                </p>
+                <ul>
+                    <li>
+                        <strong>Danh sách rỗng</strong> (project chưa từng mở Build Settings) —
+                        hành vi y hệt trước khi có tính năng này: mọi scene dưới
+                        <code>Assets/</code> đều được cook vào romfs không lọc gì, và
+                        <code>Scene.scene</code> đóng gói cho build 3DS là bất kỳ scene nào đang
+                        mở trong Editor lúc bấm Build (được lưu lại ngay trước đó).
+                    </li>
+                    <li>
+                        <strong>Danh sách không rỗng</strong> — <code>CookAssets</code> chỉ copy
+                        vào <code>romfs/Assets/...</code> những file <code>.scene</code> có mặt
+                        trong <code>ScenesInBuild</code>; mọi scene khác dưới <code>Assets/</code>
+                        bị loại khỏi romfs hoàn toàn dù vẫn nằm trên đĩa của project. Đồng thời,
+                        <code>Scene.scene</code> đóng gói cho build 3DS đổi thành chính xác
+                        <code>ScenesInBuild[0]</code> — không còn phụ thuộc scene nào đang mở
+                        trong Editor nữa.
+                    </li>
+                </ul>
+                <p>
+                    Cùng quy ước Start Scene đó cũng quyết định scene khởi động của
+                    <code>DualityPlayerDesktop</code> (xem mục riêng bên dưới) — nhưng vì desktop
+                    không có bước cook nào, danh sách này chỉ đổi <em>scene nào được đọc lúc mở
+                    game</em>, không lọc/loại bỏ file nào trên đĩa như bên 3DS.
+                </p>
+                <div class="callout warn">
+                    <span class="callout-title">Scene "biến mất" trên máy 3DS thật</span>
+                    Một scene không được thêm vào Build Settings vẫn chạy bình thường trong Editor
+                    và trên <code>DualityPlayerDesktop</code> — không nơi nào trong hai chỗ đó lọc
+                    theo <code>ScenesInBuild</code>. Nhưng ngay khi Build Settings đã được cấu
+                    hình (danh sách không còn rỗng nữa, dù chỉ thêm đúng một scene), scene bị bỏ
+                    sót sẽ <strong>không có mặt</strong> trong romfs của build 3DS — một
+                    <code>SceneManager.LoadScene</code> nhắm tới nó trên máy thật sẽ thất bại vì
+                    file không tồn tại. Nhớ thêm mọi scene thật sự cần dùng vào Build Settings
+                    trước khi build 3DS, kể cả scene chỉ được load động lúc runtime chứ không phải
+                    Start Scene.
+                </div>
+
                 <h2>Đóng gói .3dsx / .cia</h2>
                 <table>
                     <tr><th>Định dạng</th><th>Dùng để</th><th>Yêu cầu</th></tr>
                     <tr><td><code>.3dsx</code></td><td>Vòng lặp phát triển nhanh — Homebrew Launcher, hoặc <code>3dslink -s &lt;file&gt;</code> đẩy qua mạng tới máy thật/Citra.</td><td>Không cần gì thêm ngoài devkitPro.</td></tr>
                     <tr><td><code>.cia</code></td><td>Cài qua FBI trên máy thật/CFW.</td><td><code>makerom.exe</code> + <code>bannertool.exe</code> trong <code>Tools/</code> (tải từ GitHub release của Project_CTR — không có trong repo devkitPro pacman) — thiếu thì build bỏ qua bước này, vẫn ra <code>.3dsx</code> bình thường.</td></tr>
                 </table>
+                <p>
+                    Icon <code>.cia</code> giờ lấy từ <code>ProjectConfig::IconPath</code> nếu
+                    project đã chọn một PNG riêng (xem Editor's <a href="editor.html">Project
+                    Settings</a>) — đi qua <code>build-3ds.bat</code>'s tham số thứ 2 vào
+                    <code>DualityPlayer/CMakeLists.txt</code>'s <code>DUALITY_PROJECT_ICON</code>
+                    (một <code>CACHE STRING</code>, không phải <code>PATH</code>/<code>FILEPATH</code>
+                    — lý do y hệt <code>DUALITY_PROJECT_SCRIPTS_DIR</code>: cmake MSYS-hosted dùng
+                    cho build 3DS làm hỏng giá trị một cache var kiểu PATH/FILEPATH chứa đường dẫn
+                    Windows ổ đĩa). Chưa chọn gì (hoặc file không còn tồn tại) thì rơi về placeholder
+                    <code>Packaging/icon.png</code> có sẵn của engine, y hệt hành vi trước khi field
+                    này tồn tại.
+                </p>
 
                 <h2>Vòng lặp Play-in-Editor</h2>
                 <p>
@@ -95,7 +154,18 @@
                     <code>AssetDatabase</code>/<code>GameScripts</code> y hệt 3DS thật — chỉ khác
                     backend renderer (OpenGL thay vì citro2d/citro3d). Hiện luôn chạy
                     <code>SampleProject</code> cố định (chưa có project picker) và tỉ lệ 2x cố
-                    định.
+                    định. Không có bước cook/đóng gói nào — đọc thẳng
+                    <code>Assets/</code> của project trên đĩa mỗi lần khởi động, nên Build Settings
+                    không lọc hay ẩn file scene nào ở đây như bên 3DS.
+                </p>
+                <p>
+                    Scene mở lúc khởi động là <code>ScenesInBuild[0]</code> (Start Scene) nếu
+                    project đã cấu hình Build Settings, hoặc file <code>Scene.scene</code> ở gốc
+                    <code>Assets/</code> (hành vi hardcode gốc) nếu danh sách còn rỗng — cùng quy
+                    ước Start Scene mà <code>BuildFor3DS</code> dùng để chọn boot scene cho build
+                    3DS (xem mục "Cook asset lên romfs" ở trên). Mọi scene khác trong project vẫn
+                    load được bình thường qua <code>SceneManager.LoadScene</code> lúc runtime —
+                    đây chỉ là scene ban đầu, không phải một whitelist.
                 </p>
 
                 <h2>Testing</h2>

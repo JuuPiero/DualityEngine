@@ -68,12 +68,17 @@ namespace Duality {
     struct MeshRendererComponent {
         // Used only when Mesh (below) is empty/unresolved.
         MeshPrimitive Primitive = MeshPrimitive::Cube;
-        // Guid of a ".mat" asset (see Asset/Material.h), resolved via MaterialLoader
-        // at render time -- an empty/unresolved guid falls back to a default white material,
-        // matching every other AssetRef's own graceful-degradation convention.
-        AssetRef Material;
+        // One ".mat" asset guid (see Asset/Material.h) per submesh, resolved via MaterialLoader
+        // at render time -- index-matched against Mesh's own material-group ranges (MeshLoader.h's
+        // MeshData::SubMesh, split on the imported ".obj"'s own "usemtl" boundaries), same
+        // slot convention as Unity's Renderer.materials. Fewer entries than the mesh has
+        // submeshes repeats the LAST entry for the remaining ones; an empty list (or an
+        // unresolved/empty guid in a slot) falls back to a default white material, matching
+        // every other AssetRef's own graceful-degradation convention. A procedural Primitive
+        // (Mesh empty/unresolved) has no submesh concept -- only index 0 is ever used.
+        std::vector<AssetRef> Materials;
         // Guid of an imported ".obj" mesh (see Asset/MeshLoader.h) -- empty/unresolved falls
-        // back to the procedural Primitive above, same convention as Material/Texture.
+        // back to the procedural Primitive above, same convention as Materials/Texture.
         AssetRef Mesh;
     };
 
@@ -130,6 +135,14 @@ namespace Duality {
         float FovDegrees = 60.0f; // Perspective only
         float NearPlane = 0.1f;   // Perspective only
         float FarPlane = 1000.0f; // Perspective only
+
+        // The color this camera clears its screen to before drawing -- matches Unity's
+        // Camera.backgroundColor. Defaults to the same dark blue-gray RenderScreen's callers
+        // (Application.cpp/DualityPlayer's Main.cpp) already hardcoded for the Top screen
+        // before this field existed; SceneRenderer.cpp now reads THIS instead whenever a
+        // camera is present, falling back to whatever the caller passed only when a screen has
+        // no camera at all.
+        glm::vec4 Background{ 0.08f, 0.08f, 0.12f, 1.0f };
     };
 
     // One attached script -- which Behaviour subclass, looked up by name at Play time via
@@ -195,6 +208,12 @@ namespace Duality {
         // overlap. Unity's own rule: a contact fires as a TRIGGER callback if EITHER side is
         // a trigger, and as a COLLISION callback only when NEITHER side is.
         bool IsTrigger = false;
+        // When on, the Scene view shows draggable resize handles on this collider's outline
+        // (see ScenePanel.cpp's DragCollider2DHandle) -- off by default so moving/inspecting an
+        // entity in the viewport never risks an accidental collider reshape from a stray drag.
+        // The green wireframe outline itself is shown whenever the entity is selected,
+        // regardless of this flag; this only gates whether the handles are draggable.
+        bool EditMode = false;
         void* RuntimeFixture = nullptr;
     };
 
@@ -205,6 +224,7 @@ namespace Duality {
         float Friction = 0.5f;
         float Restitution = 0.0f;
         bool IsTrigger = false; // see BoxCollider2DComponent::IsTrigger
+        bool EditMode = false; // see BoxCollider2DComponent::EditMode
         void* RuntimeFixture = nullptr;
     };
 
@@ -240,6 +260,7 @@ namespace Duality {
         // detects it, but the physical push-apart response is suppressed). Same
         // "either side is a trigger -> trigger callback" rule as the 2D colliders.
         bool IsTrigger = false;
+        bool EditMode = false; // see BoxCollider2DComponent::EditMode
     };
 
     struct SphereCollider3DComponent {
@@ -249,6 +270,7 @@ namespace Duality {
         float Friction = 0.5f;
         float Restitution = 0.0f;
         bool IsTrigger = false; // see BoxCollider3DComponent::IsTrigger
+        bool EditMode = false; // see BoxCollider2DComponent::EditMode
     };
 
     // Unity/Cocos-style parent/child tree. Not registered with TypeRegistry -- like

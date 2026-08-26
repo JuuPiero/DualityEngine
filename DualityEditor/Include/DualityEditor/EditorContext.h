@@ -114,6 +114,25 @@ namespace Duality {
         // path (Content Browser double-click, the Scene asset inspector's "Open Scene"
         // button, "Load Scene") doesn't need a dialog and calls OpenScene() directly instead.
         bool& RequestOpenSceneDialog;
+
+        // Same request-flag convention as RequestOpenSceneDialog, for PreferencesPanel's
+        // "Browse..." button -- also needs the native window handle, so Application handles it
+        // and writes the result straight into EditorSettings (not a Scene/Project concern).
+        bool& RequestBrowseExternalEditor;
+
+        // Same request-flag convention, for ProjectSettingsPanel's Icon "Browse..." button --
+        // writes the result into the active Project's own IconPath + Save() instead of
+        // EditorSettings, since an icon is per-project, not per-machine.
+        bool& RequestBrowseIcon;
+
+        // Persistent open/close state for the three floating (non-docked) utility windows below
+        // -- unlike the one-shot Request* flags above (consumed the instant Application::Run()
+        // notices them true), these mirror IsPlaying's own convention: a reference onto an
+        // Application-owned bool that a panel just checks every frame (`if (!ctx.ShowX) return;`)
+        // and can toggle back off itself via its own ImGui::Begin's close button.
+        bool& ShowBuildSettings;
+        bool& ShowProjectSettings;
+        bool& ShowPreferences;
     };
 
 }

@@ -48,6 +48,17 @@
                     Unity/Cocos. Mỗi màn có đúng một camera <code>Primary</code> thật sự render
                     (<code>Scene::GetPrimaryCamera(screen)</code>).
                 </p>
+                <div class="callout note">
+                    <span class="callout-title">Mới: Background — màu clear riêng từng camera</span>
+                    <code>CameraComponent</code> giờ có thêm field <code>Background</code>
+                    (<code>glm::vec4</code>, mặc định <code>{0.08, 0.08, 0.12, 1.0}</code>) — màu
+                    <code>SceneRenderer.cpp</code>'s <code>RenderScreen</code> dùng để clear màn
+                    khi màn đó có camera, thay cho màu hardcode cố định trước đây do
+                    <code>Application.cpp</code>/<code>DualityPlayer</code>'s <code>Main.cpp</code>
+                    truyền vào (giờ chỉ còn là fallback cho màn không có camera nào). Chi tiết đầy
+                    đủ mọi field <code>CameraComponent</code>: xem
+                    <a href="components.html">Components Reference</a>.
+                </div>
 
                 <h2>SpriteRendererComponent</h2>
                 <pre><code><span class="tok-kw">struct</span> SpriteRendererComponent {

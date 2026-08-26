@@ -76,8 +76,15 @@ REM CMakeLists.txt derives its own MSYS-mount-notation copy internally (gated to
 REM CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS") for the file(GLOB)/EXISTS calls that
 REM need it, the same "F:/..." -> "/f/..." transform this script's own DKP_MSYS
 REM derivation above uses, but done in one place instead of duplicated here.
+REM
+REM %2, if given, is the active Project's own custom .cia icon PNG (ProjectConfig::
+REM IconPath, set via the Editor's Project Settings panel), forwarded the same
+REM unconverted way into DUALITY_PROJECT_ICON -- DualityPlayer/CMakeLists.txt derives
+REM its own MSYS-notation copy internally for the EXISTS check, same reasoning/pattern
+REM as DUALITY_PROJECT_SCRIPTS_DIR above. Empty falls back to the placeholder
+REM Packaging/icon.png, a graceful no-op just like an empty scripts dir.
 echo Configuring for Nintendo 3DS (devkitARM)...
-cmake -S . -B "%BUILD_DIR%" -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="%DKP_MSYS%/cmake/3DS.cmake" -DCMAKE_BUILD_TYPE=Release -DDUALITY_PROJECT_SCRIPTS_DIR="%~1"
+cmake -S . -B "%BUILD_DIR%" -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="%DKP_MSYS%/cmake/3DS.cmake" -DCMAKE_BUILD_TYPE=Release -DDUALITY_PROJECT_SCRIPTS_DIR="%~1" -DDUALITY_PROJECT_ICON="%~2"
 if errorlevel 1 goto :error
 
 echo.

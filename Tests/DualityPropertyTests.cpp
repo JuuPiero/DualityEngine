@@ -11,6 +11,7 @@
 
 #include <filesystem>
 
+#include "DualityEngine/Reflection/FieldSerialization.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -60,6 +61,67 @@ namespace {
 
     std::string TempScenePath() {
         return (std::filesystem::temp_directory_path() / "duality_engine_test_property_scene.scene").string();
+    }
+
+    // DUALITY_SERIALIZABLE() nested-struct coverage (Unity [System.Serializable]-class-as-a-
+    // field equivalent) -- InnerSettings/NestedSettings hand-write Fields() the exact same way
+    // generate_fields.py would for a DUALITY_SERIALIZABLE()-marked struct (see this file's own
+    // top comment on why Tests/ hand-writes rather than running real codegen), NestedSettings
+    // itself using MakeNestedField for its own Inner field so this exercises real 2-level
+    // nesting, not just one level.
+    struct InnerSettings {
+        DUALITY_PROPERTY() float Value = 1.0f;
+
+        static std::vector<FieldHandle> Fields() {
+            return { MakeField("Value", &InnerSettings::Value) };
+        }
+    };
+
+    struct NestedSettings {
+        DUALITY_PROPERTY() float Amount = 2.0f;
+        DUALITY_PROPERTY() InnerSettings Inner;
+
+        static std::vector<FieldHandle> Fields() {
+            return {
+                MakeField("Amount", &NestedSettings::Amount),
+                MakeNestedField("Inner", &NestedSettings::Inner),
+            };
+        }
+    };
+
+    // A separate Behaviour from PropsBehaviour above (not just adding a field to it) so the
+    // existing PropsBehaviour tests' exact field-count/order assumptions stay untouched.
+    class NestedPropsBehaviour : public Behaviour {
+    public:
+        DUALITY_PROPERTY() NestedSettings Settings;
+
+        static std::vector<FieldHandle> Fields() {
+            return { MakeNestedField("Settings", &NestedPropsBehaviour::Settings) };
+        }
+
+        void OnCreate() override {
+            s_CreatedInnerValue = Settings.Inner.Value;
+        }
+
+        static float s_CreatedInnerValue;
+    };
+    float NestedPropsBehaviour::s_CreatedInnerValue = 0.0f;
+
+    void EnsureNestedRegistered() {
+        static bool registered = false;
+        if (registered)
+            return;
+        ScriptRegistry::Register(ScriptFactoryEntry{
+            "NestedPropsBehaviour",
+            []() -> Behaviour* { return new NestedPropsBehaviour(); },
+            [](Behaviour* instance) { delete instance; },
+            NestedPropsBehaviour::Fields(),
+        });
+        registered = true;
+    }
+
+    std::string TempNestedScenePath() {
+        return (std::filesystem::temp_directory_path() / "duality_engine_test_nested_property_scene.scene").string();
     }
 
 }
@@ -153,6 +215,71 @@ TEST_CASE("PropertyOverrides round-trip through SceneSerializer; EntityRef alway
     CHECK(targetIt != loadedScript.PropertyOverrides.end());
     CHECK_SOFT(std::get<EntityRef>(targetIt->second).Handle == EntityRef::Invalid,
         "EntityRef never round-trips -- a raw handle isn't stable across reload, so it always reloads as unset rather than resolving to the wrong entity");
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("Nested struct fields round-trip through FieldValueToJson/JsonToFieldValue, including 2-level nesting") {
+    NestedPropsBehaviour instance;
+    instance.Settings.Amount = 42.0f;
+    instance.Settings.Inner.Value = 7.5f;
+
+    FieldHandle handle = MakeNestedField("Settings", &NestedPropsBehaviour::Settings);
+    FieldValue value = handle.Get(&instance);
+
+    json j = FieldValueToJson(value);
+    CHECK_SOFT(j.is_object(), "a nested struct serializes as a JSON object, not a scalar/array");
+    CHECK_SOFT(j["Amount"].get<float>() == 42.0f, "the nested struct's own top-level field round-trips");
+    CHECK_SOFT(j["Inner"].is_object(), "a nested struct's OWN nested field also serializes as an object -- 2-level nesting");
+    CHECK_SOFT(j["Inner"]["Value"].get<float>() == 7.5f, "the 2nd-level nested field's value round-trips");
+
+    // Deserialize into a fresh instance via JsonToFieldValue + Set -- exercises the full write
+    // path, not just FieldValueToJson's read path.
+    NestedPropsBehaviour fresh;
+    FieldValue freshPrototype = handle.Get(&fresh); // fresh.Settings still holds its C++ defaults here
+    FieldValue restored = JsonToFieldValue(j, freshPrototype);
+    handle.Set(&fresh, restored);
+    CHECK_SOFT(fresh.Settings.Amount == 42.0f, "Set() writes the top-level nested field back onto a live instance");
+    CHECK_SOFT(fresh.Settings.Inner.Value == 7.5f, "Set() writes the 2nd-level nested field back too");
+}
+
+TEST_CASE("A PropertyOverrides entry holding a nested field applies onto a FRESH instance at Play start, and survives Save/Load") {
+    // This is the real regression test for the pointer-vs-value-semantics design question raised
+    // (and resolved in favor of value semantics) while building this feature: NestedFieldValue
+    // must NOT hold a pointer into whatever instance Get() was originally called against, since
+    // that instance (a Properties-panel scratch object, in real usage) is long destroyed by the
+    // time Scene::OnRuntimeStart creates a BRAND NEW instance and applies PropertyOverrides onto
+    // IT, before OnCreate(). A pointer-based design would silently fail to apply here (or read
+    // freed memory) instead of correctly writing into the fresh instance.
+    EnsureNestedRegistered();
+    std::string path = TempNestedScenePath();
+
+    Scene sourceScene;
+    Entity e = sourceScene.CreateEntity("NestedScripted");
+    ScriptInstance script{ "NestedPropsBehaviour" };
+    NestedPropsBehaviour scratch; // stands in for PropertiesPanel.cpp's own real per-frame scratch instance
+    scratch.Settings.Amount = 99.0f;
+    scratch.Settings.Inner.Value = 3.5f;
+    FieldHandle settingsHandle = MakeNestedField("Settings", &NestedPropsBehaviour::Settings);
+    script.PropertyOverrides["Settings"] = settingsHandle.Get(&scratch);
+    e.AddComponent<BehaviourComponent>().Scripts.push_back(script);
+
+    CHECK(SceneSerializer(sourceScene).Serialize(path));
+
+    Scene loadedScene;
+    CHECK(SceneSerializer(loadedScene).Deserialize(path));
+    Entity loaded = loadedScene.FindEntityInScreen(Screen::Top, "NestedScripted");
+    CHECK(loaded);
+    auto& loadedBc = loaded.GetComponent<BehaviourComponent>();
+    CHECK(loadedBc.Scripts.size() == 1);
+    auto overrideIt = loadedBc.Scripts[0].PropertyOverrides.find("Settings");
+    CHECK(overrideIt != loadedBc.Scripts[0].PropertyOverrides.end());
+
+    loadedScene.OnRuntimeStart();
+    auto* instance = static_cast<NestedPropsBehaviour*>(loadedBc.Scripts[0].Instance);
+    CHECK_SOFT(instance->Settings.Amount == 99.0f, "nested override's top-level field applied onto the FRESH Play-start instance");
+    CHECK_SOFT(instance->Settings.Inner.Value == 3.5f, "nested override's 2nd-level field applied too");
+    CHECK_SOFT(NestedPropsBehaviour::s_CreatedInnerValue == 3.5f, "OnCreate itself observed the overridden nested value, not the compiled-in default");
 
     std::filesystem::remove(path);
 }

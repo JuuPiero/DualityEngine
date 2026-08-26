@@ -55,11 +55,12 @@ namespace Duality {
             MakeField("Fov Degrees", &CameraComponent::FovDegrees),
             MakeField("Near Plane", &CameraComponent::NearPlane),
             MakeField("Far Plane", &CameraComponent::FarPlane),
+            MakeColorField("Background", &CameraComponent::Background),
         });
 
         TypeRegistry::Register<MeshRendererComponent>("Mesh Renderer", false, {
             MakeField("Primitive", &MeshRendererComponent::Primitive),
-            MakeField("Material", &MeshRendererComponent::Material),
+            MakeField("Materials", &MeshRendererComponent::Materials),
             MakeField("Mesh", &MeshRendererComponent::Mesh),
         });
 
@@ -103,6 +104,7 @@ namespace Duality {
             MakeField("Friction", &BoxCollider2DComponent::Friction),
             MakeField("Restitution", &BoxCollider2DComponent::Restitution),
             MakeField("Is Trigger", &BoxCollider2DComponent::IsTrigger),
+            MakeField("Edit", &BoxCollider2DComponent::EditMode),
         });
 
         TypeRegistry::Register<CircleCollider2DComponent>("Circle Collider 2D", false, {
@@ -112,6 +114,7 @@ namespace Duality {
             MakeField("Friction", &CircleCollider2DComponent::Friction),
             MakeField("Restitution", &CircleCollider2DComponent::Restitution),
             MakeField("Is Trigger", &CircleCollider2DComponent::IsTrigger),
+            MakeField("Edit", &CircleCollider2DComponent::EditMode),
         });
 
         TypeRegistry::Register<Rigidbody3DComponent>("Rigidbody 3D", false, {
@@ -125,6 +128,7 @@ namespace Duality {
             MakeField("Friction", &BoxCollider3DComponent::Friction),
             MakeField("Restitution", &BoxCollider3DComponent::Restitution),
             MakeField("Is Trigger", &BoxCollider3DComponent::IsTrigger),
+            MakeField("Edit", &BoxCollider3DComponent::EditMode),
         });
 
         TypeRegistry::Register<SphereCollider3DComponent>("Sphere Collider 3D", false, {
@@ -134,6 +138,7 @@ namespace Duality {
             MakeField("Friction", &SphereCollider3DComponent::Friction),
             MakeField("Restitution", &SphereCollider3DComponent::Restitution),
             MakeField("Is Trigger", &SphereCollider3DComponent::IsTrigger),
+            MakeField("Edit", &SphereCollider3DComponent::EditMode),
         });
 
         // Registered with zero reflected fields -- BehaviourComponent now holds a vector of

@@ -61,10 +61,11 @@ namespace Duality {
     // Editor's 3D Scene view.
     uint32_t ResolveMeshTexture(IRenderer3D& renderer, const AssetRef& textureRef);
 
-    // Guid->path->MaterialLoader::Load chain for a MeshRendererComponent::Material reference --
-    // returns a default (white, no texture) Material when the ref is empty or doesn't resolve
-    // to an existing file, same graceful-degradation convention as ResolveSpriteTexture/
-    // ResolveMeshTexture. Shared by RenderScreen3D and the Editor's 3D Scene view.
+    // Guid->path->MaterialLoader::Load chain for one entry of a MeshRendererComponent::Materials
+    // list -- returns a default (white, no texture) Material when the ref is empty or doesn't
+    // resolve to an existing file, same graceful-degradation convention as ResolveSpriteTexture/
+    // ResolveMeshTexture. Shared by RenderScreen3D and the Editor's 3D Scene view, called once
+    // per submesh now (see IRenderer3D::DrawMesh's own comment on subMeshIndex).
     Material ResolveMeshMaterial(const AssetRef& materialRef);
 
     // Guid->path->IRenderer3D::LoadMesh chain for a MeshRendererComponent::Mesh reference --

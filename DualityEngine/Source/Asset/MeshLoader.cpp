@@ -64,9 +64,26 @@ namespace Duality {
             std::vector<glm::vec3> positions;
             std::vector<glm::vec2> texcoords;
 
+            // Vertex index (into data.Vertices) where the CURRENT material group started --
+            // closed out into a real SubMesh entry either when the next "usemtl" line is hit or
+            // at EOF (see below). "usemtl" is used purely as a submesh BOUNDARY marker here --
+            // the material name itself is never resolved/stored anywhere (this engine's own
+            // ".mat" asset pipeline has no ".mtl"-parsing concept), the user manually assigns a
+            // real Material asset to each resulting slot index in the Editor, matching how
+            // Unity's own index-matched Renderer.materials slots work.
+            uint32_t subMeshStart = 0;
+
             char line[512];
             while (std::fgets(line, sizeof(line), file)) {
-                if (line[0] == 'v' && line[1] == ' ') {
+                if (std::strncmp(line, "usemtl", 6) == 0 && (line[6] == ' ' || line[6] == '\t')) {
+                    // Only close out a range if it actually contains faces -- back-to-back
+                    // "usemtl" lines with no faces between them (or one right at the top of the
+                    // file, before any faces at all) must NOT emit an empty SubMesh entry.
+                    uint32_t vertexCount = static_cast<uint32_t>(data.Vertices.size());
+                    if (vertexCount > subMeshStart)
+                        data.SubMeshes.push_back({ subMeshStart, vertexCount - subMeshStart });
+                    subMeshStart = vertexCount;
+                } else if (line[0] == 'v' && line[1] == ' ') {
                     glm::vec3 v{};
                     std::sscanf(line + 2, "%f %f %f", &v.x, &v.y, &v.z);
                     positions.push_back(v);
@@ -101,6 +118,13 @@ namespace Duality {
                 }
             }
             std::fclose(file);
+
+            // Close out whatever material group was still open when the file ended -- covers
+            // both "at least one usemtl, and its faces run to EOF" and "no usemtl at all" (the
+            // whole file is the one implicit group starting at subMeshStart == 0).
+            uint32_t finalVertexCount = static_cast<uint32_t>(data.Vertices.size());
+            if (finalVertexCount > subMeshStart)
+                data.SubMeshes.push_back({ subMeshStart, finalVertexCount - subMeshStart });
 
             if (data.Vertices.empty())
                 Log::Warn("MeshLoader: '" + path + "' produced 0 vertices -- only \"v\"/\"vt\"/\"f\" lines are "

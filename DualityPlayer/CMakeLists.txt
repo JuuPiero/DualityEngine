@@ -54,12 +54,42 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         set(DE_BANNER_BNR ${DE_CIA_TMP}/banner.bnr)
         set(DE_CIA_OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/DualityPlayer.cia)
 
+        # Active project's own custom icon (Project Settings panel -> BuildPipeline::
+        # BuildFor3DS -> build-3ds.bat's %2), set via -DDUALITY_PROJECT_ICON=... on the
+        # 3DS configure. CACHE STRING, deliberately NOT PATH/FILEPATH -- the 3DS configure
+        # runs under an MSYS-hosted cmake.exe whose Cygwin/MSYS path semantics silently
+        # corrupt a PATH/FILEPATH-typed cache variable holding a Windows drive-letter path
+        # (this exact bug already hit DUALITY_PROJECT_SCRIPTS_DIR once, see GameScripts/
+        # CMakeLists.txt's own comment on it). Falls back to the placeholder Packaging/
+        # icon.png -- unset, or pointing at a file that doesn't (yet) exist, is a graceful
+        # no-op, not an error.
+        set(DUALITY_PROJECT_ICON "" CACHE STRING "Absolute path to the active project's custom .cia icon PNG, set by BuildPipeline::BuildFor3DS")
+        set(DE_ICON_SOURCE ${DE_PKG_DIR}/icon.png)
+        if(DUALITY_PROJECT_ICON AND CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
+            # Same "F:/..." -> "/f/..." transform build-3ds.bat's own DKP_MSYS derivation
+            # uses -- EXISTS against a raw Windows-style path silently fails under the
+            # MSYS-hosted cmake this 3DS configure runs under, even with an uncorrupted value.
+            string(REGEX REPLACE "^([A-Za-z]):(.*)" "/\\1\\2" DUALITY_PROJECT_ICON_MSYS "${DUALITY_PROJECT_ICON}")
+            if(EXISTS "${DUALITY_PROJECT_ICON_MSYS}")
+                # MSYS-notation form, NOT the raw Windows-style DUALITY_PROJECT_ICON -- a real,
+                # confirmed bug here before this fix: this value is embedded directly into
+                # add_custom_command's DEPENDS/-i args below, which the "Unix Makefiles"
+                # generator writes straight into a real GNU Makefile. A Windows drive-letter
+                # colon (e.g. "E:/...") in that position is ambiguous with Make's OWN
+                # target:-prerequisite separator syntax, and gets worse when the icon lives on a
+                # different drive than the build tree (no valid relative path exists between
+                # drives) -- confirmed empirically: produced "target pattern contains no '%'.
+                # Stop." MSYS-notation has no drive-letter colon at all, sidestepping both.
+                set(DE_ICON_SOURCE ${DUALITY_PROJECT_ICON_MSYS})
+            endif()
+        endif()
+
         add_custom_command(
             OUTPUT ${DE_ICON_SMDH}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${DE_CIA_TMP}
             COMMAND ${DE_BANNERTOOL_EXE} makesmdh -s "DualityEngine" -l "DualityEngine Sample" -p "DualityEngine"
-                    -i ${DE_PKG_DIR}/icon.png -o ${DE_ICON_SMDH}
-            DEPENDS ${DE_PKG_DIR}/icon.png
+                    -i ${DE_ICON_SOURCE} -o ${DE_ICON_SMDH}
+            DEPENDS ${DE_ICON_SOURCE}
             COMMENT "Generating .cia icon (SMDH)"
             VERBATIM
         )

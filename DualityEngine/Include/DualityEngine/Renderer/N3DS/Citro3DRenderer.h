@@ -8,6 +8,7 @@
 #include <citro3d.h>
 #include <tex3ds.h>
 
+#include "DualityEngine/Asset/MeshLoader.h"
 #include "DualityEngine/Renderer/IRenderer3D.h"
 
 namespace Duality {
@@ -36,7 +37,8 @@ namespace Duality {
         void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
-        void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
+        void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
+        uint32_t GetSubMeshCount(uint32_t meshHandle) const override;
 
         // `path` is expected to already be a citro3d-loadable ".t3x" path (romfs:/...), same
         // BuildPipeline::CookAssets/AssetDatabase::LoadManifest convention as Citro2DRenderer.
@@ -59,6 +61,13 @@ namespace Duality {
         struct PrimitiveGpuMesh {
             void* VertexBuffer = nullptr; // linearAlloc'd
             int VertexCount = 0;
+            // Submesh ranges (see MeshData::SubMesh) -- empty for the 3 built-in procedural
+            // primitives, which have no material-group concept. Stored directly here (not a
+            // separate parallel container) so it's freed/cleared for free by every existing
+            // Shutdown()/UnloadAllMeshes() site that already handles the rest of this struct's
+            // lifetime -- see OpenGLRenderer3D's GLVertexArray::SetSubMeshes for the same
+            // reasoning on the desktop backend.
+            std::vector<MeshData::SubMesh> SubMeshes;
         };
 
         C3D_RenderTarget* TargetFor(Screen screen) const;

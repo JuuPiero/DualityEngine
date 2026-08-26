@@ -1,6 +1,11 @@
 {
   "AssetsDirectory": "Assets",
+  "IconPath": "",
   "Name": "SampleProject",
+  "ScenesInBuild": [
+    "Scene.scene",
+    "Scenes/Test.scene"
+  ],
   "ScriptsDirectory": "Scripts",
   "StartScene": ""
 }

@@ -21,7 +21,8 @@
             { id: "scripting-api", label: "Scripting (Behaviour)", href: base + "scripting-api.html", icon: "📜" },
             { id: "physics", label: "Physics 2D/3D", href: base + "physics.html", icon: "🪐" },
             { id: "rendering", label: "Rendering & UI", href: base + "rendering.html", icon: "🖼️" },
-            { id: "assets", label: "Asset Pipeline", href: base + "assets.html", icon: "📦" }
+            { id: "assets", label: "Asset Pipeline", href: base + "assets.html", icon: "📦" },
+            { id: "components", label: "Components Reference", href: base + "components.html", icon: "🧱" }
         ]},
         { group: "Editor & Deploy", items: [
             { id: "editor", label: "Editor Panels", href: base + "editor.html", icon: "🛠️" },

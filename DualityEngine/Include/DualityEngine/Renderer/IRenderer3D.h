@@ -62,8 +62,20 @@ namespace Duality {
         // color when textureId is 0. meshHandle (0 = none) is a backend-specific handle from
         // LoadMesh -- when non-zero, the imported mesh it refers to is drawn INSTEAD of
         // `primitive` (which is then ignored), matching MeshRendererComponent::Mesh's own
-        // "empty AssetRef falls back to the procedural Primitive" convention.
-        virtual void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) = 0;
+        // "empty AssetRef falls back to the procedural Primitive" convention. subMeshIndex
+        // selects one (FirstVertex, VertexCount) range of an imported mesh (see Asset/
+        // MeshLoader.h's MeshData::SubMesh) to draw -- one real draw call per submesh, letting a
+        // caller assign a different color/textureId per range (MeshRendererComponent::Materials,
+        // a list now instead of one field). Ignored when meshHandle == 0 (a procedural
+        // `primitive` has no submesh concept, always drawn as one whole mesh) -- see
+        // GetSubMeshCount below for how a caller knows how many indices are valid to pass here.
+        virtual void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) = 0;
+
+        // How many subMeshIndex values (0..count-1) are valid for DrawMesh against this
+        // meshHandle -- 1 for meshHandle == 0 (a procedural primitive, always one whole-mesh
+        // draw) and for any imported mesh with no material-group boundaries in its source file;
+        // the real count otherwise. A caller loops this many DrawMesh calls, one per submesh.
+        virtual uint32_t GetSubMeshCount(uint32_t meshHandle) const = 0;
 
         // Same guid->path->LoadTexture chain as IRenderer2D::LoadTexture (see
         // SceneRenderer.cpp's ResolveSpriteTexture) -- a mesh's Texture AssetRef resolves the

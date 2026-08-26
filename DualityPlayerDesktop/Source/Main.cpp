@@ -194,7 +194,12 @@ int main() {
     AssetDatabase::Refresh(project->GetAssetsDirectory());
 
     Scene scene;
-    SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/Scene.scene");
+    // Build Settings' own Start Scene (ScenesInBuild[0]) once a project has configured it --
+    // falls back to the literal "Scene.scene" (today's hardcoded behavior) for a project that
+    // hasn't, same empty-list-is-a-no-op convention BuildPipeline's own BuildFor3DS/CookAssets use.
+    const std::vector<std::string>& scenesInBuild = project->GetConfig().ScenesInBuild;
+    std::string startScenePath = scenesInBuild.empty() ? "Scene.scene" : scenesInBuild[0];
+    SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/" + startScenePath);
     scene.OnRuntimeStart();
 
     double lastTime = glfwGetTime();

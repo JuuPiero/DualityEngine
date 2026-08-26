@@ -60,6 +60,8 @@ namespace Duality {
         project->m_Config.AssetsDirectory = root.value("AssetsDirectory", "Assets");
         project->m_Config.ScriptsDirectory = root.value("ScriptsDirectory", "Scripts");
         project->m_Config.StartScene = root.value("StartScene", "");
+        project->m_Config.ScenesInBuild = root.value("ScenesInBuild", std::vector<std::string>{});
+        project->m_Config.IconPath = root.value("IconPath", "");
 
         s_ActiveProject = project;
         Log::Info("Loaded project '" + project->m_Config.Name + "'");
@@ -72,6 +74,8 @@ namespace Duality {
         root["AssetsDirectory"] = m_Config.AssetsDirectory;
         root["ScriptsDirectory"] = m_Config.ScriptsDirectory;
         root["StartScene"] = m_Config.StartScene;
+        root["ScenesInBuild"] = m_Config.ScenesInBuild;
+        root["IconPath"] = m_Config.IconPath;
 
         std::ofstream file(m_ProjectFilePath);
         if (!file.is_open()) {

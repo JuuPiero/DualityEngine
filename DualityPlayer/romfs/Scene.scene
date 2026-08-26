@@ -75,6 +75,12 @@
         "Active": true
       },
       "Camera": {
+        "Background": [
+          0.07999999821186066,
+          0.07999999821186066,
+          0.11999999731779099,
+          1.0
+        ],
         "Far Plane": 1000.0,
         "Fov Degrees": 60.0,
         "Near Plane": 0.10000000149011612,
@@ -113,6 +119,12 @@
         "Active": true
       },
       "Camera": {
+        "Background": [
+          0.07999999821186066,
+          0.07999999821186066,
+          0.11999999731779099,
+          1.0
+        ],
         "Far Plane": 1000.0,
         "Fov Degrees": 60.0,
         "Near Plane": 0.10000000149011612,
@@ -151,7 +163,9 @@
         "Active": true
       },
       "Mesh Renderer": {
-        "Material": "f88066254862338300d1e7afc9357c8e",
+        "Materials": [
+          "f88066254862338300d1e7afc9357c8e"
+        ],
         "Mesh": "",
         "Primitive": "Cube"
       },
@@ -175,7 +189,7 @@
         ],
         "Translation": [
           0.0,
-          0.0,
+          -48.11400604248047,
           0.0
         ]
       }
@@ -281,6 +295,7 @@
       },
       "Box Collider 2D": {
         "Density": 1.0,
+        "Edit": false,
         "Friction": 0.5,
         "Is Trigger": false,
         "Offset": [
@@ -341,6 +356,7 @@
       },
       "Circle Collider 2D": {
         "Density": 1.0,
+        "Edit": false,
         "Friction": 0.5,
         "Is Trigger": false,
         "Offset": [
@@ -398,6 +414,7 @@
       },
       "Box Collider 3D": {
         "Density": 1.0,
+        "Edit": false,
         "Friction": 0.5,
         "Is Trigger": false,
         "Offset": [
@@ -413,7 +430,7 @@
         ]
       },
       "Mesh Renderer": {
-        "Material": "",
+        "Materials": [],
         "Mesh": "",
         "Primitive": "Cube"
       },
@@ -450,7 +467,9 @@
         "Active": true
       },
       "Mesh Renderer": {
-        "Material": "82695b523afc8e9a886a3c9443f9a759",
+        "Materials": [
+          "82695b523afc8e9a886a3c9443f9a759"
+        ],
         "Mesh": "",
         "Primitive": "Sphere"
       },
@@ -463,6 +482,7 @@
       },
       "Sphere Collider 3D": {
         "Density": 1.0,
+        "Edit": false,
         "Friction": 0.5,
         "Is Trigger": false,
         "Offset": [
@@ -489,7 +509,7 @@
         ],
         "Translation": [
           185.58163452148438,
-          64.27555847167969,
+          59.47947692871094,
           -199.4073486328125
         ]
       }
@@ -547,7 +567,9 @@
         "Active": true
       },
       "Mesh Renderer": {
-        "Material": "5f6708385448b38d8085226cc0d52916",
+        "Materials": [
+          "5f6708385448b38d8085226cc0d52916"
+        ],
         "Mesh": "314148b51db32e5e11a96d782e3fa3cf",
         "Primitive": "Cube"
       },
@@ -571,7 +593,7 @@
         ],
         "Translation": [
           177.66250610351563,
-          204.5807342529297,
+          159.174072265625,
           -149.19720458984375
         ]
       }

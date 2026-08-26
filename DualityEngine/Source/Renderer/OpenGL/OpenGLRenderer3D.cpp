@@ -150,7 +150,7 @@ namespace Duality {
         m_Shader.Unbind();
     }
 
-    void OpenGLRenderer3D::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
+    void OpenGLRenderer3D::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
         m_DrawCallCount++;
 
         m_Shader.Bind();
@@ -166,10 +166,26 @@ namespace Duality {
 
         const GLVertexArray& mesh = (meshHandle != 0) ? m_ImportedMeshes[meshHandle - 1] : m_Meshes[static_cast<int>(primitive)];
         mesh.Bind();
-        glDrawArrays(GL_TRIANGLES, 0, mesh.GetVertexCount());
+        // An imported mesh with real submesh ranges draws only that one slice; everything else
+        // (procedural primitives, or an imported mesh with no material-group boundaries at all,
+        // i.e. GetSubMeshes() empty) draws as one whole mesh, exactly like before this feature.
+        const std::vector<MeshData::SubMesh>& subMeshes = mesh.GetSubMeshes();
+        if (meshHandle != 0 && subMeshIndex < subMeshes.size()) {
+            const MeshData::SubMesh& subMesh = subMeshes[subMeshIndex];
+            glDrawArrays(GL_TRIANGLES, static_cast<GLint>(subMesh.FirstVertex), static_cast<GLsizei>(subMesh.VertexCount));
+        } else {
+            glDrawArrays(GL_TRIANGLES, 0, mesh.GetVertexCount());
+        }
         mesh.Unbind();
 
         glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    uint32_t OpenGLRenderer3D::GetSubMeshCount(uint32_t meshHandle) const {
+        if (meshHandle == 0)
+            return 1; // procedural primitive -- always one whole-mesh draw
+        const std::vector<MeshData::SubMesh>& subMeshes = m_ImportedMeshes[meshHandle - 1].GetSubMeshes();
+        return subMeshes.empty() ? 1 : static_cast<uint32_t>(subMeshes.size());
     }
 
     uint32_t OpenGLRenderer3D::LoadTexture(const std::string& path) {
@@ -190,7 +206,9 @@ namespace Duality {
         uint32_t meshHandle = 0;
         const MeshData& data = MeshLoader::Load(path);
         if (!data.Vertices.empty()) {
-            m_ImportedMeshes.push_back(UploadGpuMesh(data.Vertices));
+            GLVertexArray mesh = UploadGpuMesh(data.Vertices);
+            mesh.SetSubMeshes(data.SubMeshes);
+            m_ImportedMeshes.push_back(std::move(mesh));
             meshHandle = static_cast<uint32_t>(m_ImportedMeshes.size()); // 1-based, 0 reserved for "none"
         }
 

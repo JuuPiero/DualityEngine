@@ -1,5 +1,7 @@
 #include "DualityEngine/Renderer/SceneRenderer.h"
 
+#include <algorithm>
+
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
@@ -73,6 +75,12 @@ namespace Duality {
     void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor) {
         Entity camera = scene.GetPrimaryCamera(screen);
 
+        // The camera's own Background field wins once a camera exists -- `clearColor` (the
+        // caller's hardcoded default, see Application.cpp/DualityPlayer's Main.cpp) only
+        // applies to a screen with no camera at all, same as every other "no camera" fallback
+        // in this function.
+        glm::vec4 effectiveClearColor = camera ? camera.GetComponent<CameraComponent>().Background : clearColor;
+
         // Both a mesh pass and a sprite pass always run for every screen now, regardless of
         // the camera's own Projection -- matching Unity's own convention that a camera's
         // projection is a lens property, not a switch between mutually exclusive renderers
@@ -81,9 +89,9 @@ namespace Duality {
         // a no-op) sprite pass runs, still clearing -- this function's original no-camera
         // behavior.
         if (camera)
-            RenderScreen3D(renderer3D, scene, screen, clearColor, true);
+            RenderScreen3D(renderer3D, scene, screen, effectiveClearColor, true);
 
-        renderer2D.BeginScene(screen, clearColor, !camera);
+        renderer2D.BeginScene(screen, effectiveClearColor, !camera);
 
         if (camera) {
             TransformComponent cameraTransform = scene.GetWorldTransform(camera);
@@ -159,11 +167,23 @@ namespace Duality {
                 continue;
             TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
             auto& mesh = view.get<MeshRendererComponent>(handle);
-            Material material = ResolveMeshMaterial(mesh.Material);
-            uint32_t textureId = ResolveMeshTexture(renderer, material.Texture);
             uint32_t meshHandle = ResolveMeshGeometry(renderer, mesh.Mesh);
 
-            renderer.DrawMesh(mesh.Primitive, meshHandle, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+            // One real draw call per submesh (see IRenderer3D::DrawMesh's own comment) -- a
+            // procedural Primitive or an imported mesh with no "usemtl" material groups is
+            // exactly one submesh, so this is a single iteration in the common case, same as
+            // before this feature. Materials[i], clamped to the last entry once the list runs
+            // short (matches Unity's own Renderer.materials behavior) -- an empty list resolves
+            // every submesh to the default white Material via ResolveMeshMaterial's existing
+            // AssetRef{} fallback.
+            uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
+            for (uint32_t i = 0; i < subMeshCount; i++) {
+                const AssetRef& materialRef = mesh.Materials.empty()
+                    ? AssetRef{} : mesh.Materials[std::min<size_t>(i, mesh.Materials.size() - 1)];
+                Material material = ResolveMeshMaterial(materialRef);
+                uint32_t textureId = ResolveMeshTexture(renderer, material.Texture);
+                renderer.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+            }
         }
 
         renderer.EndScene();
