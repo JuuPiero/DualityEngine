@@ -6,7 +6,7 @@ using namespace Duality;
 
 void BallTest::OnCreate()
 {
-    LogInfo("Hello world 123 4");
+    LogInfo("Hello world");
     buttonEntity = FindEntityInBottomScreen("Button");
     
 }
