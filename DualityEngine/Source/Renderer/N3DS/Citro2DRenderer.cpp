@@ -8,7 +8,7 @@ namespace Duality {
         return C2D_Color32f(color.r, color.g, color.b, color.a);
     }
 
-    void Citro2DRenderer::Init() {
+    void Citro2DRenderer::Init(int antiAliasingMode) {
         // C3D_Init is NOT called here -- it's process-global, singular state, owned once by
         // the app entry point (DualityPlayer::Main.cpp) now that a second, raw-citro3d
         // renderer (Citro3DRenderer) also needs it, since citro2d itself is built on top of
@@ -25,8 +25,39 @@ namespace Duality {
         // free from glColor4f + a textured GL_QUADS draw.
         C2D_SetTintMode(C2D_TintMult);
 
-        m_TopTarget = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
-        m_BottomTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
+        antiAliasingMode = antiAliasingMode < 0 ? 0 : (antiAliasingMode > 2 ? 2 : antiAliasingMode);
+        if (antiAliasingMode == 0) {
+            m_TopTarget = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
+            m_BottomTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
+            return;
+        }
+
+        // The 3DS framebuffer is sideways: its native target dimensions are 240x400 (top)
+        // and 240x320 (bottom). Render into a larger target, then have the display transfer
+        // downsample it as AA during C3D_FrameEnd. Both pipelines share these raw targets.
+        const int scaleX = 2;
+        const int scaleY = antiAliasingMode == 2 ? 2 : 1;
+        m_TopTarget = C3D_RenderTargetCreate(240 * scaleX, 400 * scaleY, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
+        m_BottomTarget = C3D_RenderTargetCreate(240 * scaleX, 320 * scaleY, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
+        if (!m_TopTarget || !m_BottomTarget) {
+            // 2x2 is intentionally best-effort: VRAM is shared with all textures and meshes,
+            // so preserve a playable game instead of failing startup when it cannot fit.
+            if (m_TopTarget)
+                C3D_RenderTargetDelete(m_TopTarget);
+            if (m_BottomTarget)
+                C3D_RenderTargetDelete(m_BottomTarget);
+            m_TopTarget = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
+            m_BottomTarget = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
+            return;
+        }
+
+        const u32 transferFlags = GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) |
+            GX_TRANSFER_RAW_COPY(0) | GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) |
+            GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) |
+            GX_TRANSFER_SCALING(antiAliasingMode == 2 ? GX_TRANSFER_SCALE_XY : GX_TRANSFER_SCALE_X);
+        C3D_RenderTargetSetOutput(m_TopTarget, GFX_TOP, GFX_LEFT, transferFlags);
+        C3D_RenderTargetSetOutput(m_BottomTarget, GFX_BOTTOM, GFX_LEFT, transferFlags);
+        m_OwnsScreenTargets = true;
     }
 
     void Citro2DRenderer::Shutdown() {
@@ -34,6 +65,14 @@ namespace Duality {
             C2D_SpriteSheetFree(sheet);
         m_TextureSheets.clear();
         m_TextureCache.clear();
+
+        if (m_OwnsScreenTargets) {
+            C3D_RenderTargetDelete(m_TopTarget);
+            C3D_RenderTargetDelete(m_BottomTarget);
+            m_TopTarget = nullptr;
+            m_BottomTarget = nullptr;
+            m_OwnsScreenTargets = false;
+        }
 
         C2D_Fini();
         // C3D_Fini is the caller's responsibility too, see Init()'s comment.

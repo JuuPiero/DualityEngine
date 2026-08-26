@@ -17,7 +17,12 @@ namespace Duality {
     // gameplay uses the bottom screen yet.
     class Citro2DRenderer final : public IRenderer2D {
     public:
-        void Init() override;
+        void Init() override { Init(0); }
+
+        // antiAliasingMode: 0 = native, 1 = 2x1, 2 = 2x2 display-transfer AA.
+        // Larger raw C3D targets are used for AA so both citro2d and Citro3DRenderer still
+        // render into the same resolved screen target.
+        void Init(int antiAliasingMode);
         void Shutdown() override;
 
         void BeginFrame() override;
@@ -59,6 +64,7 @@ namespace Duality {
 
         C3D_RenderTarget* m_TopTarget = nullptr;
         C3D_RenderTarget* m_BottomTarget = nullptr;
+        bool m_OwnsScreenTargets = false;
         uint32_t m_DrawCallCount = 0;
 
         // Index i (0-based) backs textureId i+1 -- 0 stays reserved for "none", matching

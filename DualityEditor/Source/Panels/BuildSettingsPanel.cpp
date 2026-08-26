@@ -35,6 +35,15 @@ namespace Duality {
         std::vector<std::string>& scenesInBuild = project->GetConfig().ScenesInBuild;
         bool changed = false;
 
+        ImGui::TextUnformatted("Nintendo 3DS");
+        const char* antiAliasingModes[] = { "Off", "2x1 (Recommended)", "2x2 (High VRAM)" };
+        int& antiAliasingMode = project->GetConfig().N3DSAntiAliasing;
+        antiAliasingMode = std::clamp(antiAliasingMode, 0, 2);
+        if (ImGui::Combo("Anti-Aliasing", &antiAliasingMode, antiAliasingModes, IM_ARRAYSIZE(antiAliasingModes)))
+            changed = true;
+        ImGui::TextDisabled("Uses the 3DS display-transfer resolve. 2x2 can fall back to Off if VRAM is insufficient.");
+        ImGui::Separator();
+
         ImGui::TextUnformatted("Scenes In Build");
         ImGui::TextDisabled("Drag to reorder -- the top scene is the Start Scene.");
         ImGui::Separator();
@@ -43,11 +52,16 @@ namespace Duality {
         // always participates (none are hidden/filtered mid-list), so this is a simple, uniform
         // adjacent-index swap with no interleaving to reason about.
         int removeIndex = -1;
-        ImGui::PushItemFlag(ImGuiItemFlags_AllowDuplicateId, true);
         for (int i = 0; i < static_cast<int>(scenesInBuild.size()); i++) {
             ImGui::PushID(i);
             std::string label = (i == 0 ? "[Main] " : "") + scenesInBuild[i];
-            ImGui::Selectable(label.c_str());
+            const float removeButtonWidth = 24.0f;
+            const float rowWidth = ImGui::GetContentRegionAvail().x - removeButtonWidth - ImGui::GetStyle().ItemInnerSpacing.x;
+            // Reserve a real, non-overlapping column for the remove button. The old
+            // SameLine(GetContentRegionAvail...) call interpreted "available width" as an
+            // absolute cursor coordinate, allowing the row's drag/select item to cover the x
+            // button in some dock/window sizes.
+            ImGui::Selectable(label.c_str(), false, 0, ImVec2(std::max(rowWidth, 1.0f), 0.0f));
 
             if (ImGui::IsItemActive() && !ImGui::IsItemHovered()) {
                 int next = i + (ImGui::GetMouseDragDelta().y < 0.0f ? -1 : 1);
@@ -58,12 +72,11 @@ namespace Duality {
                 }
             }
 
-            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 24.0f);
-            if (ImGui::Button("x", ImVec2(24.0f, 0.0f)))
+            ImGui::SameLine();
+            if (ImGui::Button("x##RemoveScene", ImVec2(removeButtonWidth, 0.0f)))
                 removeIndex = i;
             ImGui::PopID();
         }
-        ImGui::PopItemFlag();
 
         if (removeIndex >= 0) {
             scenesInBuild.erase(scenesInBuild.begin() + removeIndex);

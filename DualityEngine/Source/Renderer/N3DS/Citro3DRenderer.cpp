@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "DualityEngine/Asset/MeshLoader.h"
+#include "DualityEngine/Asset/TextureImportSettings.h"
 #include "DualityEngine/Renderer/PrimitiveMeshes.h"
 
 // Embedded via dkp_add_embedded_binary_library (DualityEngine/CMakeLists.txt) from
@@ -225,7 +226,18 @@ namespace Duality {
             Tex3DS_Texture t3x = Tex3DS_TextureImport(data.data(), data.size(), &tex, nullptr, false);
             if (t3x) {
                 Tex3DS_TextureFree(t3x);
-                C3D_TexSetFilter(&tex, GPU_LINEAR, GPU_LINEAR);
+
+                // The cooked .t3x has mip levels only when its source texture
+                // requested GenerateMipmaps in the Editor. Match the sampler
+                // settings used by Citro2DRenderer: mip-filtering is what stops
+                // distant, minified 3D surfaces from shimmering as the camera
+                // moves, rather than merely making the base level bilinear.
+                TextureImportSettings settings = TextureImportSettings::Load(path);
+                GPU_TEXTURE_FILTER_PARAM filter = settings.FilterMode == TextureFilterMode::Point ? GPU_NEAREST : GPU_LINEAR;
+                GPU_TEXTURE_WRAP_PARAM wrap = settings.WrapMode == TextureWrapMode::Repeat ? GPU_REPEAT : GPU_CLAMP_TO_EDGE;
+                C3D_TexSetFilter(&tex, filter, filter);
+                C3D_TexSetFilterMipmap(&tex, settings.GenerateMipmaps ? filter : GPU_NEAREST);
+                C3D_TexSetWrap(&tex, wrap, wrap);
                 m_Textures.push_back(tex);
                 textureId = static_cast<uint32_t>(m_Textures.size()); // 1-based, 0 reserved for "none"
             }

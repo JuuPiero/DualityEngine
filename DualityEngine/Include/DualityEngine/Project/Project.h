@@ -25,6 +25,12 @@ namespace Duality {
         // whatever they did before this field existed, not an error.
         std::vector<std::string> ScenesInBuild;
 
+        // Nintendo 3DS output resolve quality, selected in Build Settings and baked into
+        // DualityPlayer/romfs/BuildSettings.json by BuildPipeline. 0 = native resolution,
+        // 1 = 2x1 display-transfer AA, 2 = 2x2 display-transfer AA. The player falls back to
+        // 0 if the requested larger render targets do not fit in VRAM.
+        int N3DSAntiAliasing = 0;
+
         // Project Settings (DualityEditor/Panels/ProjectSettingsPanel.cpp): absolute path to a
         // PNG the user picked as this project's 3DS ".cia" icon, threaded through
         // BuildPipeline::BuildFor3DS -> build-3ds.bat -> DualityPlayer/CMakeLists.txt's

@@ -13,6 +13,10 @@
 #include <3ds.h>
 #include <citro3d.h>
 
+#include <fstream>
+
+#include <nlohmann/json.hpp>
+
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Input/Input.h"
@@ -35,6 +39,22 @@ extern "C" void GetScriptFactories(const Duality::ScriptFactoryEntry** outEntrie
 extern "C" void GetScriptableObjectFactories(const Duality::ScriptableObjectFactoryEntry** outEntries, int* outCount);
 
 using namespace Duality;
+
+namespace {
+    int LoadN3DSAntiAliasingMode() {
+        std::ifstream file("romfs:/BuildSettings.json");
+        if (!file)
+            return 0;
+        try {
+            nlohmann::json settings;
+            file >> settings;
+            int mode = settings.value("N3DSAntiAliasing", 0);
+            return mode < 0 ? 0 : (mode > 2 ? 2 : mode);
+        } catch (const nlohmann::json::parse_error&) {
+            return 0;
+        }
+    }
+}
 
 int main(int argc, char* argv[]) {
     gfxInitDefault();
@@ -62,7 +82,7 @@ int main(int argc, char* argv[]) {
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
 
     Citro2DRenderer renderer;
-    renderer.Init();
+    renderer.Init(LoadN3DSAntiAliasingMode());
     Citro3DRenderer renderer3D;
     renderer3D.Init();
     // Both renderers must draw into the SAME physical-screen render targets -- see

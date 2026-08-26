@@ -61,6 +61,7 @@ namespace Duality {
         project->m_Config.ScriptsDirectory = root.value("ScriptsDirectory", "Scripts");
         project->m_Config.StartScene = root.value("StartScene", "");
         project->m_Config.ScenesInBuild = root.value("ScenesInBuild", std::vector<std::string>{});
+        project->m_Config.N3DSAntiAliasing = root.value("N3DSAntiAliasing", 0);
         project->m_Config.IconPath = root.value("IconPath", "");
 
         s_ActiveProject = project;
@@ -75,6 +76,7 @@ namespace Duality {
         root["ScriptsDirectory"] = m_Config.ScriptsDirectory;
         root["StartScene"] = m_Config.StartScene;
         root["ScenesInBuild"] = m_Config.ScenesInBuild;
+        root["N3DSAntiAliasing"] = m_Config.N3DSAntiAliasing;
         root["IconPath"] = m_Config.IconPath;
 
         std::ofstream file(m_ProjectFilePath);

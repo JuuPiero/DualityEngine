@@ -1,3 +1,8 @@
 {
+    "Importer": {
+        "FilterMode": "Bilinear",
+        "GenerateMipmaps": true,
+        "WrapMode": "Clamp"
+    },
     "guid": "c1f20fc32963ca0dfd384acad67c5e7b"
 }

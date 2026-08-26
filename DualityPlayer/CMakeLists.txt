@@ -32,11 +32,26 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     # ROMFS packages romfs/Scene.scene (a real scene saved from the Editor,
     # copied in manually for now -- an automatic Assets/-to-romfs cook step
     # is a later phase) so it's readable on-device as romfs:/Scene.scene.
-    # Note: this plain-directory ROMFS form isn't dependency-tracked by
-    # CMake, so a `cmake --build` won't notice romfs/ contents changing on
-    # their own -- reconfigure/rebuild (build-3ds.bat always does a clean
-    # build) to pick up an updated Scene.scene.
-    ctr_create_3dsx(DualityPlayer ROMFS romfs)
+    #
+    # Do not use ctr_create_3dsx here. Its --smdh= and --romfs= arguments are
+    # generated from MSYS paths when this project is configured by devkitPro's
+    # MSYS CMake, and 3dsxtool does not resolve those embedded paths reliably.
+    # Relative paths avoid the MSYS/native Windows conversion boundary entirely.
+    set(DE_3DSX_OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/DualityPlayer.3dsx)
+    set(DE_3DSX_SMDH ${CMAKE_CURRENT_BINARY_DIR}/DualityPlayer_3dsx.default.smdh)
+    ctr_generate_smdh(OUTPUT ${DE_3DSX_SMDH})
+    file(RELATIVE_PATH DE_3DSX_ROMFS_REL "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/romfs")
+    add_custom_command(
+        OUTPUT ${DE_3DSX_OUTPUT}
+        COMMAND ${CMAKE_COMMAND} -E env "MSYS2_ARG_CONV_EXCL=*" ${CTR_3DSXTOOL_EXE}
+                DualityPlayer.elf DualityPlayer.3dsx
+                "--smdh=DualityPlayer_3dsx.default.smdh" "--romfs=${DE_3DSX_ROMFS_REL}"
+        DEPENDS DualityPlayer ${DE_3DSX_SMDH}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMENT "Building 3DSX executable target DualityPlayer_3dsx"
+        VERBATIM
+    )
+    add_custom_target(DualityPlayer_3dsx ALL DEPENDS ${DE_3DSX_OUTPUT})
 
     # .cia packaging (installable via FBI on real hardware/CFW). makerom and
     # bannertool are NOT part of devkitPro's own pacman repos (confirmed by

@@ -282,6 +282,18 @@ namespace Duality {
         if (!CookAssets(repoRoot, assetsDirectory))
             return false;
 
+        // The .dproj itself is an Editor-side file and is never present in romfs. Bake only the
+        // device-relevant build option into a tiny runtime config for DualityPlayer to consume
+        // before it creates its render targets.
+        json runtimeBuildSettings;
+        runtimeBuildSettings["N3DSAntiAliasing"] = activeProject ? activeProject->GetConfig().N3DSAntiAliasing : 0;
+        std::ofstream runtimeSettingsFile(std::filesystem::path(repoRoot) / "DualityPlayer" / "romfs" / "BuildSettings.json");
+        if (!runtimeSettingsFile.is_open()) {
+            Log::Error("BuildPipeline: could not write 3DS runtime build settings");
+            return false;
+        }
+        runtimeSettingsFile << runtimeBuildSettings.dump(2);
+
         Log::Info("BuildPipeline: building for 3DS (clean build, can take up to a minute)...");
 
         // Delegates to build-3ds.bat (a real, separately-parsed script file) rather than
