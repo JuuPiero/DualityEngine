@@ -293,6 +293,14 @@ namespace Duality {
             return false;
         }
         runtimeSettingsFile << runtimeBuildSettings.dump(2);
+        // Close before invoking build-3ds.bat: its ROMFS packaging step immediately
+        // reads this file. Keeping the stream alive until BuildFor3DS returns can
+        // leave a Windows file handle open for the entire child-build duration.
+        runtimeSettingsFile.close();
+        if (!runtimeSettingsFile) {
+            Log::Error("BuildPipeline: could not finish writing 3DS runtime build settings");
+            return false;
+        }
 
         Log::Info("BuildPipeline: building for 3DS (clean build, can take up to a minute)...");
 

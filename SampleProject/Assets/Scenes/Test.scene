@@ -5,18 +5,24 @@
         "Active": true
       },
       "Name": {
-        "Name": "Ground"
+        "Name": "Ball"
       },
       "Parent": -1,
+      "Scripts": [
+        {
+          "ClassName": "BallTest",
+          "PropertyOverrides": null
+        }
+      ],
       "Sprite Renderer": {
         "Color": [
-          0.5689655542373657,
-          0.5689655542373657,
-          0.5689655542373657,
+          1.0,
+          1.0,
+          1.0,
           1.0
         ],
         "Size": [
-          360.0,
+          32.0,
           32.0
         ],
         "Texture": ""
@@ -37,7 +43,54 @@
         ],
         "Translation": [
           0.0,
-          73.0,
+          -179.00001525878906,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Camera": {
+        "Background": [
+          0.07999999821186066,
+          0.07999999821186066,
+          0.11999999731779099,
+          1.0
+        ],
+        "Far Plane": 1000.0,
+        "Fov Degrees": 60.0,
+        "Near Plane": 0.10000000149011612,
+        "Primary": true,
+        "Projection": "Orthographic",
+        "Screen": "Top",
+        "Zoom": 0.30000001192092896
+      },
+      "Name": {
+        "Name": "Camera"
+      },
+      "Parent": -1,
+      "Screen Group": {
+        "Screen": "Top"
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
           0.0
         ]
       }
@@ -119,66 +172,19 @@
       "Active": {
         "Active": true
       },
-      "Camera": {
-        "Far Plane": 1000.0,
-        "Fov Degrees": 60.0,
-        "Near Plane": 0.10000000149011612,
-        "Primary": true,
-        "Projection": "Orthographic",
-        "Screen": "Top",
-        "Zoom": 0.30000001192092896
-      },
       "Name": {
-        "Name": "Camera"
+        "Name": "Ground"
       },
       "Parent": -1,
-      "Screen Group": {
-        "Screen": "Top"
-      },
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Name": {
-        "Name": "Ball"
-      },
-      "Parent": -1,
-      "Scripts": [
-        {
-          "ClassName": "BallTest",
-          "PropertyOverrides": null
-        }
-      ],
       "Sprite Renderer": {
         "Color": [
-          1.0,
-          1.0,
-          1.0,
+          0.5689655542373657,
+          0.5689655542373657,
+          0.5689655542373657,
           1.0
         ],
         "Size": [
-          32.0,
+          360.0,
           32.0
         ],
         "Texture": ""
@@ -199,7 +205,7 @@
         ],
         "Translation": [
           0.0,
-          41.0,
+          73.0,
           0.0
         ]
       }
