@@ -12,6 +12,8 @@
 #include "DualityEngine/Asset/AudioImportSettings.h"
 #include "DualityEngine/Asset/Material.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
+#include "DualityEngine/Asset/PhysicsMaterial.h"
+#include "DualityEngine/Asset/PhysicsMaterialLoader.h"
 #include "DualityEngine/Asset/ScriptableObjectLoader.h"
 #include "DualityEngine/Asset/TextureImportSettings.h"
 #include "DualityEngine/Renderer/Screen.h"
@@ -32,6 +34,15 @@ namespace Duality {
                 changed |= DrawFieldWidget(field, &material);
             if (changed)
                 MaterialLoader::Save(path, material);
+        }
+
+        void DrawPhysicsMaterialAsset(const std::string& path, EditorContext&) {
+            PhysicsMaterial material = PhysicsMaterialLoader::Load(path);
+            bool changed = false;
+            for (auto& field : PhysicsMaterial::Fields())
+                changed |= DrawFieldWidget(field, &material);
+            if (changed)
+                PhysicsMaterialLoader::Save(path, material);
         }
 
         void DrawScriptableObjectAsset(const std::string& path, EditorContext&) {
@@ -211,6 +222,7 @@ namespace Duality {
 
     void RegisterBuiltinAssetInspectors() {
         AssetInspectorRegistry::Register({ ".mat", "Material", &DrawMaterialAsset });
+        AssetInspectorRegistry::Register({ ".physmat", "Physics Material", &DrawPhysicsMaterialAsset });
         AssetInspectorRegistry::Register({ ".prefab", "Prefab", &DrawPrefabAsset });
         AssetInspectorRegistry::Register({ ".asset", "ScriptableObject", &DrawScriptableObjectAsset });
         AssetInspectorRegistry::Register({ ".scene", "Scene", &DrawSceneAsset });

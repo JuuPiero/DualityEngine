@@ -3,6 +3,7 @@ add_library(DualityEngine STATIC
     Source/Asset/AssetMeta.cpp
     Source/Asset/AssetDatabase.cpp
     Source/Asset/MaterialLoader.cpp
+    Source/Asset/PhysicsMaterialLoader.cpp
     Source/Asset/MeshLoader.cpp
     Source/Asset/ScriptableObjectLoader.cpp
     Source/Asset/TextureImportSettings.cpp
@@ -14,10 +15,12 @@ add_library(DualityEngine STATIC
     Source/Scripting/ScriptRegistry.cpp
     Source/Scripting/ScriptableObjectRegistry.cpp
     Source/Scene/Scene.cpp
+    Source/Scene/SceneRuntimeSystems.cpp
     Source/Scene/SceneSerializer.cpp
     Source/Scene/EntitySerialization.cpp
     Source/Scene/PrefabSerializer.cpp
     Source/Renderer/SceneRenderer.cpp
+    Source/Renderer/DrawHelpers2D.cpp
     Source/Renderer/UIRenderer.cpp
     Source/Renderer/PrimitiveMeshes.cpp
     Source/Project/Project.cpp

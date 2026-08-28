@@ -7,15 +7,21 @@
 #include <glm/glm.hpp>
 
 #include "DualityEngine/ECS/Entity.h"
+#include "DualityEngine/Physics/BodyType.h"
 #include "DualityEngine/Reflection/Field.h"
+#include "DualityEngine/Renderer/CanvasRenderMode.h"
 #include "DualityEngine/Renderer/MeshPrimitive.h"
 #include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Renderer/UIAnchor.h"
+#include "DualityEngine/Renderer/UILayoutType.h"
 #include "DualityEngine/Scene/ActiveComponent.h"
-#include "DualityEngine/Scene/Behaviour.h"
+#include "DualityEngine/Scene/Layer.h"
+#include "DualityEngine/Audio/AudioEngine.h"
 
 namespace Duality {
+
+    class Behaviour;
 
     // The entity's display identifier (Hierarchy label, future Find-by-name)
     // -- kept separate from TagComponent below since they're orthogonal in
@@ -52,9 +58,15 @@ namespace Duality {
     // SpriteFlipbookComponent, that component's current frame overrides
     // this field entirely while it has a non-empty frame assigned.
     struct SpriteRendererComponent {
+        bool Enabled = true;
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec2 Size{ 32.0f, 32.0f };
         AssetRef Texture;
+        int SortOrder = 0;
+        bool FlipX = false;
+        bool FlipY = false;
+        glm::vec2 Pivot{ 0.5f, 0.5f };
+        glm::vec4 SliceBorder{ 0.0f, 0.0f, 0.0f, 0.0f }; // left, right, top, bottom px for 9-slice (0 = disabled)
     };
 
     // Unlit -- no lighting/material system yet (see ROADMAP.md). A procedural primitive
@@ -66,6 +78,7 @@ namespace Duality {
     // camera is ProjectionType::Perspective -- see CameraComponent. MeshPrimitive itself lives
     // in Renderer/MeshPrimitive.h, not here -- see that header's own comment for why.
     struct MeshRendererComponent {
+        bool Enabled = true;
         // Used only when Mesh (below) is empty/unresolved.
         MeshPrimitive Primitive = MeshPrimitive::Cube;
         // One ".mat" asset guid (see Asset/Material.h) per submesh, resolved via MaterialLoader
@@ -80,6 +93,7 @@ namespace Duality {
         // Guid of an imported ".obj" mesh (see Asset/MeshLoader.h) -- empty/unresolved falls
         // back to the procedural Primitive above, same convention as Materials/Texture.
         AssetRef Mesh;
+        int SortOrder = 0;
     };
 
     // Flipbook-style 2D animation: an ordered, fixed-size list of frame
@@ -91,6 +105,7 @@ namespace Duality {
     // (Scene::OnRuntimeUpdate), same as Behaviour/physics -- no Edit-mode
     // preview-scrubbing.
     struct SpriteFlipbookComponent {
+        bool Enabled = true;
         AssetRef Frame0, Frame1, Frame2, Frame3, Frame4, Frame5, Frame6, Frame7;
         float FrameDuration = 0.1f;
         bool Loop = true;
@@ -127,6 +142,7 @@ namespace Duality {
     // Projection (ProjectionType, Renderer/ProjectionType.h) picks which pipeline this
     // screen uses -- see that header's own comment.
     struct CameraComponent {
+        bool Enabled = true;
         Duality::Screen Screen = Duality::Screen::Top;
         bool Primary = true;
         float Zoom = 1.0f; // Orthographic only
@@ -143,6 +159,41 @@ namespace Duality {
         // camera is present, falling back to whatever the caller passed only when a screen has
         // no camera at all.
         glm::vec4 Background{ 0.08f, 0.08f, 0.12f, 1.0f };
+
+        // Unity's Camera.cullingMask -- which Layer values this camera draws. Default is every
+        // layer (AllLayersMask). Layer::TOP/BOTTOM still gate which physical 3DS screen an
+        // entity is associated with; this mask is an additional per-camera filter on top.
+        uint32_t CullingMask = AllLayersMask;
+    };
+
+    // Unity Physics2DRaycaster equivalent -- pair with CameraComponent on the same entity.
+    // UpdatePhysicsRaycasterInteractions reads the pointer each frame, point-queries Box2D
+    // colliders through this camera's orthographic screen mapping, and dispatches IPointer*
+    // callbacks on hit entities' scripts. Auto-added with Camera when Projection is
+    // Orthographic (see Reflection.cpp).
+    struct PhysicsRaycaster2DComponent {
+        bool Enabled = true;
+
+        // Runtime-only (not reflected/serialized).
+        entt::entity HoveredEntity = entt::null;
+        entt::entity PressedEntity = entt::null;
+        Screen PressedScreen = Screen::Top;
+        glm::vec2 PressedPosition{ 0.0f };
+    };
+
+    // Unity PhysicsRaycaster equivalent -- pair with CameraComponent on the same entity.
+    // UpdatePhysicsRaycasterInteractions casts a 3D ray from this camera through the pointer
+    // and dispatches IPointer* callbacks on Bullet collider hits. Auto-added with Camera when
+    // Projection is Perspective (see Reflection.cpp).
+    struct PhysicsRaycaster3DComponent {
+        bool Enabled = true;
+        float MaxDistance = 2000.0f;
+
+        // Runtime-only (not reflected/serialized).
+        entt::entity HoveredEntity = entt::null;
+        entt::entity PressedEntity = entt::null;
+        Screen PressedScreen = Screen::Top;
+        glm::vec2 PressedPosition{ 0.0f };
     };
 
     // One attached script -- which Behaviour subclass, looked up by name at Play time via
@@ -152,6 +203,12 @@ namespace Duality {
     // different MonoBehaviours.
     struct ScriptInstance {
         std::string ClassName;
+        // Unity's MonoBehaviour.enabled -- authored/serialized per script slot. OnUpdate and
+        // collision/pointer callbacks only run when this is true AND the entity is
+        // IsEffectivelyActive; flipping either edge fires OnEnable/OnDisable (see
+        // WasEnabledLastFrame). Independent of ActiveComponent (entity on/off).
+        bool Enabled = true;
+
         Behaviour* Instance = nullptr;
         void (*Destroy)(Behaviour*) = nullptr;
 
@@ -164,15 +221,12 @@ namespace Duality {
         // edits it directly instead and this map is left stale until OnRuntimeStop.
         std::unordered_map<std::string, FieldValue> PropertyOverrides;
 
-        // Runtime-only (like RuntimeBody below), not reflected -- lets Scene::OnRuntimeUpdate
-        // edge-detect an ActiveComponent transition to fire OnEnable/OnDisable exactly once per
-        // flip instead of every frame while active/inactive. Starts false (not matching
-        // ActiveComponent's own true default) so the very first OnRuntimeUpdate tick after
-        // OnCreate() correctly sees "became active" as a transition and fires one OnEnable,
-        // for an entity that starts active -- matching Unity's Awake-then-OnEnable ordering.
-        // An entity that starts inactive never transitions away from false, so it correctly
-        // never gets an OnEnable/OnDisable pair at all until something actually activates it.
-        bool WasActiveLastFrame = false;
+        // Runtime-only (like RuntimeBody below), not reflected -- edge-detects
+        // (IsEffectivelyActive && Enabled) so OnEnable/OnDisable fire once per flip.
+        // Starts false so the first OnRuntimeUpdate after OnCreate sees "became enabled"
+        // as a transition (Unity Awake-then-OnEnable). An entity/script that starts
+        // inactive/disabled never transitions away from false until something enables it.
+        bool WasEnabledLastFrame = false;
     };
 
     // Holds every script attached to one entity. Deliberately still ONE EnTT component type
@@ -192,12 +246,19 @@ namespace Duality {
     // serialized (TypeRegistry only ever registers the authored fields
     // below, per-field opt-in).
     struct Rigidbody2DComponent {
+        bool Enabled = true;
         BodyType Type = BodyType::Dynamic;
         bool FixedRotation = false;
+        float Mass = 0.0f; // 0 = derive from collider density
+        float LinearDrag = 0.0f;
+        float AngularDrag = 0.05f;
+        float GravityScale = 1.0f;
+        bool UseGravity = true;
         void* RuntimeBody = nullptr;
     };
 
     struct BoxCollider2DComponent {
+        bool Enabled = true;
         glm::vec2 Offset{ 0.0f, 0.0f };
         glm::vec2 Size{ 16.0f, 16.0f }; // half-extents, in the same world units as Transform
         float Density = 1.0f;
@@ -208,23 +269,55 @@ namespace Duality {
         // overlap. Unity's own rule: a contact fires as a TRIGGER callback if EITHER side is
         // a trigger, and as a COLLISION callback only when NEITHER side is.
         bool IsTrigger = false;
-        // When on, the Scene view shows draggable resize handles on this collider's outline
-        // (see ScenePanel.cpp's DragCollider2DHandle) -- off by default so moving/inspecting an
-        // entity in the viewport never risks an accidental collider reshape from a stray drag.
-        // The green wireframe outline itself is shown whenever the entity is selected,
-        // regardless of this flag; this only gates whether the handles are draggable.
+        AssetRef PhysicsMaterial;
         bool EditMode = false;
         void* RuntimeFixture = nullptr;
     };
 
     struct CircleCollider2DComponent {
+        bool Enabled = true;
         glm::vec2 Offset{ 0.0f, 0.0f };
         float Radius = 16.0f;
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
         bool IsTrigger = false; // see BoxCollider2DComponent::IsTrigger
+        AssetRef PhysicsMaterial;
         bool EditMode = false; // see BoxCollider2DComponent::EditMode
+        void* RuntimeFixture = nullptr;
+    };
+
+    // Capsule (2D) -- approximated as a fixed 8-vertex polygon for Box2D v2.4.
+    struct CapsuleCollider2DComponent {
+        bool Enabled = true;
+        glm::vec2 Offset{ 0.0f, 0.0f };
+        float Radius = 8.0f;
+        float Height = 32.0f; // total height including hemispheres
+        float Density = 1.0f;
+        float Friction = 0.5f;
+        float Restitution = 0.0f;
+        bool IsTrigger = false;
+        AssetRef PhysicsMaterial;
+        bool EditMode = false;
+        void* RuntimeFixture = nullptr;
+    };
+
+    // Convex polygon (max 8 vertices) for Box2D.
+    struct PolygonCollider2DComponent {
+        bool Enabled = true;
+        glm::vec2 Offset{ 0.0f, 0.0f };
+        int VertexCount = 4;
+        glm::vec2 Vertex0{ -8.0f, -8.0f };
+        glm::vec2 Vertex1{ 8.0f, -8.0f };
+        glm::vec2 Vertex2{ 8.0f, 8.0f };
+        glm::vec2 Vertex3{ -8.0f, 8.0f };
+        glm::vec2 Vertex4{}, Vertex5{}, Vertex6{}, Vertex7{};
+        float Density = 1.0f;
+        float Friction = 0.5f;
+        float Restitution = 0.0f;
+        bool IsTrigger = false;
+        AssetRef PhysicsMaterial;
+        bool EditMode = false;
         void* RuntimeFixture = nullptr;
     };
 
@@ -233,22 +326,20 @@ namespace Duality {
     // Box2D components above: RuntimeBody is opaque (actually btRigidBody*)
     // so this header doesn't need to include Bullet, only valid between
     // Scene::OnRuntimeStart and OnRuntimeStop, never serialized.
-    //
-    // Unlike Box2D (whose b2World owns and frees every fixture it creates),
-    // Bullet does not take ownership of a body's btCollisionShape -- the
-    // caller must free it itself. RuntimeCollisionShape tracks exactly that
-    // one shape (the box/sphere itself, or -- when a collider's Offset is
-    // non-zero -- the btCompoundShape wrapping it) so Scene::OnRuntimeStop
-    // can delete it regardless of which collider component (if any) is
-    // present; the collider components below don't need their own runtime
-    // pointer at all as a result.
     struct Rigidbody3DComponent {
+        bool Enabled = true;
         BodyType Type = BodyType::Dynamic;
+        float Mass = 0.0f;
+        float LinearDrag = 0.0f;
+        float AngularDrag = 0.05f;
+        float GravityScale = 1.0f;
+        bool UseGravity = true;
         void* RuntimeBody = nullptr;
         void* RuntimeCollisionShape = nullptr;
     };
 
     struct BoxCollider3DComponent {
+        bool Enabled = true;
         glm::vec3 Offset{ 0.0f, 0.0f, 0.0f };
         glm::vec3 Size{ 16.0f, 16.0f, 16.0f }; // half-extents, in the same world units as Transform
         float Density = 1.0f;
@@ -260,42 +351,63 @@ namespace Duality {
         // detects it, but the physical push-apart response is suppressed). Same
         // "either side is a trigger -> trigger callback" rule as the 2D colliders.
         bool IsTrigger = false;
-        bool EditMode = false; // see BoxCollider2DComponent::EditMode
+        AssetRef PhysicsMaterial;
+        bool EditMode = false;
     };
 
     struct SphereCollider3DComponent {
+        bool Enabled = true;
         glm::vec3 Offset{ 0.0f, 0.0f, 0.0f };
         float Radius = 16.0f;
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
-        bool IsTrigger = false; // see BoxCollider3DComponent::IsTrigger
-        bool EditMode = false; // see BoxCollider2DComponent::EditMode
+        bool IsTrigger = false;
+        AssetRef PhysicsMaterial;
+        bool EditMode = false;
     };
 
-    // Unity/Cocos-style parent/child tree. Not registered with TypeRegistry -- like
-    // Rigidbody2DComponent::RuntimeBody above, this is engine-managed bookkeeping, not an
-    // authored field, so it never appears in the Properties panel and the generic
-    // SceneSerializer field loop skips it entirely (SceneSerializer writes/reads the
-    // parent relationship itself, as an index, since raw entt::entity handles and Entity
-    // pointers don't survive save/load). Parent/Children should only ever be mutated
-    // through Scene::SetParent, never assigned directly -- SetParent is what keeps
-    // Scene::m_RootEntities and cycle-safety consistent.
+    struct CapsuleCollider3DComponent {
+        bool Enabled = true;
+        glm::vec3 Offset{ 0.0f, 0.0f, 0.0f };
+        float Radius = 8.0f;
+        float Height = 32.0f;
+        float Density = 1.0f;
+        float Friction = 0.5f;
+        float Restitution = 0.0f;
+        bool IsTrigger = false;
+        AssetRef PhysicsMaterial;
+        bool EditMode = false;
+    };
+
     struct HierarchyComponent {
         Entity Parent;                 // null Entity{} = root
         std::vector<Entity> Children;  // order = sibling display/serialization order
     };
 
-    // Opt-in tag marking an entity as a screen's organizational root -- add this to
-    // a "TopGroup"/"BottomGroup" entity (or any entity) to associate its whole
-    // subtree with a screen for Scene::FindEntityInScreen and the Hierarchy panel's
-    // screen-color marker. Entities are never exclusively owned by a screen in this
-    // engine (a sprite renders wherever it sits relative to any active camera) --
-    // this is a pure organizational/lookup aid, not a hard partition. Reflected
-    // (shows up in the Properties panel/Add Component, serialized normally) since,
-    // unlike HierarchyComponent, this is meant to be user-authored.
-    struct ScreenGroupComponent {
-        Duality::Screen Screen = Duality::Screen::Top;
+    // Unity-style render layer tag -- replaces the old ScreenGroupComponent. TOP and BOTTOM
+    // are the built-in layers mapping to the 3DS's two physical screens; Default means
+    // ungrouped (visible wherever a camera actually sees the entity by position). Cameras
+    // additionally filter via CameraComponent::CullingMask.
+    struct LayerComponent {
+        Layer Value = Layer::Default;
+    };
+
+    // Unity's AudioSource -- per-entity clip playback with volume/loop/pause control.
+    // RuntimeHandle is engine-managed (see AudioEngine.h), not serialized.
+    struct AudioSourceComponent {
+        bool Enabled = true;
+        AssetRef Clip;
+        bool Loop = false;
+        float Volume = 1.0f;
+        bool PlayOnAwake = false;
+        bool Mute = false;
+        float SpatialBlend = 0.0f;
+        float MinDistance = 1.0f;
+        float MaxDistance = 500.0f;
+
+        AudioHandle RuntimeHandle = InvalidAudioHandle;
+        bool Paused = false;
     };
 
     // --- UI (screen-space overlay, drawn last/on top every frame -- see Renderer/UIRenderer.h)
@@ -314,10 +426,12 @@ namespace Duality {
     // Size (pixels) resolves to a rect in `Screen`'s own fixed pixel space (see
     // Renderer/UIRenderer.h's ResolveUIRect) -- entirely independent of any CameraComponent.
     struct UIRectComponent {
+        bool Enabled = true;
         Duality::Screen Screen = Duality::Screen::Top;
         UIAnchor Anchor = UIAnchor::TopLeft;
         glm::vec2 Offset{ 0.0f, 0.0f };
         glm::vec2 Size{ 100.0f, 40.0f };
+        int SortOrder = 0;
     };
 
     // The visual half of a basic Panel/Image widget (pair with UIRectComponent). Same
@@ -325,8 +439,10 @@ namespace Duality {
     // If the same entity also has a UIButtonComponent, that component's own
     // Normal/Hover/Pressed color takes over instead of this Color -- see UIButtonComponent.
     struct UIImageComponent {
+        bool Enabled = true;
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
         AssetRef Texture;
+        glm::vec4 SliceBorder{ 0.0f, 0.0f, 0.0f, 0.0f };
     };
 
     // Makes a (UIRectComponent, UIImageComponent) pair clickable -- pair all three on one
@@ -338,6 +454,7 @@ namespace Duality {
     // WasClicked are runtime state, like SpriteFlipbookComponent::CurrentFrame) -- only the
     // three colors are.
     struct UIButtonComponent {
+        bool Enabled = true;
         glm::vec4 NormalColor{ 0.85f, 0.85f, 0.85f, 1.0f };
         glm::vec4 HoverColor{ 0.95f, 0.95f, 0.6f, 1.0f };
         glm::vec4 PressedColor{ 0.7f, 0.7f, 0.4f, 1.0f };
@@ -354,7 +471,164 @@ namespace Duality {
     // Text anywhere yet. Exists now so UIDocument markup can already author/round-trip text
     // content ahead of that renderer work, rather than the two being coupled into one big change.
     struct UITextComponent {
+        bool Enabled = true;
         std::string Text;
     };
+
+    // Unity Canvas root -- children UI widgets inherit render mode / sort.
+    struct CanvasComponent {
+        bool Enabled = true;
+        CanvasRenderMode RenderMode = CanvasRenderMode::ScreenSpaceOverlay;
+        int SortOrder = 0;
+        float ScaleFactor = 1.0f;
+        EntityRef TargetCamera; // for ScreenSpaceCamera
+    };
+
+    struct UILayoutGroupComponent {
+        bool Enabled = true;
+        UILayoutType Layout = UILayoutType::Vertical;
+        float Spacing = 4.0f;
+        glm::vec2 Padding{ 4.0f, 4.0f };
+        bool ChildControlWidth = true;
+        bool ChildControlHeight = true;
+    };
+
+    struct UISliderComponent {
+        bool Enabled = true;
+        float Value = 0.5f;
+        float MinValue = 0.0f;
+        float MaxValue = 1.0f;
+        bool IsHovered = false;
+        bool IsDragging = false;
+    };
+
+    struct UIToggleComponent {
+        bool Enabled = true;
+        bool IsOn = false;
+        bool IsHovered = false;
+        bool WasToggled = false;
+    };
+
+    struct UIInputFieldComponent {
+        bool Enabled = true;
+        std::string Text;
+        std::string Placeholder = "Enter text...";
+        bool IsFocused = false;
+        bool IsHovered = false;
+    };
+
+    struct UIDocumentReferenceComponent {
+        bool Enabled = true;
+        AssetRef Document;
+        bool InstantiateOnPlay = true;
+        bool Instantiated = false;
+    };
+
+    // Atlas-based sprite animation (UV sub-rects) -- alternative to fixed-frame flipbook.
+    struct SpriteSheetAnimatorComponent {
+        bool Enabled = true;
+        AssetRef Texture;
+        int Columns = 4;
+        int Rows = 4;
+        float FrameRate = 8.0f;
+        bool Loop = true;
+        bool Playing = true;
+        float ElapsedTime = 0.0f;
+        int CurrentFrame = 0;
+    };
+
+    // Grid tilemap -- tile indices stored in external .tilemap asset.
+    struct TilemapComponent {
+        bool Enabled = true;
+        int GridWidth = 16;
+        int GridHeight = 16;
+        glm::vec2 CellSize{ 16.0f, 16.0f };
+        AssetRef Tileset;
+        AssetRef TileData;
+        int SortOrder = 0;
+    };
+
+    struct LineRendererComponent {
+        bool Enabled = true;
+        glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+        float Width = 2.0f;
+        bool Loop = false;
+        int PointCount = 2;
+        glm::vec3 Point0{ 0.0f, 0.0f, 0.0f };
+        glm::vec3 Point1{ 16.0f, 0.0f, 0.0f };
+        glm::vec3 Point2{}, Point3{}, Point4{}, Point5{}, Point6{}, Point7{};
+    };
+
+    struct FollowTargetComponent {
+        bool Enabled = true;
+        EntityRef Target;
+        glm::vec3 Offset{ 0.0f, 0.0f, 0.0f };
+        float SmoothSpeed = 0.0f; // 0 = snap each frame
+        bool FollowX = true;
+        bool FollowY = true;
+        bool FollowZ = false;
+    };
+
+    struct AudioListenerComponent {
+        bool Enabled = true;
+    };
+
+    // CPU particle emitter -- devkitPro-style simple burst/continuous particles.
+    struct ParticleSystemComponent {
+        bool Enabled = true;
+        AssetRef Texture;
+        bool Playing = true;
+        bool Loop = true;
+        float EmissionRate = 20.0f;
+        int MaxParticles = 64;
+        float Lifetime = 1.5f;
+        float StartSpeed = 40.0f;
+        float StartSize = 8.0f;
+        glm::vec4 StartColor{ 1.0f, 1.0f, 1.0f, 1.0f };
+        glm::vec4 EndColor{ 1.0f, 1.0f, 1.0f, 0.0f };
+        glm::vec2 Gravity{ 0.0f, 60.0f };
+        glm::vec2 VelocitySpread{ 30.0f, 30.0f };
+        int SortOrder = 0;
+
+        float EmissionAccumulator = 0.0f;
+        int AliveCount = 0;
+    };
+
+    struct Particle {
+        glm::vec2 Position;
+        glm::vec2 Velocity;
+        float Life = 0.0f;
+        float MaxLife = 1.0f;
+        float Size = 8.0f;
+        glm::vec4 Color{ 1.0f };
+    };
+
+    inline constexpr int MaxParticlePoolSize = 256;
+
+    inline glm::vec2& GetPolygonVertex2D(PolygonCollider2DComponent& poly, int index) {
+        switch (index) {
+            case 0: return poly.Vertex0;
+            case 1: return poly.Vertex1;
+            case 2: return poly.Vertex2;
+            case 3: return poly.Vertex3;
+            case 4: return poly.Vertex4;
+            case 5: return poly.Vertex5;
+            case 6: return poly.Vertex6;
+            default: return poly.Vertex7;
+        }
+    }
+
+    inline glm::vec3& GetLinePoint(LineRendererComponent& line, int index) {
+        switch (index) {
+            case 0: return line.Point0;
+            case 1: return line.Point1;
+            case 2: return line.Point2;
+            case 3: return line.Point3;
+            case 4: return line.Point4;
+            case 5: return line.Point5;
+            case 6: return line.Point6;
+            default: return line.Point7;
+        }
+    }
 
 }

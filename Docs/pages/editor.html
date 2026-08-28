@@ -25,8 +25,8 @@
                     <tr><th>Mục</th><th>Hành vi</th></tr>
                     <tr><td>New Project...</td><td>Hiện dialog Save (giống <strong>Save Scene As...</strong>) để chọn vị trí + tên — vd chọn <code>F:\Projects\MyGame.dproj</code> thì tạo folder project riêng <code>F:\Projects\MyGame\MyGame.dproj</code> + <code>F:\Projects\MyGame\Assets\</code> (giống layout <code>SampleProject/</code>, giống cách Unity hỏi vị trí+tên rồi tạo <code>location/name/</code>), rồi mở luôn project mới đó.</td></tr>
                     <tr><td>Open Project...</td><td>Chọn file <code>.dproj</code>; dừng Play nếu đang chạy, đổi hẳn project/scene/root Content Browser.</td></tr>
-                    <tr><td>Save Scene</td><td>Ghi scene hiện tại ra <code>Assets/Scene.scene</code>.</td></tr>
-                    <tr><td>Load Scene</td><td>Xoá sạch scene hiện tại rồi đọc lại từ đĩa — trước đây có bug nạp đè lên scene cũ thay vì xoá trước, đã fix.</td></tr>
+                    <tr><td>Save Scene</td><td>Ghi scene hiện tại ra file đang active (<code>ScenePath</code>). Phím tắt <strong>Ctrl+S</strong>. Sau khi lưu, cờ dirty (dấu <code>*</code> cạnh tên scene trên menu bar) được xoá.</td></tr>
+                    <tr><td>Load Scene</td><td>Xoá sạch scene hiện tại rồi đọc lại từ đĩa — trước đây có bug nạp đè lên scene cũ thay vì xoá trước, đã fix. Xoá dirty flag.</td></tr>
                     <tr><td>Open Scene...</td><td>Chọn một file <code>.scene</code> bất kỳ và chuyển sang nó — <strong>có</strong> đổi luôn scene mà Save/Load Scene thao tác từ đó về sau, khác Save Scene As...</td></tr>
                     <tr><td>Save Scene As...</td><td>Ghi một <em>bản chụp</em> scene hiện tại ra file mới do người dùng chọn — <strong>không</strong> đổi scene Save/Load Scene đang thao tác. Cách để project có thêm scene thứ hai cho <code>SceneManager</code>/<code>LoadScene</code> nhắm tới.</td></tr>
                     <tr><td>Build for 3DS / Build for PC</td><td>Xem <a href="build-deploy.html">Build &amp; Deploy</a>.</td></tr>
@@ -41,7 +41,14 @@
                     <tr><td>Preferences...</td><td>Mở panel cấu hình external editor dùng chung cho máy, không riêng project — xem mục <strong>Preferences</strong> bên dưới.</td></tr>
                 </table>
 
-                <p>Menu bar cũng hiện tên file scene đang active (<code>Scene: &lt;tên file&gt;</code>) — dễ theo dõi khi nhiều thao tác (Open Scene.../double-click/nút "Open Scene") có thể đổi nó.</p>
+                <p>Menu bar cũng hiện tên file scene đang active (<code>Scene: Scene.scene</code> hoặc <code>Scene.scene*</code> khi có thay đổi chưa lưu) — dễ theo dõi khi nhiều thao tác (Open Scene.../double-click/nút "Open Scene") có thể đổi nó.</p>
+
+                <div class="callout note">
+                    <span class="callout-title">Scene dirty &amp; Ctrl+S</span>
+                    Mọi chỉnh sửa ở Edit mode (Properties, Hierarchy, gizmo Scene view, thêm/xoá component…)
+                    đánh dấu scene <strong>dirty</strong>. Play mode không đánh dấu (thay đổi runtime revert khi Stop).
+                    <strong>Ctrl+S</strong> gọi cùng hàm với <strong>File → Save Scene</strong> (<code>SceneOps::SaveScene</code>).
+                </div>
 
                 <h2>Build Settings</h2>
                 <p>

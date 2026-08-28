@@ -86,7 +86,7 @@ namespace Duality {
         C3D_Mtx m_Projection{};
         C3D_Mtx m_View{}; // inverse of the camera's own world transform, set in BeginScene, read in DrawMesh
 
-        PrimitiveGpuMesh m_Meshes[3]; // indexed by static_cast<int>(MeshPrimitive)
+        PrimitiveGpuMesh m_Meshes[static_cast<int>(MeshPrimitive::Count)]; // indexed by static_cast<int>(MeshPrimitive)
 
         // Index i (0-based) backs textureId i+1 -- 0 stays reserved for "none", matching
         // every other LoadTexture implementation's convention in this codebase.

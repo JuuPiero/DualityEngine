@@ -109,20 +109,21 @@ namespace Duality {
         glEnd();
     }
 
-    void OpenGLRenderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t textureId) {
-        m_DrawCallCount++; // one glBegin/glEnd pair below == one real draw call (no batching)
+    void OpenGLRenderer2D::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t textureId, const glm::vec4& uvRect) {
+        m_DrawCallCount++;
 
         glm::vec2 center = position + size * 0.5f;
         glm::vec2 half = size * 0.5f;
 
-        // Unrotated corners are just the four combinations of +-half offset
-        // from center -- rotationDegrees==0 folds into this the same way a
-        // 0-radian rotation matrix would, so there's no separate fast path
-        // to keep in sync with the textured/UV logic below anymore.
         float radians = glm::radians(rotationDegrees);
         float c = std::cos(radians), s = std::sin(radians);
         glm::vec2 localCorners[4] = { { -half.x, -half.y }, { half.x, -half.y }, { half.x, half.y }, { -half.x, half.y } };
-        glm::vec2 uvs[4] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
+        glm::vec2 uvs[4] = {
+            { uvRect.x, uvRect.y },
+            { uvRect.z, uvRect.y },
+            { uvRect.z, uvRect.w },
+            { uvRect.x, uvRect.w }
+        };
 
         if (textureId != 0) {
             glEnable(GL_TEXTURE_2D);

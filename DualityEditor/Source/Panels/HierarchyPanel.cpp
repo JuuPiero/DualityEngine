@@ -9,9 +9,11 @@
 #include <imgui.h>
 
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/Layer.h"
 #include "DualityEngine/Scene/PrefabSerializer.h"
 
 namespace Duality {
@@ -22,20 +24,16 @@ namespace Duality {
         // class) and as the drag-drop payload value.
         int EntityId(Entity entity) { return static_cast<int>(static_cast<uint32_t>(entity.Handle())); }
 
-        // A root entity's own screen, if it has one -- ScreenGroupComponent takes
-        // priority (explicit organizational tag), falling back to CameraComponent
-        // (a camera already carries a real Screen, no separate tag needed). Only
-        // consulted for ROOT entities: the split below is a top-level display
-        // grouping, not a per-node reclassification -- once inside a Top/Bottom
-        // section, a subtree renders exactly as its actual parent/child structure
-        // says, same as before this feature existed.
-        bool TryResolveRootScreen(Entity root, Screen& outScreen) {
-            if (root.HasComponent<ScreenGroupComponent>()) {
-                outScreen = root.GetComponent<ScreenGroupComponent>().Screen;
-                return true;
+        // A root entity's own layer, if it has one -- LayerComponent takes priority
+        // (explicit organizational tag), falling back to CameraComponent (a camera
+        // already maps to TOP/BOTTOM via its Screen field).
+        bool TryResolveRootLayer(Entity root, Layer& outLayer) {
+            if (root.HasComponent<LayerComponent>()) {
+                outLayer = root.GetComponent<LayerComponent>().Value;
+                return outLayer != Layer::Default;
             }
             if (root.HasComponent<CameraComponent>()) {
-                outScreen = root.GetComponent<CameraComponent>().Screen;
+                outLayer = ScreenToLayer(root.GetComponent<CameraComponent>().Screen);
                 return true;
             }
             return false;
@@ -46,30 +44,27 @@ namespace Duality {
                 entt::entity draggedHandle = *static_cast<const entt::entity*>(payload->Data);
                 Entity dragged(draggedHandle, &ctx.SceneRef);
                 ctx.SceneRef.SetParent(dragged, newParent, insertAfter);
+                MarkSceneDirty(ctx);
             }
         }
 
-        // Dropping directly onto a section header (or the catch-all space below all
-        // three) moves the dragged entity into that section: unparented to root first
-        // (the split only classifies roots, see TryResolveRootScreen) since a nested
-        // entity's section follows its root ancestor's tag, not its own -- then its
-        // ScreenGroupComponent is set/added (targetScreen non-null) or removed
-        // (nullptr, "Ungrouped"). A camera entity dropped into "Ungrouped" stays
-        // classified by its own CameraComponent::Screen regardless -- that's its real
-        // target screen, not just an organizational tag, so it isn't cleared here.
-        void AcceptSectionDrop(EditorContext& ctx, const Screen* targetScreen) {
+        // Dropping directly onto a section header moves the dragged entity into that
+        // section: unparented to root first, then LayerComponent is set/added
+        // (targetLayer non-null) or removed (Default / "Ungrouped").
+        void AcceptSectionDrop(EditorContext& ctx, const Layer* targetLayer) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
                 entt::entity draggedHandle = *static_cast<const entt::entity*>(payload->Data);
                 Entity dragged(draggedHandle, &ctx.SceneRef);
                 ctx.SceneRef.SetParent(dragged, Entity{});
-                if (targetScreen) {
-                    if (dragged.HasComponent<ScreenGroupComponent>())
-                        dragged.GetComponent<ScreenGroupComponent>().Screen = *targetScreen;
+                if (targetLayer) {
+                    if (dragged.HasComponent<LayerComponent>())
+                        dragged.GetComponent<LayerComponent>().Value = *targetLayer;
                     else
-                        dragged.AddComponent<ScreenGroupComponent>().Screen = *targetScreen;
-                } else if (dragged.HasComponent<ScreenGroupComponent>()) {
-                    dragged.RemoveComponent<ScreenGroupComponent>();
+                        dragged.AddComponent<LayerComponent>().Value = *targetLayer;
+                } else if (dragged.HasComponent<LayerComponent>()) {
+                    dragged.RemoveComponent<LayerComponent>();
                 }
+                MarkSceneDirty(ctx);
             }
         }
 
@@ -181,10 +176,12 @@ namespace Duality {
             // aren't exclusively owned by a screen in this engine, so a hard
             // partition of the tree would be dishonest. Same Top/Bottom colors as
             // the Scene view's own camera markers (ScenePanel.cpp).
-            if (entity.HasComponent<ScreenGroupComponent>()) {
-                Screen screen = entity.GetComponent<ScreenGroupComponent>().Screen;
-                ImVec4 color = (screen == Screen::Top) ? ImVec4(0.3f, 0.9f, 0.9f, 1.0f) : ImVec4(0.95f, 0.6f, 0.2f, 1.0f);
-                ImGui::ColorButton("##ScreenGroupMarker", color,
+            if (entity.HasComponent<LayerComponent>()) {
+                Layer layer = entity.GetComponent<LayerComponent>().Value;
+                ImVec4 color = (layer == Layer::TOP) ? ImVec4(0.3f, 0.9f, 0.9f, 1.0f) : ImVec4(0.95f, 0.6f, 0.2f, 1.0f);
+                if (layer == Layer::Default)
+                    color = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
+                ImGui::ColorButton("##LayerMarker", color,
                     ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder | ImGuiColorEditFlags_NoDragDrop, ImVec2(8, 8));
                 ImGui::SameLine();
             }
@@ -209,6 +206,7 @@ namespace Duality {
                     Entity child = ctx.SceneRef.CreateEntity("Entity");
                     ctx.SceneRef.SetParent(child, entity);
                     ctx.Selected = child;
+                    MarkSceneDirty(ctx);
                 }
                 if (ImGui::MenuItem("Remove", "Delete"))
                     pendingRemoval = entity;
@@ -242,8 +240,10 @@ namespace Duality {
     void HierarchyPanel::OnImGuiRender(EditorContext& ctx) {
         ImGui::Begin("Hierarchy");
 
-        if (ImGui::Button("Create Entity", ImVec2(-1, 0)))
+        if (ImGui::Button("Create Entity", ImVec2(-1, 0))) {
             ctx.Selected = ctx.SceneRef.CreateEntity("Entity");
+            MarkSceneDirty(ctx);
+        }
 
         ImGui::InputTextWithHint("##HierarchySearch", "Search...", m_SearchBuffer, sizeof(m_SearchBuffer));
 
@@ -271,37 +271,39 @@ namespace Duality {
             std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
             std::vector<Entity> topRoots, bottomRoots, ungroupedRoots;
             for (Entity entity : roots) {
-                Screen screen;
-                if (TryResolveRootScreen(entity, screen))
-                    (screen == Screen::Top ? topRoots : bottomRoots).push_back(entity);
-                else
+                Layer layer;
+                if (TryResolveRootLayer(entity, layer)) {
+                    if (layer == Layer::TOP)
+                        topRoots.push_back(entity);
+                    else if (layer == Layer::BOTTOM)
+                        bottomRoots.push_back(entity);
+                    else
+                        ungroupedRoots.push_back(entity);
+                } else
                     ungroupedRoots.push_back(entity);
             }
 
-            // Each header is also a drop target for moving an entity INTO that section
-        // (AcceptSectionDrop) -- separate from dropping directly onto a row inside
-        // a section, which still means "become that row's child" (DrawEntityNode).
-            bool topOpen = ImGui::CollapsingHeader("Top Screen", ImGuiTreeNodeFlags_DefaultOpen);
+            bool topOpen = ImGui::CollapsingHeader("TOP Layer", ImGuiTreeNodeFlags_DefaultOpen);
             if (ImGui::BeginDragDropTarget()) {
-            Screen top = Screen::Top;
-            AcceptSectionDrop(ctx, &top);
-            ImGui::EndDragDropTarget();
+                Layer top = Layer::TOP;
+                AcceptSectionDrop(ctx, &top);
+                ImGui::EndDragDropTarget();
             }
             if (topOpen)
             for (Entity entity : topRoots)
                 DrawEntityNode(entity, ctx, m_PendingRemoval);
 
-            bool bottomOpen = ImGui::CollapsingHeader("Bottom Screen", ImGuiTreeNodeFlags_DefaultOpen);
+            bool bottomOpen = ImGui::CollapsingHeader("BOTTOM Layer", ImGuiTreeNodeFlags_DefaultOpen);
             if (ImGui::BeginDragDropTarget()) {
-            Screen bottom = Screen::Bottom;
-            AcceptSectionDrop(ctx, &bottom);
-            ImGui::EndDragDropTarget();
+                Layer bottom = Layer::BOTTOM;
+                AcceptSectionDrop(ctx, &bottom);
+                ImGui::EndDragDropTarget();
             }
             if (bottomOpen)
             for (Entity entity : bottomRoots)
                 DrawEntityNode(entity, ctx, m_PendingRemoval);
 
-            bool ungroupedOpen = ImGui::CollapsingHeader("Ungrouped", ImGuiTreeNodeFlags_DefaultOpen);
+            bool ungroupedOpen = ImGui::CollapsingHeader("Default Layer", ImGuiTreeNodeFlags_DefaultOpen);
             if (ImGui::BeginDragDropTarget()) {
             AcceptSectionDrop(ctx, nullptr);
             ImGui::EndDragDropTarget();
@@ -328,8 +330,10 @@ namespace Duality {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
                 std::string guid = static_cast<const char*>(payload->Data);
                 std::string path = AssetDatabase::ResolvePath(guid);
-                if (!path.empty())
+                if (!path.empty()) {
                     ctx.Selected = PrefabSerializer::Instantiate(ctx.SceneRef, path);
+                    MarkSceneDirty(ctx);
+                }
             }
             ImGui::EndDragDropTarget();
         }
@@ -339,8 +343,10 @@ namespace Duality {
         // lets each node's own BeginPopupContextItem (Create Child Entity) take
         // precedence when right-clicking directly on a row.
         if (ImGui::BeginPopupContextWindow("HierarchyContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-            if (ImGui::MenuItem("Create Entity"))
+            if (ImGui::MenuItem("Create Entity")) {
                 ctx.Selected = ctx.SceneRef.CreateEntity("Entity");
+                MarkSceneDirty(ctx);
+            }
             ImGui::EndPopup();
         }
         }
@@ -357,6 +363,7 @@ namespace Duality {
             if (IsInSubtree(ctx.SceneRef, ctx.Selected, m_PendingRemoval))
                 ctx.Selected = Entity{};
             ctx.SceneRef.DestroyEntity(m_PendingRemoval);
+            MarkSceneDirty(ctx);
         }
         m_PendingRemoval = Entity{};
 

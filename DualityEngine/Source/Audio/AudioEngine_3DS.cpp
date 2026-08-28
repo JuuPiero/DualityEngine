@@ -1,5 +1,6 @@
 #include "DualityEngine/Audio/AudioEngine.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include <3ds.h>
@@ -10,23 +11,21 @@
 namespace Duality {
 
     namespace {
-        // A small fixed pool of ndsp channels -- enough for a few
-        // simultaneous SFX plus a dedicated music channel, without the
-        // complexity of a real priority/voice-stealing system. One-shot
-        // playback only (the whole clip is decoded and queued up front,
-        // not the streaming template's double-buffered refill) -- simpler,
-        // sufficient for short SFX and reasonably-sized music clips; real
-        // streaming for long tracks is a documented ROADMAP follow-up.
         constexpr int ChannelCount = 8;
 
         struct ChannelSlot {
             ndspWaveBuf WaveBuf{};
             void* Buffer = nullptr;
             bool InUse = false;
+            bool Paused = false;
+            bool Loop = false;
+            float Volume = 1.0f;
+            AudioHandle Handle = InvalidAudioHandle;
         };
 
         ChannelSlot s_Channels[ChannelCount];
         int s_NextChannel = 0;
+        uint32_t s_NextHandle = 1;
         bool s_Initialized = false;
 
         void ReleaseChannel(int index) {
@@ -35,7 +34,23 @@ namespace Duality {
                 linearFree(s_Channels[index].Buffer);
                 s_Channels[index].Buffer = nullptr;
             }
-            s_Channels[index].InUse = false;
+            s_Channels[index] = ChannelSlot{};
+        }
+
+        int FindChannelByHandle(AudioHandle handle) {
+            for (int i = 0; i < ChannelCount; i++) {
+                if (s_Channels[i].InUse && s_Channels[i].Handle == handle)
+                    return i;
+            }
+            return -1;
+        }
+
+        void ApplyChannelMix(int channel, float volume) {
+            float mix[12];
+            std::memset(mix, 0, sizeof(mix));
+            mix[0] = volume;
+            mix[1] = volume;
+            ndspChnSetMix(channel, mix);
         }
     }
 
@@ -47,9 +62,8 @@ namespace Duality {
         ndspSetOutputMode(NDSP_OUTPUT_STEREO);
         for (int i = 0; i < ChannelCount; i++)
             ndspChnSetInterp(i, NDSP_INTERP_LINEAR);
-        // Per-channel mix (volume) is set fresh on every Play() call below instead of once
-        // here, since it now carries that clip's own AudioImportSettings::Volume.
         s_Initialized = true;
+        s_NextHandle = 1;
     }
 
     void AudioEngine::Shutdown() {
@@ -62,28 +76,24 @@ namespace Duality {
     }
 
     void AudioEngine::Update() {
-        // Reclaim finished one-shot buffers' memory -- looping buffers
-        // never reach NDSP_WBUF_DONE on their own (ndsp replays them
-        // in-place per ndspWaveBuf::looping), so this only ever frees
-        // sounds that have actually finished playing.
         for (int i = 0; i < ChannelCount; i++) {
-            if (s_Channels[i].InUse && s_Channels[i].WaveBuf.status == NDSP_WBUF_DONE)
+            if (s_Channels[i].InUse && !s_Channels[i].Loop && s_Channels[i].WaveBuf.status == NDSP_WBUF_DONE)
                 ReleaseChannel(i);
         }
     }
 
-    void AudioEngine::Play(const std::string& path, bool loop, float volume) {
+    AudioHandle AudioEngine::Play(const std::string& path, bool loop, float volume) {
         if (!s_Initialized)
-            return;
+            return InvalidAudioHandle;
 
         WavData wav;
         if (!LoadWavFile(path, wav)) {
             Log::Error("AudioEngine: failed to load '" + path + "'");
-            return;
+            return InvalidAudioHandle;
         }
         if (wav.BitsPerSample != 16) {
             Log::Error("AudioEngine: '" + path + "' is not 16-bit PCM -- only 16-bit PCM WAV is supported on-device");
-            return;
+            return InvalidAudioHandle;
         }
 
         int channel = -1;
@@ -96,7 +106,7 @@ namespace Duality {
         }
         if (channel < 0) {
             Log::Warn("AudioEngine: all " + std::to_string(ChannelCount) + " channels busy, dropping '" + path + "'");
-            return;
+            return InvalidAudioHandle;
         }
 
         ReleaseChannel(channel);
@@ -105,7 +115,7 @@ namespace Duality {
         void* buffer = linearAlloc(dataSize);
         if (!buffer) {
             Log::Error("AudioEngine: linearAlloc failed for '" + path + "'");
-            return;
+            return InvalidAudioHandle;
         }
         std::memcpy(buffer, wav.Samples.data(), dataSize);
         DSP_FlushDataCache(buffer, dataSize);
@@ -116,12 +126,6 @@ namespace Duality {
         ndspChnSetFormat(channel, wav.Channels >= 2 ? NDSP_FORMAT_STEREO_PCM16 : NDSP_FORMAT_MONO_PCM16);
         ndspChnSetRate(channel, static_cast<float>(wav.SampleRate));
 
-        float mix[12];
-        std::memset(mix, 0, sizeof(mix));
-        mix[0] = volume;
-        mix[1] = volume;
-        ndspChnSetMix(channel, mix);
-
         ChannelSlot& slot = s_Channels[channel];
         slot.WaveBuf = ndspWaveBuf{};
         slot.WaveBuf.data_vaddr = buffer;
@@ -129,14 +133,55 @@ namespace Duality {
         slot.WaveBuf.looping = loop;
         slot.Buffer = buffer;
         slot.InUse = true;
+        slot.Paused = false;
+        slot.Loop = loop;
+        slot.Volume = volume;
+        slot.Handle = s_NextHandle++;
+        if (s_NextHandle == InvalidAudioHandle)
+            s_NextHandle = 1;
 
+        ApplyChannelMix(channel, volume);
         ndspChnWaveBufAdd(channel, &slot.WaveBuf);
         s_NextChannel = (channel + 1) % ChannelCount;
+        return slot.Handle;
+    }
+
+    void AudioEngine::Stop(AudioHandle handle) {
+        int channel = FindChannelByHandle(handle);
+        if (channel >= 0)
+            ReleaseChannel(channel);
     }
 
     void AudioEngine::StopAll() {
         for (int i = 0; i < ChannelCount; i++)
             ReleaseChannel(i);
+    }
+
+    void AudioEngine::SetVolume(AudioHandle handle, float volume) {
+        int channel = FindChannelByHandle(handle);
+        if (channel < 0)
+            return;
+        s_Channels[channel].Volume = volume;
+        ApplyChannelMix(channel, volume);
+    }
+
+    void AudioEngine::SetPaused(AudioHandle handle, bool paused) {
+        int channel = FindChannelByHandle(handle);
+        if (channel < 0)
+            return;
+        if (s_Channels[channel].Paused == paused)
+            return;
+        s_Channels[channel].Paused = paused;
+        ndspChnSetPaused(channel, paused);
+    }
+
+    bool AudioEngine::IsPlaying(AudioHandle handle) {
+        int channel = FindChannelByHandle(handle);
+        if (channel < 0 || s_Channels[channel].Paused)
+            return false;
+        if (s_Channels[channel].Loop)
+            return true;
+        return s_Channels[channel].WaveBuf.status != NDSP_WBUF_DONE;
     }
 
 }

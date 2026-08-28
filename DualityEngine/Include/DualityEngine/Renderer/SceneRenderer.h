@@ -74,13 +74,9 @@ namespace Duality {
     // 3D Scene view.
     uint32_t ResolveMeshGeometry(IRenderer3D& renderer, const AssetRef& meshRef);
 
-    // True "2 worlds" screen separation: an entity tagged (directly or via an
-    // ancestor) with ScreenGroupComponent/CameraComponent for the OTHER screen is
-    // excluded entirely, regardless of where it sits relative to `screen`'s camera.
-    // An untagged (Ungrouped) entity is always a candidate -- its actual
-    // visibility still falls out of the existing position-relative-to-camera math,
-    // exactly as before this feature existed (legacy/opt-out content keeps
-    // working unchanged). Shared by RenderScreen and the Editor's split Scene view.
-    bool ShouldRenderOnScreen(Scene& scene, entt::entity handle, Screen screen);
+    // True "2 worlds" screen separation: an entity on Layer::TOP/Layer::BOTTOM (directly or via
+    // an ancestor) is excluded from the OTHER physical screen entirely. Default-layer entities
+    // are candidates on every screen. Cameras additionally filter via CullingMask when provided.
+    bool ShouldRenderOnScreen(Scene& scene, entt::entity handle, Screen screen, const CameraComponent* camera = nullptr);
 
 }

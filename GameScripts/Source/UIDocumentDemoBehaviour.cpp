@@ -1,15 +1,17 @@
 #include "UIDocumentDemoBehaviour.h"
 
+#include "DualityEngine/Scripting/ScriptDebug.h"
+#include "DualityEngine/Scripting/ScriptScene.h"
 #include "ScriptRegistration.h"
 
 void UIDocumentDemoBehaviour::OnCreate() {
     if (MenuDocument.Guid.empty()) {
-        LogWarn("UIDocumentDemoBehaviour: no MenuDocument assigned");
+        Duality::ScriptDebug::LogWarn("UIDocumentDemoBehaviour: no MenuDocument assigned");
         return;
     }
-    Duality::Entity menu = InstantiateUIDocument(MenuDocument.Guid, Duality::Screen::Bottom);
+    Duality::Entity menu = Duality::ScriptScene::InstantiateUIDocument(MenuDocument.Guid, Duality::Screen::Bottom);
     if (!menu)
-        LogWarn("UIDocumentDemoBehaviour: MenuDocument failed to load/parse -- check the Console for the reason");
+        Duality::ScriptDebug::LogWarn("UIDocumentDemoBehaviour: MenuDocument failed to load/parse -- check the Console for the reason");
 }
 
 REGISTER_BEHAVIOUR(UIDocumentDemoBehaviour)

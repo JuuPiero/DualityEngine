@@ -15,7 +15,8 @@
             { id: "first-game", label: "Làm game đầu tiên", href: base + "first-game-tutorial.html", icon: "🎮" }
         ]},
         { group: "Kiến trúc", items: [
-            { id: "architecture", label: "ECS & Scene", href: base + "architecture.html", icon: "🧩" }
+            { id: "architecture", label: "ECS & Scene", href: base + "architecture.html", icon: "🧩" },
+            { id: "api-stack", label: "API Stack (thấp → cao)", href: base + "api-stack.html", icon: "📚" }
         ]},
         { group: "API Reference", items: [
             { id: "scripting-api", label: "Scripting (Behaviour)", href: base + "scripting-api.html", icon: "📜" },

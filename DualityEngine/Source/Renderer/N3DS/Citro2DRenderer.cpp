@@ -120,7 +120,8 @@ namespace Duality {
         // implementation has a defined place to flush from.
     }
 
-    void Citro2DRenderer::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t textureId) {
+    void Citro2DRenderer::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t textureId, const glm::vec4& uvRect) {
+        (void)uvRect; // citro2d sheet sub-rect not wired yet; full sheet used
         m_DrawCallCount++; // one C2D_DrawRectSolid/C2D_DrawSpriteTinted call below == one real draw call
 
         if (textureId != 0) {

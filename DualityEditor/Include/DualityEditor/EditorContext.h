@@ -39,6 +39,7 @@ namespace Duality {
         // happen to be set, so no other entity-select call site needs to clear this in turn.
         std::string& SelectedAssetPath;
         bool& IsPlaying;
+        bool& SceneDirty;
 
         // Split Scene view: one free-roam edit camera per screen (see
         // SceneViewCamera.h) -- replaces the old single SceneCameraPos/SceneZoom

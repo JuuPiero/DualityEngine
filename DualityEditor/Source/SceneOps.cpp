@@ -5,6 +5,18 @@
 
 namespace Duality {
 
+    void MarkSceneDirty(EditorContext& ctx) {
+        if (!ctx.IsPlaying)
+            ctx.SceneDirty = true;
+    }
+
+    void SaveScene(EditorContext& ctx) {
+        if (ctx.ScenePath.empty())
+            return;
+        SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath);
+        ctx.SceneDirty = false;
+    }
+
     void OpenScene(EditorContext& ctx, const std::string& path) {
         if (ctx.IsPlaying) {
             ctx.SceneRef.OnRuntimeStop();
@@ -23,6 +35,7 @@ namespace Duality {
         // scene empty -- same graceful-degradation precedent as OpenProjectFromDialog's own
         // first load against a fresh project.
         SceneSerializer(ctx.SceneRef).Deserialize(path);
+        ctx.SceneDirty = false;
     }
 
 }

@@ -10,6 +10,7 @@
 #include "DualityEditor/AssetInspectorRegistry.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/FieldEditorWidget.h"
+#include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Reflection/TypeRegistry.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
@@ -67,13 +68,24 @@ namespace Duality {
 
             if (target) {
                 for (auto& field : fields) {
-                    if (DrawFieldWidget(field, target, &ctx.SceneRef))
+                    if (DrawFieldWidget(field, target, &ctx.SceneRef)) {
                         script.PropertyOverrides[field.Name] = field.Get(target);
+                        MarkSceneDirty(ctx);
+                    }
                 }
             }
 
             if (scratch)
                 destroyScratch(scratch);
+        }
+
+        // Finds the Unity-style component enable field (bool Enabled) if this type has one.
+        FieldHandle* FindEnabledField(ComponentTypeInfo& type) {
+            for (auto& field : type.Fields) {
+                if (field.Name == "Enabled")
+                    return &field;
+            }
+            return nullptr;
         }
 
         // Renders BehaviourComponent's "Scripts" section -- one collapsible card per attached
@@ -90,6 +102,12 @@ namespace Duality {
             for (int i = 0; i < static_cast<int>(behaviour.Scripts.size()); i++) {
                 ScriptInstance& script = behaviour.Scripts[i];
                 ImGui::PushID(i);
+
+                // Unity-style enable checkbox on the script header row (always visible, even
+                // when the card is collapsed) -- toggles ScriptInstance::Enabled.
+                if (ImGui::Checkbox("##ScriptEnabled", &script.Enabled))
+                    MarkSceneDirty(ctx);
+                ImGui::SameLine();
 
                 ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap;
                 bool open = ImGui::CollapsingHeader(script.ClassName.c_str(), flags);
@@ -112,6 +130,7 @@ namespace Duality {
                 behaviour.Scripts.erase(behaviour.Scripts.begin() + removeIndex);
                 if (behaviour.Scripts.empty())
                     selected.RemoveComponent<BehaviourComponent>();
+                MarkSceneDirty(ctx);
             }
         }
     }
@@ -177,6 +196,19 @@ namespace Duality {
             }
 
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap;
+
+            // Unity-style enable checkbox on the component header (always visible when
+            // collapsed). Field stays out of the body list below so it isn't duplicated.
+            if (FieldHandle* enabledField = FindEnabledField(type)) {
+                FieldValue value = enabledField->Get(component);
+                bool enabled = std::get<bool>(value);
+                if (ImGui::Checkbox("##ComponentEnabled", &enabled)) {
+                    enabledField->Set(component, enabled);
+                    MarkSceneDirty(ctx);
+                }
+                ImGui::SameLine();
+            }
+
             bool open = ImGui::CollapsingHeader(type.DisplayName.c_str(), flags);
 
             bool removeRequested = false;
@@ -200,15 +232,21 @@ namespace Duality {
                 // can corrupt either widget's persistent state (a header's open/
                 // closed flag colliding with a text field's edit buffer).
                 ImGui::PushID("Fields");
-                for (auto& field : type.Fields)
-                    DrawFieldWidget(field, component, &ctx.SceneRef);
+                for (auto& field : type.Fields) {
+                    if (field.Name == "Enabled")
+                        continue; // drawn on the header above
+                    if (DrawFieldWidget(field, component, &ctx.SceneRef))
+                        MarkSceneDirty(ctx);
+                }
                 ImGui::PopID(); // matches PushID("Fields") above
             }
 
             ImGui::PopID();
 
-            if (removeRequested)
+            if (removeRequested) {
                 type.Remove(selected);
+                MarkSceneDirty(ctx);
+            }
         }
 
         ImGui::Separator();
@@ -220,8 +258,10 @@ namespace Duality {
                 // which script class to attach instead (an entity can carry several at once).
                 if (type.DisplayName == "Scripts")
                     continue;
-                if (!type.Has(selected) && ImGui::MenuItem(type.DisplayName.c_str()))
+                if (!type.Has(selected) && ImGui::MenuItem(type.DisplayName.c_str())) {
                     type.AddDefault(selected);
+                    MarkSceneDirty(ctx);
+                }
             }
 
             ImGui::Separator();
@@ -236,6 +276,7 @@ namespace Duality {
                             ? selected.GetComponent<BehaviourComponent>()
                             : selected.AddComponent<BehaviourComponent>();
                         behaviour.Scripts.push_back(ScriptInstance{ className });
+                        MarkSceneDirty(ctx);
                         ImGui::CloseCurrentPopup();
                     }
                 }

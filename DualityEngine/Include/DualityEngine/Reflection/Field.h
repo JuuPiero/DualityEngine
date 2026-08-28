@@ -10,10 +10,13 @@
 #include <glm/glm.hpp>
 
 #include "DualityEngine/Physics/BodyType.h"
+#include "DualityEngine/Renderer/CanvasRenderMode.h"
 #include "DualityEngine/Renderer/MeshPrimitive.h"
 #include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Renderer/UIAnchor.h"
+#include "DualityEngine/Renderer/UILayoutType.h"
+#include "DualityEngine/Scene/Layer.h"
 
 namespace Duality {
 
@@ -72,6 +75,14 @@ namespace Duality {
         std::any FieldsFn; // actually std::vector<FieldHandle> (*)() -- the nested type's own static Fields()
     };
 
+    // Script-defined enum class fields (see MakeEnumField below) -- stores the current int value
+    // plus the ordered option labels the Inspector dropdown shows. Engine-native enums (Layer,
+    // BodyType, ...) stay as their own FieldValue alternatives instead.
+    struct EnumFieldValue {
+        int Value = 0;
+        std::vector<std::string> Options;
+    };
+
     // std::vector<AssetRef> and NestedFieldValue are the two compound alternatives here (the
     // former added for MeshRendererComponent::Materials, the latter for DUALITY_SERIALIZABLE()
     // nested structs -- see their own comments) -- deliberately not a generic "any field type/
@@ -80,7 +91,7 @@ namespace Duality {
     // FieldValueToJson/JsonToFieldValue) needs exactly one new `if constexpr` branch per case --
     // TypeRegistry/MakeField/EntitySerialization.cpp need no changes at all, already fully
     // generic over whatever alternatives this variant holds.
-    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef, ProjectionType, MeshPrimitive, UIAnchor, BodyType, EntityRef, std::vector<AssetRef>, NestedFieldValue>;
+    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef, ProjectionType, MeshPrimitive, UIAnchor, BodyType, Layer, uint32_t, EntityRef, CanvasRenderMode, UILayoutType, EnumFieldValue, std::vector<AssetRef>, NestedFieldValue>;
 
     // A named, type-erased accessor for one field of a component/script
     // instance. Reflection is only ever walked from the Properties panel
@@ -148,6 +159,31 @@ namespace Duality {
             std::vector<FieldHandle> fields = T::Fields();
             for (size_t i = 0; i < fields.size() && i < values.size(); i++)
                 fields[i].Set(&nested, values[i]);
+        };
+        return handle;
+    }
+
+    // For a script-defined `enum class` field -- generate_fields.py emits the option labels.
+    template<typename C, typename T>
+    FieldHandle MakeEnumField(const std::string& name, T C::* member, std::vector<std::string> options) {
+        FieldHandle handle;
+        handle.Name = name;
+        handle.Get = [member, options = std::move(options)](void* instance) -> FieldValue {
+            EnumFieldValue result;
+            result.Value = static_cast<int>(static_cast<C*>(instance)->*member);
+            result.Options = options;
+            return FieldValue(result);
+        };
+        handle.Set = [member, options](void* instance, const FieldValue& value) {
+            const EnumFieldValue& ev = std::get<EnumFieldValue>(value);
+            int clamped = ev.Value;
+            if (!options.empty()) {
+                if (clamped < 0)
+                    clamped = 0;
+                if (clamped >= static_cast<int>(options.size()))
+                    clamped = static_cast<int>(options.size()) - 1;
+            }
+            static_cast<C*>(instance)->*member = static_cast<T>(clamped);
         };
         return handle;
     }

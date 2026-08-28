@@ -319,44 +319,38 @@ else
     transform.Rotation.z += 90.0f * deltaTime; // sprite: xoay quanh Z
 ```
 
-**Input** (phong cách Unity Input Manager cũ -- `Duality::KeyCode` hỗ trợ các phím
-desktop phổ biến `W`/`A`/`S`/`D`/mũi tên/`Space`/`Enter`/`Escape` và các nút 3DS
-`GamepadA`/`B`/`X`/`Y`/`L`/`R`/`GamepadStart`/`Select`/D-Pad; keycode không có ý
-nghĩa trên nền tảng hiện tại sẽ luôn được đọc là chưa nhấn):
+**Input** (`DualityEngine/Scripting/ScriptInput.h`):
 ```cpp
-if (GetKeyDown(Duality::KeyCode::Space)) { /* chỉ chạy một lần ở frame được nhấn */ }
-if (GetKey(Duality::KeyCode::GamepadA)) { /* true ở mọi frame đang giữ nút */ }
+#include "DualityEngine/Scripting/ScriptInput.h"
 
-float h = GetAxis("Horizontal"); // +-1 dạng digital trên desktop (WASD/mũi tên), real
-float v = GetAxis("Vertical");   // analog trên 3DS (Circle Pad) -- cùng code, cả hai nền tảng
-
-if (GetPointerDown()) {
-    glm::vec2 p = GetPointerPosition(); // chuột trên desktop, cảm ứng trên 3DS
-    // Top (400x240) và Bottom (320x240) có vùng tọa độ local trùng nhau -- GetPointerScreen()
-    // cho biết p đang thuộc màn nào (luôn là Bottom trên 3DS thật, vì cảm ứng chỉ có ở đó).
-    Duality::Screen s = GetPointerScreen();
+if (Duality::ScriptInput::GetKeyDown(Duality::KeyCode::Space)) { /* một lần mỗi nhấn */ }
+float h = Duality::ScriptInput::GetAxis("Horizontal");
+if (Duality::ScriptInput::GetPointerDown()) {
+    glm::vec2 p = Duality::ScriptInput::GetPointerPosition();
+    Duality::Screen s = Duality::ScriptInput::GetPointerScreen(); // Bottom trên 3DS thật
 }
 ```
 
-**Raycast** -- tương đương `Physics2D.Raycast`/`Physics.Raycast` của Unity, cộng
-thêm `ScreenPointToRay3D` để bắn tia từ một điểm chạm/click trên màn hình (chỉ
-hoạt động khi đang Play, vì cần world vật lý đang sống):
+**Raycast** (`DualityEngine/Scripting/ScriptPhysics3D.h`):
 ```cpp
-// Click/chạm vào màn Bottom -> bắn tia 3D từ camera Perspective của màn đó
-if (GetPointerDown() && GetPointerScreen() == Duality::Screen::Bottom) {
-    glm::vec3 origin, direction;
-    if (ScreenPointToRay3D(Duality::Screen::Bottom, GetPointerPosition(), origin, direction)) {
-        Duality::RaycastHit3D hit = Raycast3D(origin, direction, 2000.0f);
-        if (hit) // HitEntity rỗng (falsy) nếu không trúng gì -- luôn kiểm tra trước khi đọc Point/Normal/Distance
-            LogInfo("Trung: " + hit.HitEntity.GetComponent<Duality::NameComponent>().Name);
-    }
+#include "DualityEngine/Scripting/ScriptPhysics3D.h"
+#include "DualityEngine/Scripting/ScriptDebug.h"
+
+glm::vec3 origin, direction;
+if (Duality::ScriptPhysics3D::ScreenPointToRay(Duality::Screen::Bottom,
+        Duality::ScriptInput::GetPointerPosition(), origin, direction)) {
+    Duality::RaycastHit3D hit = Duality::ScriptPhysics3D::Raycast(origin, direction, 2000.f);
+    if (hit)
+        Duality::ScriptDebug::LogInfo("Trung!");
 }
 ```
-Xem `GameScripts/Source/RaycastDemoBehaviour.cpp` (gắn vào entity
-"RaycastController" trong scene mẫu) để có ví dụ chạy thực tế -- click/chạm vào
-màn Bottom lúc Play rồi xem panel Console.
 
-**Trạng thái Active** -- tương đương `GameObject.SetActive`/`activeSelf` của Unity:
+**Log** (`DualityEngine/Scripting/ScriptDebug.h`):
+```cpp
+Duality::ScriptDebug::LogInfo("message");
+```
+
+**Trạng thái Active** (trên `Behaviour`):
 ```cpp
 SetActive(false); // tắt entity này -- OnDisable() sẽ chạy, OnUpdate() ngừng chạy
 bool active = IsActive();
@@ -364,40 +358,22 @@ bool active = IsActive();
 Bật/tắt lúc đang Play KHÔNG tự thêm/xóa physics body của Rigidbody -- chỉ ảnh
 hưởng việc body có tồn tại hay không tại thời điểm Play bắt đầu.
 
-**Log** -- tương đương `Debug.Log` của Unity, hiện ra ngay trong panel Console
-của Editor:
+**Chuyển scene** (`DualityEngine/Scene/SceneManager.h`):
 ```cpp
-LogInfo("Player đã chạm đất");
-LogWarn("Hết đạn");
-LogError("Không tìm thấy save file");
+#include "DualityEngine/Scene/SceneManager.h"
+Duality::SceneManager::RequestLoadScene("Scenes/Level2.scene");
 ```
 
-**Chuyển scene** -- tương đương `SceneManager.LoadScene` của Unity:
+**Prefab** (`DualityEngine/Scripting/ScriptScene.h`):
 ```cpp
-LoadScene("Scenes/Level2.scene"); // đường dẫn tương đối so với Assets/ của project,
-                                  // tạo bằng File -> Save Scene As... (mục 2)
+#include "DualityEngine/Scripting/ScriptScene.h"
+Duality::Entity spawned = Duality::ScriptScene::Instantiate("<prefab-asset-guid>");
 ```
-Đây là yêu cầu hoãn lại (deferred) -- việc đổi scene thật sự diễn ra giữa hai
-frame, không phải ngay khi hàm này return, vì một script không thể an toàn phá
-hủy chính cái Scene mà lời gọi của nó đang chạy bên trong.
 
-**Prefab** -- tương đương `Object.Instantiate` của Unity:
+**ScriptableObject**:
 ```cpp
-Duality::Entity spawned = Instantiate("<prefab-asset-guid>");
-```
-Tạo một bản sao mới của asset `.prefab` (xem "Create Prefab from
-Selection" ở mục 2) làm entity gốc (root) mới trong scene của chính script này.
-
-**ScriptableObject** -- tương đương `ScriptableObject` của Unity: một asset dữ
-liệu dùng lại được (`.asset`), không gắn vào entity nào cả -- ví dụ một
-"GameSettings" mà nhiều script cùng đọc, chỉnh một chỗ trong Properties là mọi
-nơi đọc thấy ngay, thay vì chép số liệu vào field của từng entity:
-```cpp
-#include "GameSettingsData.h" // class do chính bạn định nghĩa, xem bên dưới
-
-GameSettingsData* settings = LoadScriptableObject<GameSettingsData>("<asset-guid>");
-if (settings)
-    score += settings->ScorePerCoin;
+#include "GameSettingsData.h"
+GameSettingsData* settings = Duality::ScriptScene::LoadScriptableObject<GameSettingsData>("<asset-guid>");
 ```
 Trả về `nullptr` nếu guid rỗng/không resolve được, hoặc GameScripts chưa được
 (re)load -- xử lý giống hệt một `AssetRef` chưa gán ở bất kỳ chỗ nào khác trong
@@ -422,20 +398,15 @@ engine. Để định nghĩa một loại `ScriptableObject` mới:
 mở project mẫu, chọn file này trong Content Browser để xem field hiện ra
 trong Properties.
 
-**Âm thanh** -- phát asset WAV bằng GUID của Content Browser (kéo asset vào một
-field `AssetRef` trước để xem GUID được resolve, hoặc tham chiếu đến GUID của một
-field `AssetRef` hiện có):
+**Âm thanh** -- one-shot (`ScriptAudio`) hoặc `AudioSource` component + `GetAudioSource().Play()`:
 ```cpp
-PlaySound("<asset-guid>");             // phát một lần
-PlaySound("<asset-guid>", true);       // lặp lại (ví dụ: nhạc nền)
-StopAllSounds();
+#include "DualityEngine/Scripting/ScriptAudio.h"
+Duality::ScriptAudio::PlaySound("<asset-guid>", false);
+
+// Hoặc sau khi thêm Audio Source component trong Editor:
+GetAudioSource().Play();
 ```
-Desktop phát được mọi định dạng mà miniaudio giải mã được; bản build 3DS chỉ hỗ
-trợ WAV PCM 16-bit (không có decoder đi kèm trên phần cứng thật) -- hãy dùng WAV
-cho mọi âm thanh cần chạy trên thiết bị. Mỗi lần `PlaySound` chạy, nó tự đọc
-field **Volume** (0..1) trong Import Settings của chính file `.wav` đó (chọn
-file trong Content Browser để chỉnh) và áp dụng ngay -- không cần tham số
-volume riêng trong code.
+Desktop: miniaudio; 3DS: `ndsp` (WAV PCM 16-bit, citro/libctru).
 
 **Save/load** -- JSON thuần, không cần method `Behaviour` (gọi trực tiếp class):
 ```cpp

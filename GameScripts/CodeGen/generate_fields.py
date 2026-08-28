@@ -45,6 +45,7 @@ import sys
 
 CLASS_RE = re.compile(r"\b(?:class|struct)\s+(\w+)\b(?:\s*:\s*public\s+(?:Duality::)?Behaviour\b)?")
 FIELD_RE = re.compile(r"\bDUALITY_PROPERTY\(\)\s+([\w:<>]+)\s+(\w+)\s*(?:=.*)?;")
+ENUM_CLASS_RE = re.compile(r"\benum\s+class\s+(\w+)\s*(?::\s*[\w\s]+)?\s*\{([^}]+)\}")
 MSYS_DRIVE_PATH_RE = re.compile(r"^/([A-Za-z])/(.*)$")
 
 
@@ -131,6 +132,33 @@ def scan_header(path):
     return results
 
 
+def parse_enum_values(body):
+    values = []
+    for part in body.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        name = part.split("=", 1)[0].strip()
+        if name and (name[0].isalpha() or name[0] == '_'):
+            values.append(name)
+    return values
+
+
+def scan_enums(scan_dirs):
+    enums = {}
+    for scan_dir in scan_dirs:
+        for header in sorted(f for f in os.listdir(scan_dir) if f.endswith(".h")):
+            full_path = os.path.join(scan_dir, header)
+            with open(full_path, "r", encoding="utf-8") as f:
+                text = f.read()
+            for match in ENUM_CLASS_RE.finditer(text):
+                enum_name = match.group(1)
+                values = parse_enum_values(match.group(2))
+                if values:
+                    enums[enum_name] = values
+    return enums
+
+
 def main():
     if len(sys.argv) < 3:
         print("usage: generate_fields.py <output .cpp path> <scan_dir_1> [scan_dir_2 ...]", file=sys.stderr)
@@ -148,6 +176,8 @@ def main():
     # ProjectDemoBehaviour.h: No such file or directory". Resolving to absolute here, once, keeps
     # every downstream use (scanning AND the #include line) consistent and CWD-independent.
     scan_dirs = [os.path.abspath(d) for d in sys.argv[2:] if d and os.path.isdir(d)]
+
+    enum_type_names = scan_enums(scan_dirs)
 
     all_classes = []  # (full_header_path, class_name, [(field_name, field_type), ...])
     for scan_dir in scan_dirs:
@@ -177,8 +207,14 @@ def main():
         lines.append("    return {")
         for field_name, field_type in fields:
             type_leaf = field_type.rsplit("::", 1)[-1]
-            maker = "MakeNestedField" if type_leaf in nested_type_names else "MakeField"
-            lines.append(f'        ::Duality::{maker}("{field_name}", &{class_name}::{field_name}),')
+            if type_leaf in nested_type_names:
+                maker = "MakeNestedField"
+                lines.append(f'        ::Duality::{maker}("{field_name}", &{class_name}::{field_name}),')
+            elif type_leaf in enum_type_names:
+                options = ", ".join(f'"{value}"' for value in enum_type_names[type_leaf])
+                lines.append(f'        ::Duality::MakeEnumField("{field_name}", &{class_name}::{field_name}, {{ {options} }}),')
+            else:
+                lines.append(f'        ::Duality::MakeField("{field_name}", &{class_name}::{field_name}),')
         lines.append("    };")
         lines.append("}")
         lines.append("")

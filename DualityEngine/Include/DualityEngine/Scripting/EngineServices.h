@@ -110,6 +110,13 @@ namespace Duality {
         // Screen cast to int. Returns true and fills *outHandle with the new root entity's raw
         // handle on success.
         bool (*InstantiateUIDocument)(void* scene, const char* uiDocumentAssetGuid, int screen, unsigned int* outHandle);
+
+        // Unity's AudioSource -- per-entity clip playback on AudioSourceComponent.
+        void (*AudioSourcePlay)(void* scene, unsigned int entityHandle);
+        void (*AudioSourceStop)(void* scene, unsigned int entityHandle);
+        void (*AudioSourceSetPaused)(void* scene, unsigned int entityHandle, bool paused);
+        void (*AudioSourceSetVolume)(void* scene, unsigned int entityHandle, float volume);
+        bool (*AudioSourceIsPlaying)(void* scene, unsigned int entityHandle);
     };
 
 }

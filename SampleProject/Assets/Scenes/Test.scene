@@ -71,8 +71,8 @@
         "Name": "Camera"
       },
       "Parent": -1,
-      "Screen Group": {
-        "Screen": "Top"
+      "Layer": {
+        "Layer": "TOP"
       },
       "Tag": {
         "Tag": "Untagged"
@@ -103,8 +103,8 @@
         "Name": "Button"
       },
       "Parent": -1,
-      "Screen Group": {
-        "Screen": "Bottom"
+      "Layer": {
+        "Layer": "BOTTOM"
       },
       "Tag": {
         "Tag": "Untagged"

@@ -318,100 +318,48 @@ reload (see "Known limitations").
 
 ### Scripting API
 
-Inside any lifecycle method, a script can call (all inherited from
-`Behaviour`):
+`Behaviour` giữ lifecycle, `GetComponent`, `SetActive`, `ResolveEntityRef`, và
+factory helpers (`GetRigidbody2D/3D`, `GetAudioSource`). Các API engine còn lại
+là Unity-style static classes trong `DualityEngine/Scripting/` (Scene bind
+`ScriptContext` trước mỗi callback):
 
-- **Active state**: `SetActive(bool)` / `IsActive()` -- Unity's
-  `GameObject.SetActive`/`activeSelf`. Toggling this does NOT dynamically
-  add/remove a Rigidbody's physics body mid-Play -- only whether one
-  existed when Play started.
-- **Rigidbody velocity/force**: `GetVelocity2D`/`3D()`, `SetVelocity2D`/`3D(v)`,
-  `AddForce2D`/`3D(f)` -- Unity's `Rigidbody2D.velocity`/`Rigidbody.velocity`/
-  `AddForce`, operating on this entity's own `Rigidbody2DComponent`/
-  `Rigidbody3DComponent`. `Rigidbody2D/3DComponent::Type` (`BodyType`:
-  Static/Kinematic/Dynamic, replacing the old plain `IsStatic` boolean) adds
-  Kinematic -- moved directly by a script (mutate `Transform` each frame) or
-  animation, still generates full collision response against Dynamic bodies,
-  but never affected by gravity/forces itself.
-- **Raycast**: `Raycast2D(origin, direction, maxDistance)` /
-  `Raycast3D(origin, direction, maxDistance)` -- Unity's
-  `Physics2D.Raycast`/`Physics.Raycast`, returns a `RaycastHit2D`/
-  `RaycastHit3D` (falsy `HitEntity` if nothing was hit -- check via `if
-  (hit)` before reading `Point`/`Normal`/`Distance`) for the closest
-  collider along the ray. `ScreenPointToRay3D(screen, screenPoint,
-  outOrigin, outDirection)` converts a screen-local pixel point (e.g.
-  `GetPointerPosition()`, paired with `GetPointerScreen()`) into a
-  world-space ray from that screen's real Perspective primary camera --
-  feed the result straight into `Raycast3D` for click/touch-to-select
-  gameplay (see `GameScripts/RaycastDemoBehaviour.cpp`, attached to the
-  sample scene's "RaycastController" entity: click/touch the Bottom screen
-  in Play mode and watch the Console log whichever 3D object was hit).
-  Returns false if that screen has no Perspective primary camera. Both
-  Raycast functions only work while Play is running (no physics world to
-  query otherwise).
-- **Input**, Unity-old-Input-Manager-style: `GetKey`/`GetKeyDown`/
-  `GetKeyUp(Duality::KeyCode::...)`, `GetAxis("Horizontal")`/
-  `GetAxis("Vertical")` (digital ±1 from WASD/arrows on desktop, real analog
-  values from the Circle Pad on 3DS -- same script code, platform-
-  appropriate values on each), and `GetPointerDown()`/`GetPointerPosition()`
-  (mouse on desktop, touchscreen on 3DS). Since Top (400x240) and Bottom
-  (320x240) share overlapping local pixel ranges, `GetPointerScreen()`
-  reports which one `GetPointerPosition()` is actually local to -- always
-  `Screen::Bottom` on 3DS (the touch panel is physically only there), the
-  real screen under the cursor/touch on desktop (Play-in-Editor's Game
-  panel and `DualityPlayerDesktop` both resolve this correctly). `KeyCode`
-  covers common desktop keys (`W`/`A`/`S`/`D`, arrows, `Space`/`Enter`/
-  `Escape`) and 3DS buttons (`GamepadA`/`B`/`X`/`Y`/`L`/`R`,
-  `GamepadStart`/`Select`, D-Pad) -- a keycode meaningless on the current
-  platform just always reads as not pressed, rather than being unavailable.
-- **Audio**: `PlaySound(assetGuid, loop=false)` / `StopAllSounds()` play a
-  WAV asset (referenced by its `.meta` GUID, same as a
-  `SpriteRendererComponent::Texture` field) through the same real audio
-  backend the engine itself uses (miniaudio on desktop, `ndsp` on 3DS --
-  only 16-bit PCM WAV is supported on-device, since there's no vendored
-  decoder for real hardware). Every `PlaySound` call reads that asset's own
-  **Volume** (0-1, `AudioImportSettings` -- select the `.wav` in the Content
-  Browser to edit it) and applies it fresh each time -- there's no separate
-  per-call volume parameter.
-- **Logging**: `LogInfo`/`LogWarn`/`LogError(message)` -- shows up in the
-  Editor's Console panel exactly like every other engine log line.
-- **Cross-screen lookup**: `FindEntityInTopScreen`/`FindEntityInBottomScreen
-  (name)` -- finds an entity by name under a screen's `ScreenGroupComponent`
-  subtree (falls back to a scene-wide by-name search if that screen has no
-  tagged group yet).
-- **Scene transitions**: `LoadScene(assetsRelativePath)` (e.g.
-  `"Scenes/Level2.scene"`, a file created via the Editor's **Save Scene
-  As...**) -- Unity's `SceneManager.LoadScene`. Deferred: the swap actually
-  happens between frames, not synchronously when this returns, since a
-  script can't safely tear down the very Scene its own call stack is
-  running inside of.
-- **Prefabs**: `Instantiate(prefabAssetGuid) -> Entity` -- Unity's
-  `Object.Instantiate`, spawns a copy of a `.prefab` asset (see
-  "Create Prefab from Selection" above) as a new root entity in this
-  script's own Scene.
-- **ScriptableObject data assets**: `LoadScriptableObject<T>(assetGuid) -> T*`
-  -- Unity's `ScriptableObject`, a reusable data container that lives as its
-  own project asset (a `.asset` file, created via the Content Browser's
-  **Create > ScriptableObject > &lt;Type&gt;**) instead of being duplicated as
-  component fields on every entity that needs it. Define a type by
-  subclassing `Duality::ScriptableObject`, declaring a
-  `static std::vector<Duality::FieldHandle> Fields()` (same `MakeField()`
-  calls built-in components use), and registering it with
-  `REGISTER_SCRIPTABLE_OBJECT(YourClassName)` instead of
-  `REGISTER_BEHAVIOUR` -- see `GameScripts/Include/GameSettingsData.h` for
-  the pattern. Returns `nullptr` if the guid is empty/unresolved or
-  GameScripts hasn't been (re)loaded yet, same graceful-degradation
-  convention as every other `AssetRef` lookup in this engine.
+| Unity | Duality |
+|-------|---------|
+| `Input` | `Duality::ScriptInput` |
+| `Debug.Log` | `Duality::ScriptDebug` |
+| `Physics2D` / `Physics` | `Duality::ScriptPhysics2D` / `ScriptPhysics3D` |
+| `SceneManager.LoadScene` | `Duality::SceneManager::RequestLoadScene` |
+| `Object.Instantiate` | `Duality::ScriptScene::Instantiate` |
+| `Rigidbody2D` | `GetRigidbody2D()` → `Rigidbody2D` wrapper |
+| `AudioSource` | `GetAudioSource()` hoặc `AudioSourceComponent` + `GetAudioSource().Play()` |
 
-Two more APIs don't need `Behaviour` at all, since they're header-only with
-no engine state to synchronize across the DLL boundary:
-`Duality::SaveSystem::SaveJson`/`LoadJson(path)` (plain JSON file save/load,
-path resolved against the process's working directory on both platforms)
-and `Duality::DateTime::Now()` (the real system clock, identical on both
-platforms).
+- **Active state** (trên `Behaviour`): `SetActive(bool)` / `IsActive()`.
+- **Rigidbody**: `GetRigidbody2D().SetVelocity(v)` / `AddForce(f)` (và `GetRigidbody3D()`).
+- **Raycast**: `ScriptPhysics3D::Raycast(origin, dir, maxDist)` và
+  `ScriptPhysics3D::ScreenPointToRay(screen, point, outOrigin, outDir)` --
+  chỉ hoạt động khi Play đang chạy.
+- **Input**: `ScriptInput::GetKeyDown(KeyCode::Space)`, `GetAxis("Horizontal")`,
+  `GetPointerDown()`, `GetPointerPosition()`, `GetPointerScreen()`.
+- **Audio (one-shot)**: `ScriptAudio::PlaySound(assetGuid, loop)` /
+  `StopAllSounds()`.
+- **AudioSource (per-entity)**: thêm `Audio Source` component trong Editor
+  (Clip/Loop/Volume/Play On Awake), rồi `GetAudioSource().Play()` /
+  `Stop()` / `Pause()` / `SetVolume(v)` / `IsPlaying()`.
+- **Logging**: `ScriptDebug::LogInfo` / `LogWarn` / `LogError`.
+- **Cross-screen lookup**: `ScriptScene::FindEntityInTopScreen(name)` /
+  `FindEntityInBottomScreen(name)` -- tìm trong subtree của entity gốc có
+  `LayerComponent` TOP/BOTTOM.
+- **Scene / Prefabs / Data**: `SceneManager::RequestLoadScene(path)`,
+  `ScriptScene::Instantiate(guid)`, `ScriptScene::LoadScriptableObject<T>(guid)`.
 
-`GameScripts/Source/ApiShowcaseBehaviour.cpp` exercises the Input/Audio/
-Save/DateTime APIs in one script, attached to the "ApiShowcase" entity in
+**Layers** (thay `Screen Group` cũ): `LayerComponent` với `Default`, `TOP`,
+`BOTTOM` -- TOP/BOTTOM map tới hai màn 3DS (citro2d `GFX_TOP`/`GFX_BOTTOM`).
+Camera có thêm `Culling Mask` để lọc layer giống Unity.
+
+Header-only, không cần `Behaviour`: `SaveSystem`, `DateTime`, `SceneManager`.
+
+`GameScripts/Source/ApiShowcaseBehaviour.cpp` demo Input/AudioSource/Save/DateTime;
+`RaycastDemoBehaviour.cpp` demo `ScriptPhysics3D`.
 the sample scene -- move it with WASD/the Circle Pad, hold the pointer to
 pull it toward the cursor/touch, press Space/A for a beep, and watch it
 spin once a minute, driven by the real clock.

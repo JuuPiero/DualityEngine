@@ -99,6 +99,38 @@ transform.Rotation.z += <span class="tok-num">90.0f</span> * deltaTime; <span cl
                     <div class="api-body"><p>Entity đang sở hữu instance script này.</p></div>
                 </div>
 
+                <h2>Component wrappers (Unity-style)</h2>
+                <p>
+                    Thay vì chỉ <code>GetComponent&lt;TransformComponent&gt;()</code>, script có thể dùng
+                    wrapper trong <code>Behaviour.h</code> / <code>Scripting/*.h</code>:
+                </p>
+                <table>
+                    <tr><th>Method</th><th>Wrapper</th></tr>
+                    <tr><td><code>GetTransform()</code></td><td>Local/world position, rotation Z/Y, scale</td></tr>
+                    <tr><td><code>GetSpriteRenderer()</code> / <code>GetMeshRenderer()</code></td><td>Color, size, texture/material</td></tr>
+                    <tr><td><code>GetRigidbody2D()</code> / <code>GetRigidbody3D()</code></td><td>Velocity, AddForce, BodyType</td></tr>
+                    <tr><td><code>GetCollider2D()</code> / <code>GetCollider3D()</code></td><td>Truy cập collider component</td></tr>
+                    <tr><td><code>GetEntityLayer()</code></td><td><code>GetLayer()</code>, <code>SetComponentLayer(Layer)</code></td></tr>
+                    <tr><td><code>GetAudioSource()</code></td><td>Play/Stop/Pause/Volume</td></tr>
+                    <tr><td><code>GetUIButton()</code>, <code>GetUIRect()</code>, …</td><td>UI widget polling</td></tr>
+                </table>
+
+                <h2>DUALITY_PROPERTY &amp; Inspector</h2>
+                <p>
+                    Khai báo field public với macro <code>DUALITY_PROPERTY()</code> + <code>DUALITY_PROPERTIES_AUTO()</code>.
+                    <code>generate_fields.py</code> quét header và sinh <code>Fields()</code> — Reload Scripts / build tự cập nhật.
+                </p>
+                <table>
+                    <tr><th>Kiểu field</th><th>Inspector</th></tr>
+                    <tr><td><code>float</code>, <code>bool</code>, <code>int</code></td><td>Drag/Checkbox</td></tr>
+                    <tr><td><code>Duality::EntityRef</code></td><td>Kéo entity từ Hierarchy</td></tr>
+                    <tr><td><code>Duality::AssetRef</code></td><td>Kéo asset từ Content Browser</td></tr>
+                    <tr><td><code>enum class</code> (script)</td><td><strong>Dropdown</strong> (<code>MakeEnumField</code>)</td></tr>
+                    <tr><td><code>Duality::Layer</code>, <code>Duality::BodyType</code></td><td>Dropdown engine enum</td></tr>
+                    <tr><td>Struct <code>DUALITY_SERIALIZABLE()</code></td><td>Foldout nested (vd <code>BounceWobble</code>)</td></tr>
+                </table>
+                <p>Demo đầy đủ: gắn <code>FeatureShowcaseBehaviour</code> — enum <code>ShowcaseMotion</code>, Layer, BodyType, nested <code>Tuning</code>, raycast, audio.</p>
+
                 <h2>Trạng thái Active</h2>
                 <div class="api">
                     <div class="api-head"><div class="api-sig"><span class="p-type">void</span> <span class="p-name">SetActive</span>(<span class="p-arg">bool active</span>)</div></div>
@@ -176,7 +208,7 @@ transform.Rotation.z += <span class="tok-num">90.0f</span> * deltaTime; <span cl
                 <div class="api">
                     <div class="api-head"><div class="api-sig"><span class="p-type">Entity</span> <span class="p-name">FindEntityInScreen</span>(<span class="p-arg">Screen screen, const std::string&amp; name</span>) <span class="tok-kw">const</span><br><span class="p-type">Entity</span> <span class="p-name">FindEntityInTopScreen</span>/<span class="p-name">FindEntityInBottomScreen</span>(<span class="p-arg">const std::string&amp; name</span>) <span class="tok-kw">const</span></div></div>
                     <div class="api-body">
-                        <p>Tìm entity theo tên trong subtree của <code>ScreenGroupComponent</code> của màn đó (đệ quy qua children); fallback về tìm theo tên toàn scene nếu màn đó chưa có group nào gắn tag. Trả entity rỗng (falsy) nếu không thấy.</p>
+                        <p>Tìm entity theo tên trong subtree có <code>LayerComponent</code> TOP/BOTTOM (hoặc camera root), fallback tìm toàn scene.</p>
                     </div>
                 </div>
 
@@ -253,7 +285,7 @@ transform.Rotation.z += <span class="tok-num">90.0f</span> * deltaTime; <span cl
                 </div>
 
                 <div class="page-nav">
-                    <a class="prev" href="architecture.html"><span class="dir">← Trước</span>Kiến trúc: ECS &amp; Scene</a>
+                    <a class="prev" href="api-stack.html"><span class="dir">← Trước</span>API Stack</a>
                     <a class="next" href="physics.html"><span class="dir">Tiếp →</span>Physics 2D/3D</a>
                 </div>
             </div>

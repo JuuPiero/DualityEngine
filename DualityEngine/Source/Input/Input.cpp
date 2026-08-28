@@ -13,6 +13,7 @@ namespace Duality {
         std::unordered_map<std::string, float> s_Axes;
 
         bool s_PointerDown = false;
+        bool s_PreviousPointerDown = false;
         glm::vec2 s_PointerPosition{ 0.0f, 0.0f };
         Screen s_PointerScreen = Screen::Top;
     }
@@ -40,6 +41,10 @@ namespace Duality {
         return s_PointerDown;
     }
 
+    bool Input::GetPointerUp() {
+        return !s_PointerDown && s_PreviousPointerDown;
+    }
+
     glm::vec2 Input::GetPointerPosition() {
         return s_PointerPosition;
     }
@@ -50,6 +55,7 @@ namespace Duality {
 
     void Input::BeginFrame() {
         s_PreviousKeys = s_CurrentKeys;
+        s_PreviousPointerDown = s_PointerDown;
     }
 
     void Input::SetKeyState(KeyCode key, bool isDown) {

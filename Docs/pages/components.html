@@ -367,17 +367,41 @@
                     <tr><td><code>RuntimeFixture</code></td><td><code>void*</code></td><td><code>nullptr</code></td><td><em>Runtime-only</em> — <code>b2Fixture*</code> thật, chỉ sống giữa Play.</td></tr>
                 </table>
                 <div class="callout note">
-                    <span class="callout-title">Mới: EditMode + outline chỉ hiện cho entity đang chọn</span>
-                    Bật <code>EditMode</code> thì Scene view hiện handle kéo trên outline của
-                    <strong>đúng</strong> collider đó để resize trực tiếp trong viewport (xem
-                    <code>ScenePanel.cpp</code>'s <code>DragCollider2DHandle</code>) — tắt mặc định
-                    để việc di chuyển/chọn entity trong viewport không vô tình làm méo collider do
-                    một cú kéo lỡ tay. Khung wireframe xanh lá của outline bản thân nó giờ
-                    <strong>chỉ vẽ cho entity đang được chọn</strong>, không còn vẽ cho mọi collider
-                    trong scene cùng lúc như trước — <code>EditMode</code> chỉ quyết định outline đó
-                    có handle kéo được hay không, không quyết định outline có hiện hay không. Cùng
-                    field, cùng hành vi trên cả 4 loại collider (2D lẫn 3D, xem bên dưới).
+                    <span class="callout-title">Scene view: collider gizmo (2025+)</span>
+                    Wireframe xanh chỉ hiện cho entity đang chọn. Handle resize <strong>luôn kéo được</strong>
+                    khi entity được chọn — không cần bật <code>EditMode</code> (field vẫn còn trong Inspector
+                    nhưng editor không còn gate). Hỗ trợ Box/Circle/Capsule 2D, Box/Sphere/Capsule 3D,
+                    Polygon 2D (outline). Transform gizmo (Q/W/E) hoạt động với mọi entity có Transform,
+                    kể cả empty GameObject.
                 </div>
+
+                <h3>CapsuleCollider2DComponent &amp; PolygonCollider2DComponent</h3>
+                <p>Capsule: <code>Radius</code>, <code>Height</code> (tổng chiều cao gồm nửa hình cầu). Polygon: tối đa 8 đỉnh (<code>Vertex0</code>…<code>Vertex7</code>, <code>VertexCount</code>). Cùng bộ field vật lý như Box/Circle + <code>PhysicsMaterial</code> (AssetRef <code>.physmat</code>).</p>
+
+                <h2>Layer &amp; Audio</h2>
+                <h3>LayerComponent</h3>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Value</code></td><td><code>Layer</code></td><td><code>Default</code></td><td>Serialize JSON key vẫn là <code>"Layer"</code>. TOP/BOTTOM map 2 màn 3DS.</td></tr>
+                </table>
+
+                <h3>AudioSourceComponent (mở rộng)</h3>
+                <p>Thêm <code>SpatialBlend</code>, <code>MinDistance</code>, <code>MaxDistance</code>, <code>Mute</code>, <code>PlayOnAwake</code> — script dùng <code>GetAudioSource().Play()</code>.</p>
+
+                <h2>UI &amp; Runtime visuals (mới)</h2>
+                <table>
+                    <tr><th>Component</th><th>Tóm tắt</th></tr>
+                    <tr><td><code>CanvasComponent</code></td><td>Root UI — <code>RenderMode</code> (Overlay/Camera/WorldSpace), <code>SortOrder</code></td></tr>
+                    <tr><td><code>UILayoutGroupComponent</code></td><td>Horizontal/Vertical layout con</td></tr>
+                    <tr><td><code>UISliderComponent</code> / <code>UIToggleComponent</code> / <code>UIInputFieldComponent</code></td><td>Widget tương tác (InputField chưa gõ phím đầy đủ v1)</td></tr>
+                    <tr><td><code>UIDocumentReferenceComponent</code></td><td>Spawn <code>.uidoc</code> lúc Play</td></tr>
+                    <tr><td><code>SpriteSheetAnimatorComponent</code></td><td>Animation atlas UV (thay flipbook frame riêng lẻ)</td></tr>
+                    <tr><td><code>TilemapComponent</code></td><td>Lưới tile + asset tileset/tiledata</td></tr>
+                    <tr><td><code>LineRendererComponent</code></td><td>Polyline 3D/2D (tối đa 8 điểm)</td></tr>
+                    <tr><td><code>FollowTargetComponent</code></td><td>Theo entity khác (<code>EntityRef Target</code>)</td></tr>
+                    <tr><td><code>ParticleSystemComponent</code></td><td>CPU emitter — rate, lifetime, màu, gravity</td></tr>
+                </table>
+                <p>SpriteRenderer thêm: <code>SortOrder</code>, <code>FlipX/Y</code>, <code>Pivot</code>, <code>SliceBorder</code> (9-slice).</p>
 
                 <h2>Physics 3D <span class="badge badge-3d">3D</span></h2>
                 <p>
@@ -390,11 +414,12 @@
                     <strong>không</strong> sở hữu <code>btCollisionShape</code> của một body — caller
                     phải tự free. <code>RuntimeCollisionShape</code> (nằm trên
                     <code>Rigidbody3DComponent</code>, không phải trên từng collider) theo dõi đúng
-                    một shape đó (box/sphere thô, hoặc — khi <code>Offset</code> collider khác 0 —
+                    một shape đó (box/sphere/capsule thô, hoặc — khi <code>Offset</code> collider khác 0 —
                     <code>btCompoundShape</code> bọc quanh nó) để <code>OnRuntimeStop</code> xoá được
-                    bất kể entity đang có collider component nào; nhờ vậy 2 collider component 3D
-                    bên dưới không cần con trỏ runtime riêng của chính mình.
+                    bất kể entity đang có collider component nào.
                 </p>
+                <h3>CapsuleCollider3DComponent</h3>
+                <p><code>Radius</code>, <code>Height</code> (trục Y local), <code>PhysicsMaterial</code>, trigger — xem callout collider gizmo ở mục Physics 2D.</p>
 
                 <h3>Rigidbody3DComponent</h3>
                 <table>

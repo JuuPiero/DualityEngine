@@ -36,7 +36,7 @@ namespace Duality {
         void BeginScene(Screen screen, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
-        void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0) override;
+        void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0, const glm::vec4& uvRect = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)) override;
 
         // `path` is expected to already be a citro2d-loadable ".t3x" path (e.g.
         // "romfs:/Assets/Textures/foo.t3x") -- BuildPipeline::CookAssets converts every

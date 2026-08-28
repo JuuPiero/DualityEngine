@@ -25,6 +25,7 @@ namespace Duality {
                 for (auto& script : behaviour->Scripts) {
                     json scriptJson;
                     scriptJson["ClassName"] = script.ClassName;
+                    scriptJson["Enabled"] = script.Enabled;
                     json overridesJson;
                     for (auto& [name, value] : script.PropertyOverrides)
                         overridesJson[name] = FieldValueToJson(value);
@@ -61,6 +62,7 @@ namespace Duality {
                 for (auto& scriptJson : valueJson) {
                     ScriptInstance script;
                     script.ClassName = scriptJson.value("ClassName", std::string());
+                    script.Enabled = scriptJson.value("Enabled", true);
                     if (scriptJson.contains("PropertyOverrides")) {
                         const std::vector<FieldHandle>& scriptFields = ScriptRegistry::GetFields(script.ClassName);
                         if (!scriptFields.empty()) {

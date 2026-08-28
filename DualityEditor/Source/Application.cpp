@@ -21,6 +21,7 @@
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
+#include "DualityEngine/Scene/PhysicsRaycaster.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -85,10 +86,12 @@ namespace Duality {
         Entity topCamera = m_Scene.CreateEntity("TopCamera");
         topCamera.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f, 0.0f };
         topCamera.AddComponent<CameraComponent>().Screen = Screen::Top;
+        topCamera.AddComponent<PhysicsRaycaster2DComponent>();
 
         Entity bottomCamera = m_Scene.CreateEntity("BottomCamera");
         bottomCamera.GetComponent<TransformComponent>().Translation = { BottomScreenWidth * 0.5f, BottomScreenHeight * 0.5f, 0.0f };
         auto& bottomCameraComponent = bottomCamera.AddComponent<CameraComponent>();
+        bottomCamera.AddComponent<PhysicsRaycaster3DComponent>();
         bottomCameraComponent.Screen = Screen::Bottom;
         // TEMPORARY 3D pipeline smoke test (to be reverted once verified) -- switches the
         // Bottom screen over to Perspective/3D for this run, per the plan's verification step.
@@ -153,6 +156,7 @@ namespace Duality {
         auto& ballCollider = physicsBall.AddComponent<CircleCollider2DComponent>();
         ballCollider.Radius = 10.0f;
         ballCollider.Restitution = 0.4f;
+        physicsBall.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "PointerClickDemoBehaviour" });
 
         // Same idea as the 2D physics demo above, but with Bullet: a sphere falls onto a
         // static platform, visible in the Bottom screen's Perspective camera alongside
@@ -179,6 +183,7 @@ namespace Duality {
         auto& ballCollider3D = physicsBall3D.AddComponent<SphereCollider3DComponent>();
         ballCollider3D.Radius = 20.0f;
         ballCollider3D.Restitution = 0.4f;
+        physicsBall3D.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "PointerClickDemoBehaviour" });
 
         // Living documentation for the scripting API surface -- Input,
         // SaveSystem, DateTime, AudioEngine -- all exercised by
@@ -383,6 +388,7 @@ namespace Duality {
                 // same as Unity's own UI only receiving click events at Play time, not while
                 // editing the Scene view.
                 UpdateUIInteractions(m_Scene);
+                UpdatePhysicsRaycasterInteractions(m_Scene);
                 m_Scene.OnRuntimeUpdate(deltaTime);
 
                 // A script-requested SceneManager.LoadScene is a deferred request (see
@@ -466,7 +472,7 @@ namespace Duality {
             ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
             EditorContext ctx{
-                m_Scene, m_Selected, m_SelectedAssetPath, m_IsPlaying,
+                m_Scene, m_Selected, m_SelectedAssetPath, m_IsPlaying, m_SceneDirty,
                 m_TopSceneView, m_BottomSceneView, m_ActiveGizmoMode, m_DraggingGizmoAxis, m_DraggingGizmoScreen,
                 m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,

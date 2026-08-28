@@ -1,13 +1,15 @@
 #include "BallTest.h"
 // #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scripting/ScriptDebug.h"
+#include "DualityEngine/Scripting/ScriptScene.h"
 #include "ScriptRegistration.h"
 
 using namespace Duality;
 
 void BallTest::OnCreate()
 {
-    LogInfo("Hello world");
-    buttonEntity = FindEntityInBottomScreen("Button");
+    ScriptDebug::LogInfo("Hello world");
+    buttonEntity = ScriptScene::FindEntityInBottomScreen("Button");
     
 }
 const int GRAVITY = 1;

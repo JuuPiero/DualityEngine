@@ -53,7 +53,7 @@ namespace Duality {
         // (modulated by `color`) instead of flat-colored; `color` alone
         // still applies either way (a texture with color {1,1,1,1} draws
         // unmodified).
-        virtual void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0) = 0;
+        virtual void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0, const glm::vec4& uvRect = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)) = 0;
 
         // Loads (and should internally cache) a texture from an image file
         // on disk, returning an opaque backend-specific handle for

@@ -3,6 +3,8 @@
 
 #include "D:/Workspace/CPP/DualityEngine/GameScripts/Include/BounceBehaviour.h"
 #include "D:/Workspace/CPP/DualityEngine/GameScripts/Include/BounceBehaviour.h"
+#include "D:/Workspace/CPP/DualityEngine/GameScripts/Include/FeatureShowcaseBehaviour.h"
+#include "D:/Workspace/CPP/DualityEngine/GameScripts/Include/FeatureShowcaseBehaviour.h"
 #include "D:/Workspace/CPP/DualityEngine/GameScripts/Include/UIDocumentDemoBehaviour.h"
 #include "D:/Workspace/CPP/DualityEngine/SampleProject/Assets/Scripts/ProjectDemoBehaviour.h"
 
@@ -19,6 +21,26 @@ std::vector<::Duality::FieldHandle> BounceBehaviour::Fields() {
         ::Duality::MakeField("Speed", &BounceBehaviour::Speed),
         ::Duality::MakeField("Target", &BounceBehaviour::Target),
         ::Duality::MakeNestedField("Wobble", &BounceBehaviour::Wobble),
+    };
+}
+
+std::vector<::Duality::FieldHandle> ShowcaseTuning::Fields() {
+    return {
+        ::Duality::MakeField("Intensity", &ShowcaseTuning::Intensity),
+        ::Duality::MakeField("VerboseLog", &ShowcaseTuning::VerboseLog),
+    };
+}
+
+std::vector<::Duality::FieldHandle> FeatureShowcaseBehaviour::Fields() {
+    return {
+        ::Duality::MakeField("MoveSpeed", &FeatureShowcaseBehaviour::MoveSpeed),
+        ::Duality::MakeField("EnablePhysicsPush", &FeatureShowcaseBehaviour::EnablePhysicsPush),
+        ::Duality::MakeEnumField("Motion", &FeatureShowcaseBehaviour::Motion, { "Idle", "Bounce", "Spin", "FollowTarget" }),
+        ::Duality::MakeField("RenderLayer", &FeatureShowcaseBehaviour::RenderLayer),
+        ::Duality::MakeField("PreferredBody", &FeatureShowcaseBehaviour::PreferredBody),
+        ::Duality::MakeField("LookAtTarget", &FeatureShowcaseBehaviour::LookAtTarget),
+        ::Duality::MakeField("SfxClip", &FeatureShowcaseBehaviour::SfxClip),
+        ::Duality::MakeNestedField("Tuning", &FeatureShowcaseBehaviour::Tuning),
     };
 }
 

@@ -1,8 +1,8 @@
 // SceneManager (deferred scene-load request) regression coverage. The actual Stop/swap/
 // Deserialize/Start dance lives in each real entry point's own main loop (DualityPlayer,
 // DualityPlayerDesktop, Application::Run), not in SceneManager itself -- SceneManager is
-// purely a request mailbox, so these tests only exercise that mailbox contract plus the
-// Behaviour::LoadScene -> EngineServices::RequestLoadScene bridge that feeds it.
+// purely a request mailbox, so these tests only exercise that mailbox contract plus a
+// script calling SceneManager::RequestLoadScene during Play (same path Behaviour scripts use).
 #include "TestFramework.h"
 
 #include "DualityEngine/Scene/Components.h"
@@ -16,7 +16,7 @@ namespace {
 
     class LoadSceneBehaviour : public Behaviour {
     public:
-        void OnUpdate(float) override { LoadScene("Scenes/Level2.scene"); }
+        void OnUpdate(float) override { SceneManager::RequestLoadScene("Scenes/Level2.scene"); }
     };
 
     void EnsureRegistered() {
@@ -50,7 +50,7 @@ TEST_CASE("RequestLoadScene sets a pending load, ConsumePendingLoad clears it") 
     CHECK_SOFT(!SceneManager::HasPendingLoad(), "pending flag cleared after consuming");
 }
 
-TEST_CASE("Behaviour::LoadScene forwards through EngineServices into SceneManager") {
+TEST_CASE("Script SceneManager::RequestLoadScene works from a Behaviour OnUpdate") {
     EnsureRegistered();
     if (SceneManager::HasPendingLoad())
         SceneManager::ConsumePendingLoad();
@@ -60,9 +60,9 @@ TEST_CASE("Behaviour::LoadScene forwards through EngineServices into SceneManage
     e.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "LoadSceneBehaviour" });
 
     scene.OnRuntimeStart();
-    scene.OnRuntimeUpdate(1.0f / 60.0f); // OnUpdate calls LoadScene("Scenes/Level2.scene")
+    scene.OnRuntimeUpdate(1.0f / 60.0f); // OnUpdate calls SceneManager::RequestLoadScene
     scene.OnRuntimeStop();
 
-    CHECK_SOFT(SceneManager::HasPendingLoad(), "a script's LoadScene() call left a pending request");
+    CHECK_SOFT(SceneManager::HasPendingLoad(), "a script's scene-load call left a pending request");
     CHECK_SOFT(SceneManager::ConsumePendingLoad() == "Scenes/Level2.scene", "the pending path matches what the script requested");
 }

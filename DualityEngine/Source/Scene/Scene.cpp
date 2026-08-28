@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 #include <utility>
 #include <vector>
@@ -15,14 +16,21 @@
 
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AudioImportSettings.h"
+#include "DualityEngine/Asset/PhysicsMaterialLoader.h"
 #include "DualityEngine/Asset/ScriptableObjectLoader.h"
+#include "DualityEngine/Scene/SceneRuntimeSystems.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Renderer/Screen.h"
+#include "DualityEngine/Scene/Behaviour.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/PhysicsRaycaster.h"
+#include "DualityEngine/Scene/PointerEventHandlers.h"
 #include "DualityEngine/Scene/PrefabSerializer.h"
 #include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scripting/EngineServices.h"
+#include "DualityEngine/Scripting/ScriptContext.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
 #include "DualityEngine/UI/UIDocumentLoader.h"
 
@@ -38,6 +46,34 @@ namespace Duality {
     static constexpr float DefaultGravityY = 400.0f;
     static constexpr int32 VelocityIterations = 6;
     static constexpr int32 PositionIterations = 2;
+
+    static void ApplyPhysicsMaterial(const AssetRef& ref, float& friction, float& restitution, float& density) {
+        if (ref.Guid.empty())
+            return;
+        std::string path = AssetDatabase::ResolvePath(ref.Guid);
+        if (path.empty())
+            return;
+        PhysicsMaterial mat = PhysicsMaterialLoader::Load(path);
+        friction = mat.Friction;
+        restitution = mat.Restitution;
+        density = mat.Density;
+    }
+
+    static b2PolygonShape MakeCapsulePolygon2D(float radius, float height) {
+        b2PolygonShape shape;
+        float halfH = std::max(0.0f, height * 0.5f - radius);
+        b2Vec2 verts[8];
+        verts[0] = { -radius, -halfH };
+        verts[1] = { radius, -halfH };
+        verts[2] = { radius, 0.0f };
+        verts[3] = { radius, halfH };
+        verts[4] = { -radius, halfH };
+        verts[5] = { -radius, 0.0f };
+        verts[6] = { -radius * 0.7f, -halfH - radius * 0.7f };
+        verts[7] = { radius * 0.7f, -halfH - radius * 0.7f };
+        shape.Set(verts, 8);
+        return shape;
+    }
 
     // One event per touching-pair transition this frame, queued by whichever physics
     // system detected it (Box2D's listener callback, or Bullet's manual manifold diff --
@@ -214,8 +250,8 @@ namespace Duality {
     }
 
     // Depth-first search of `root`'s own subtree (root included) for an entity named
-    // `name` -- used by FindEntityInScreen to search within a ScreenGroupComponent's
-    // group. Mirrors IsDescendantOf's style of walking HierarchyComponent by hand.
+    // `name` -- used by FindEntityInScreen to search within a LayerComponent-tagged
+    // organizational root. Mirrors IsDescendantOf's style of walking HierarchyComponent by hand.
     static Entity FindByNameInSubtree(Entity root, const std::string& name) {
         if (root.GetComponent<NameComponent>().Name == name)
             return root;
@@ -236,6 +272,29 @@ namespace Duality {
                 return i;
         }
         return 8;
+    }
+
+    static void PlayAudioSourceOnEntity(Scene* scene, Entity entity) {
+        if (!entity.HasComponent<AudioSourceComponent>())
+            return;
+        auto& src = entity.GetComponent<AudioSourceComponent>();
+        if (src.Mute || src.Clip.Guid.empty())
+            return;
+        std::string path = AssetDatabase::ResolvePath(src.Clip.Guid);
+        if (path.empty())
+            return;
+        if (src.RuntimeHandle != InvalidAudioHandle)
+            AudioEngine::Stop(src.RuntimeHandle);
+        float importVolume = AudioImportSettings::Load(path).Volume;
+        src.RuntimeHandle = AudioEngine::Play(path, src.Loop, importVolume * src.Volume);
+        src.Paused = false;
+    }
+
+    static Entity EntityFromSceneHandle(Scene* scene, unsigned int entityHandle) {
+        entt::entity handle = static_cast<entt::entity>(entityHandle);
+        if (!scene->Registry().valid(handle))
+            return Entity{};
+        return Entity(handle, scene);
     }
 
     // Adapters from EngineServices' plain-C-type ABI signatures to
@@ -437,6 +496,61 @@ namespace Duality {
         return true;
     }
 
+    static void EngineServices_AudioSourcePlay(void* scenePtr, unsigned int entityHandle) {
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        Entity entity = EntityFromSceneHandle(scene, entityHandle);
+        if (!entity)
+            return;
+        PlayAudioSourceOnEntity(scene, entity);
+    }
+
+    static void EngineServices_AudioSourceStop(void* scenePtr, unsigned int entityHandle) {
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        Entity entity = EntityFromSceneHandle(scene, entityHandle);
+        if (!entity || !entity.HasComponent<AudioSourceComponent>())
+            return;
+        auto& src = entity.GetComponent<AudioSourceComponent>();
+        if (src.RuntimeHandle != InvalidAudioHandle) {
+            AudioEngine::Stop(src.RuntimeHandle);
+            src.RuntimeHandle = InvalidAudioHandle;
+        }
+        src.Paused = false;
+    }
+
+    static void EngineServices_AudioSourceSetPaused(void* scenePtr, unsigned int entityHandle, bool paused) {
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        Entity entity = EntityFromSceneHandle(scene, entityHandle);
+        if (!entity || !entity.HasComponent<AudioSourceComponent>())
+            return;
+        auto& src = entity.GetComponent<AudioSourceComponent>();
+        if (src.RuntimeHandle == InvalidAudioHandle)
+            return;
+        src.Paused = paused;
+        AudioEngine::SetPaused(src.RuntimeHandle, paused);
+    }
+
+    static void EngineServices_AudioSourceSetVolume(void* scenePtr, unsigned int entityHandle, float volume) {
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        Entity entity = EntityFromSceneHandle(scene, entityHandle);
+        if (!entity || !entity.HasComponent<AudioSourceComponent>())
+            return;
+        auto& src = entity.GetComponent<AudioSourceComponent>();
+        src.Volume = volume;
+        if (src.RuntimeHandle != InvalidAudioHandle)
+            AudioEngine::SetVolume(src.RuntimeHandle, volume);
+    }
+
+    static bool EngineServices_AudioSourceIsPlaying(void* scenePtr, unsigned int entityHandle) {
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        Entity entity = EntityFromSceneHandle(scene, entityHandle);
+        if (!entity || !entity.HasComponent<AudioSourceComponent>())
+            return false;
+        auto& src = entity.GetComponent<AudioSourceComponent>();
+        if (src.RuntimeHandle == InvalidAudioHandle)
+            return false;
+        return AudioEngine::IsPlaying(src.RuntimeHandle);
+    }
+
     static const EngineServices s_EngineServices = {
         &EngineServices_GetKey,
         &EngineServices_GetKeyDown,
@@ -464,6 +578,11 @@ namespace Duality {
         &EngineServices_Raycast3D,
         &EngineServices_ScreenPointToRay3D,
         &EngineServices_InstantiateUIDocument,
+        &EngineServices_AudioSourcePlay,
+        &EngineServices_AudioSourceStop,
+        &EngineServices_AudioSourceSetPaused,
+        &EngineServices_AudioSourceSetVolume,
+        &EngineServices_AudioSourceIsPlaying,
     };
 
     Entity Scene::CreateEntity(const std::string& name) {
@@ -552,10 +671,11 @@ namespace Duality {
     }
 
     Entity Scene::FindEntityInScreen(Screen screen, const std::string& name) {
+        Layer targetLayer = ScreenToLayer(screen);
         bool anyGroupForScreen = false;
-        for (auto handle : m_Registry.view<ScreenGroupComponent>()) {
-            auto& group = m_Registry.get<ScreenGroupComponent>(handle);
-            if (group.Screen != screen)
+        for (auto handle : m_Registry.view<LayerComponent>()) {
+            auto& layerComp = m_Registry.get<LayerComponent>(handle);
+            if (layerComp.Value != targetLayer)
                 continue;
             anyGroupForScreen = true;
             Entity found = FindByNameInSubtree(Entity(handle, this), name);
@@ -563,9 +683,9 @@ namespace Duality {
                 return found;
         }
         if (anyGroupForScreen)
-            return Entity{}; // groups exist for this screen, but `name` wasn't in any of them
+            return Entity{}; // layer roots exist for this screen, but `name` wasn't in any of them
 
-        // No ScreenGroupComponent adopted for this screen yet -- fall back to a
+        // No LayerComponent adopted for this screen yet -- fall back to a
         // scene-wide by-name search so the API isn't a no-op out of the box.
         for (auto handle : m_Registry.view<NameComponent>()) {
             if (m_Registry.get<NameComponent>(handle).Name == name)
@@ -575,26 +695,26 @@ namespace Duality {
     }
 
     bool Scene::TryResolveEntityScreen(Entity entity, Screen& outScreen) {
+        return LayerToScreen(ResolveEntityLayer(entity), outScreen);
+    }
+
+    Layer Scene::ResolveEntityLayer(Entity entity) {
         Entity current = entity;
         while (current) {
-            if (current.HasComponent<ScreenGroupComponent>()) {
-                outScreen = current.GetComponent<ScreenGroupComponent>().Screen;
-                return true;
-            }
-            if (current.HasComponent<CameraComponent>()) {
-                outScreen = current.GetComponent<CameraComponent>().Screen;
-                return true;
-            }
+            if (current.HasComponent<LayerComponent>())
+                return current.GetComponent<LayerComponent>().Value;
+            if (current.HasComponent<CameraComponent>())
+                return ScreenToLayer(current.GetComponent<CameraComponent>().Screen);
             current = current.GetComponent<HierarchyComponent>().Parent;
         }
-        return false;
+        return Layer::Default;
     }
 
     Entity Scene::GetPrimaryCamera(Screen screen) {
         auto view = m_Registry.view<CameraComponent>();
         for (auto handle : view) {
             const auto& camera = view.get<CameraComponent>(handle);
-            if (camera.Screen == screen && camera.Primary)
+            if (camera.Enabled && camera.Screen == screen && camera.Primary)
                 return Entity(handle, this);
         }
         return Entity{};
@@ -620,6 +740,37 @@ namespace Duality {
                 return fraction;
             }
         };
+
+        class ClosestPointQueryCallback2D : public b2QueryCallback {
+        public:
+            b2Vec2 QueryPoint{};
+            b2Fixture* ClosestFixture = nullptr;
+            float ClosestDistSq = std::numeric_limits<float>::max();
+
+            bool ReportFixture(b2Fixture* fixture) override {
+                if (!fixture->TestPoint(QueryPoint))
+                    return true;
+                b2Vec2 center = fixture->GetBody()->GetWorldCenter();
+                float dx = center.x - QueryPoint.x;
+                float dy = center.y - QueryPoint.y;
+                float distSq = dx * dx + dy * dy;
+                if (distSq < ClosestDistSq) {
+                    ClosestDistSq = distSq;
+                    ClosestFixture = fixture;
+                }
+                return true;
+            }
+        };
+
+        static void ScreenExtents(Screen screen, float& outWidth, float& outHeight) {
+            if (screen == Screen::Top) {
+                outWidth = static_cast<float>(TopScreenWidth);
+                outHeight = static_cast<float>(TopScreenHeight);
+            } else {
+                outWidth = static_cast<float>(BottomScreenWidth);
+                outHeight = static_cast<float>(BottomScreenHeight);
+            }
+        }
     }
 
     RaycastHit2D Scene::Raycast2D(const glm::vec2& origin, const glm::vec2& direction, float maxDistance) {
@@ -677,25 +828,18 @@ namespace Duality {
         return result;
     }
 
-    bool Scene::ScreenPointToRay3D(Screen screen, const glm::vec2& screenPoint, glm::vec3& outOrigin, glm::vec3& outDirection) {
-        Entity camera = GetPrimaryCamera(screen);
-        if (!camera)
+    bool Scene::ScreenPointToRay3D(Entity cameraEntity, const glm::vec2& screenPoint, glm::vec3& outOrigin, glm::vec3& outDirection) {
+        if (!cameraEntity || !cameraEntity.HasComponent<CameraComponent>())
             return false;
-        auto& cameraComponent = camera.GetComponent<CameraComponent>();
+        auto& cameraComponent = cameraEntity.GetComponent<CameraComponent>();
         if (cameraComponent.Projection != ProjectionType::Perspective)
-            return false; // an Orthographic "ray" needs parallel-projection handling this doesn't attempt
+            return false;
 
-        TransformComponent camTransform = GetWorldTransform(camera);
-        float screenWidth = (screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
-        float screenHeight = (screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
+        TransformComponent camTransform = GetWorldTransform(cameraEntity);
+        float screenWidth, screenHeight;
+        ScreenExtents(cameraComponent.Screen, screenWidth, screenHeight);
         float aspect = screenWidth / screenHeight;
 
-        // Same T*Rz*Ry*Rx rotation order OpenGLRenderer3D::ComposeWorldMtx/Citro3DRenderer's
-        // own copy build this exact camera's view matrix with (see those files' own "must
-        // match" comments -- this is a third, independent copy for the same reason: a raycast
-        // has to agree with whatever's actually rendered, or a click would hit the wrong
-        // thing). Only the rotation is needed (forward/right/up); origin is the camera's own
-        // world translation directly, no matrix needed for that part.
         glm::mat4 rot(1.0f);
         rot = glm::rotate(rot, glm::radians(camTransform.Rotation.z), glm::vec3(0.0f, 0.0f, 1.0f));
         rot = glm::rotate(rot, glm::radians(camTransform.Rotation.y), glm::vec3(0.0f, 1.0f, 0.0f));
@@ -704,9 +848,6 @@ namespace Duality {
         glm::vec3 right = glm::vec3(rot * glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
         glm::vec3 up = glm::vec3(rot * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
 
-        // Same NDC-then-basis-composition formula ScenePanel.cpp's own 3D pick-ray uses (Editor
-        // Scene-view click-to-select) -- this is the runtime/gameplay equivalent, operating on
-        // a real CameraComponent instead of the Editor's free-roam orbit camera.
         float ndcX = (2.0f * (screenPoint.x / screenWidth)) - 1.0f;
         float ndcY = 1.0f - (2.0f * (screenPoint.y / screenHeight));
         float tanHalfFov = std::tan(glm::radians(cameraComponent.FovDegrees) * 0.5f);
@@ -714,6 +855,52 @@ namespace Duality {
         outOrigin = camTransform.Translation;
         outDirection = glm::normalize(forward + right * (ndcX * tanHalfFov * aspect) + up * (ndcY * tanHalfFov));
         return true;
+    }
+
+    bool Scene::ScreenPointToRay3D(Screen screen, const glm::vec2& screenPoint, glm::vec3& outOrigin, glm::vec3& outDirection) {
+        Entity camera = GetPrimaryCamera(screen);
+        if (!camera)
+            return false;
+        return ScreenPointToRay3D(camera, screenPoint, outOrigin, outDirection);
+    }
+
+    bool Scene::ScreenPointToWorld2D(Entity cameraEntity, const glm::vec2& screenPoint, glm::vec2& outWorld) {
+        if (!cameraEntity || !cameraEntity.HasComponent<CameraComponent>())
+            return false;
+        auto& cameraComponent = cameraEntity.GetComponent<CameraComponent>();
+        if (cameraComponent.Projection != ProjectionType::Orthographic)
+            return false;
+
+        TransformComponent camTransform = GetWorldTransform(cameraEntity);
+        float screenWidth, screenHeight;
+        ScreenExtents(cameraComponent.Screen, screenWidth, screenHeight);
+        outWorld.x = (screenPoint.x - screenWidth * 0.5f) / cameraComponent.Zoom + camTransform.Translation.x;
+        outWorld.y = (screenPoint.y - screenHeight * 0.5f) / cameraComponent.Zoom + camTransform.Translation.y;
+        return true;
+    }
+
+    RaycastHit2D Scene::RaycastPoint2D(const glm::vec2& worldPoint) {
+        RaycastHit2D result;
+        if (!m_PhysicsWorld)
+            return result;
+
+        ClosestPointQueryCallback2D callback;
+        callback.QueryPoint.Set(worldPoint.x, worldPoint.y);
+        b2AABB aabb;
+        aabb.lowerBound.Set(worldPoint.x - 0.001f, worldPoint.y - 0.001f);
+        aabb.upperBound.Set(worldPoint.x + 0.001f, worldPoint.y + 0.001f);
+        PhysicsWorld2D(m_PhysicsWorld)->World->QueryAABB(&callback, aabb);
+        if (!callback.ClosestFixture)
+            return result;
+
+        entt::entity handle = static_cast<entt::entity>(static_cast<uint32_t>(callback.ClosestFixture->GetBody()->GetUserData().pointer));
+        if (!m_Registry.valid(handle))
+            return result;
+
+        result.HitEntity = Entity(handle, this);
+        result.Point = worldPoint;
+        result.Distance = 0.0f;
+        return result;
     }
 
     void Scene::OnRuntimeStart() {
@@ -733,6 +920,8 @@ namespace Duality {
             // loop already null-checks) -- scope cut: toggling Active mid-Play does NOT
             // dynamically add/remove the body, only whether it existed at Play start.
             if (!IsEffectivelyActive(Entity(handle, this)))
+                continue;
+            if (!rb.Enabled)
                 continue;
 
             // Spawn at the entity's resolved WORLD transform (identity pass-through
@@ -763,9 +952,15 @@ namespace Duality {
             bodyDef.userData.pointer = static_cast<uintptr_t>(handle);
             b2Body* body = world->CreateBody(&bodyDef);
             rb.RuntimeBody = body;
+            if (rb.LinearDrag > 0.0f)
+                body->SetLinearDamping(rb.LinearDrag);
+            if (rb.AngularDrag > 0.0f)
+                body->SetAngularDamping(rb.AngularDrag);
 
             if (m_Registry.all_of<BoxCollider2DComponent>(handle)) {
                 auto& box = m_Registry.get<BoxCollider2DComponent>(handle);
+                if (box.Enabled) {
+                ApplyPhysicsMaterial(box.PhysicsMaterial, box.Friction, box.Restitution, box.Density);
                 b2PolygonShape shape;
                 shape.SetAsBox(box.Size.x, box.Size.y, b2Vec2(box.Offset.x, box.Offset.y), 0.0f);
                 b2FixtureDef fixtureDef;
@@ -775,10 +970,13 @@ namespace Duality {
                 fixtureDef.restitution = box.Restitution;
                 fixtureDef.isSensor = box.IsTrigger;
                 box.RuntimeFixture = body->CreateFixture(&fixtureDef);
+                }
             }
 
             if (m_Registry.all_of<CircleCollider2DComponent>(handle)) {
                 auto& circle = m_Registry.get<CircleCollider2DComponent>(handle);
+                if (circle.Enabled) {
+                ApplyPhysicsMaterial(circle.PhysicsMaterial, circle.Friction, circle.Restitution, circle.Density);
                 b2CircleShape shape;
                 shape.m_p.Set(circle.Offset.x, circle.Offset.y);
                 shape.m_radius = circle.Radius;
@@ -789,6 +987,44 @@ namespace Duality {
                 fixtureDef.restitution = circle.Restitution;
                 fixtureDef.isSensor = circle.IsTrigger;
                 circle.RuntimeFixture = body->CreateFixture(&fixtureDef);
+                }
+            }
+
+            if (m_Registry.all_of<CapsuleCollider2DComponent>(handle)) {
+                auto& cap = m_Registry.get<CapsuleCollider2DComponent>(handle);
+                if (cap.Enabled) {
+                ApplyPhysicsMaterial(cap.PhysicsMaterial, cap.Friction, cap.Restitution, cap.Density);
+                b2PolygonShape shape = MakeCapsulePolygon2D(cap.Radius, cap.Height);
+                b2FixtureDef fixtureDef;
+                fixtureDef.shape = &shape;
+                fixtureDef.density = cap.Density;
+                fixtureDef.friction = cap.Friction;
+                fixtureDef.restitution = cap.Restitution;
+                fixtureDef.isSensor = cap.IsTrigger;
+                cap.RuntimeFixture = body->CreateFixture(&fixtureDef);
+                }
+            }
+
+            if (m_Registry.all_of<PolygonCollider2DComponent>(handle)) {
+                auto& poly = m_Registry.get<PolygonCollider2DComponent>(handle);
+                if (poly.Enabled) {
+                ApplyPhysicsMaterial(poly.PhysicsMaterial, poly.Friction, poly.Restitution, poly.Density);
+                int count = std::clamp(poly.VertexCount, 3, 8);
+                b2Vec2 verts[8];
+                for (int i = 0; i < count; i++) {
+                    glm::vec2 v = GetPolygonVertex2D(poly, i) + poly.Offset;
+                    verts[i].Set(v.x, v.y);
+                }
+                b2PolygonShape shape;
+                shape.Set(verts, count);
+                b2FixtureDef fixtureDef;
+                fixtureDef.shape = &shape;
+                fixtureDef.density = poly.Density;
+                fixtureDef.friction = poly.Friction;
+                fixtureDef.restitution = poly.Restitution;
+                fixtureDef.isSensor = poly.IsTrigger;
+                poly.RuntimeFixture = body->CreateFixture(&fixtureDef);
+                }
             }
         }
 
@@ -808,6 +1044,8 @@ namespace Duality {
             // Same "no body at all if not active at Play start" rule as the 2D loop above.
             if (!IsEffectivelyActive(Entity(handle, this)))
                 continue;
+            if (!rb.Enabled)
+                continue;
 
             // Same identity-parent-only limitation as the 2D loop above.
             TransformComponent worldTransform = GetWorldTransform(Entity(handle, this));
@@ -818,20 +1056,30 @@ namespace Duality {
             float volume = 0.0f; // 0 = no collider, handled below
             bool isTrigger = false;
 
-            if (m_Registry.all_of<BoxCollider3DComponent>(handle)) {
+            if (m_Registry.all_of<BoxCollider3DComponent>(handle) && m_Registry.get<BoxCollider3DComponent>(handle).Enabled) {
                 auto& box = m_Registry.get<BoxCollider3DComponent>(handle);
+                ApplyPhysicsMaterial(box.PhysicsMaterial, box.Friction, box.Restitution, box.Density);
                 baseShape = new btBoxShape(btVector3(box.Size.x, box.Size.y, box.Size.z));
                 offset = box.Offset;
                 density = box.Density; friction = box.Friction; restitution = box.Restitution;
                 volume = (2.0f * box.Size.x) * (2.0f * box.Size.y) * (2.0f * box.Size.z);
                 isTrigger = box.IsTrigger;
-            } else if (m_Registry.all_of<SphereCollider3DComponent>(handle)) {
+            } else if (m_Registry.all_of<SphereCollider3DComponent>(handle) && m_Registry.get<SphereCollider3DComponent>(handle).Enabled) {
                 auto& sphere = m_Registry.get<SphereCollider3DComponent>(handle);
+                ApplyPhysicsMaterial(sphere.PhysicsMaterial, sphere.Friction, sphere.Restitution, sphere.Density);
                 baseShape = new btSphereShape(sphere.Radius);
                 offset = sphere.Offset;
                 density = sphere.Density; friction = sphere.Friction; restitution = sphere.Restitution;
                 volume = (4.0f / 3.0f) * glm::pi<float>() * sphere.Radius * sphere.Radius * sphere.Radius;
                 isTrigger = sphere.IsTrigger;
+            } else if (m_Registry.all_of<CapsuleCollider3DComponent>(handle) && m_Registry.get<CapsuleCollider3DComponent>(handle).Enabled) {
+                auto& cap = m_Registry.get<CapsuleCollider3DComponent>(handle);
+                ApplyPhysicsMaterial(cap.PhysicsMaterial, cap.Friction, cap.Restitution, cap.Density);
+                baseShape = new btCapsuleShape(cap.Radius, cap.Height);
+                offset = cap.Offset;
+                density = cap.Density; friction = cap.Friction; restitution = cap.Restitution;
+                volume = glm::pi<float>() * cap.Radius * cap.Radius * cap.Height;
+                isTrigger = cap.IsTrigger;
             } else {
                 // A Rigidbody3D with no collider still gets a real body (matching the
                 // 2D loop's own zero-fixture case above) -- btEmptyShape is Bullet's
@@ -902,6 +1150,7 @@ namespace Duality {
 
                 if (ScriptRegistry::TryCreate(script.ClassName, &script.Instance, &script.Destroy)) {
                     script.Instance->m_Entity = Entity(handle, this);
+                    script.Instance->m_Enabled = &script.Enabled;
                     script.Instance->SetEngineServices(&s_EngineServices);
 
                     // Apply Edit-mode Inspector overrides (see ScriptInstance's own comment)
@@ -917,11 +1166,19 @@ namespace Duality {
                         }
                     }
 
+                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(handle));
                     script.Instance->OnCreate();
+                    ScriptContext::Clear();
                 } else {
                     Log::Error("Behaviour: unknown script class '" + script.ClassName + "'");
                 }
             }
+        }
+
+        for (auto handle : m_Registry.view<AudioSourceComponent>()) {
+            auto& src = m_Registry.get<AudioSourceComponent>(handle);
+            if (src.Enabled && src.PlayOnAwake)
+                PlayAudioSourceOnEntity(this, Entity(handle, this));
         }
     }
 
@@ -935,6 +1192,14 @@ namespace Duality {
         if (m_PhysicsWorld) {
             Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);
             world2D->Listener->Events = &contactEvents;
+
+            for (auto handle : m_Registry.view<Rigidbody2DComponent>()) {
+                auto& rb = m_Registry.get<Rigidbody2DComponent>(handle);
+                if (!rb.RuntimeBody)
+                    continue;
+                bool enabled = rb.Enabled && IsEffectivelyActive(Entity(handle, this));
+                static_cast<b2Body*>(rb.RuntimeBody)->SetEnabled(enabled);
+            }
 
             // Kinematic bodies are moved by script/animation, not by Box2D's own solver (mass
             // 0, same as Static) -- so unlike Dynamic, the ENTITY's current TransformComponent
@@ -971,6 +1236,19 @@ namespace Duality {
 
         if (m_PhysicsWorld3D) {
             Physics3DWorld* world3D = PhysicsWorld3D(m_PhysicsWorld3D);
+
+            for (auto handle : m_Registry.view<Rigidbody3DComponent>()) {
+                auto& rb = m_Registry.get<Rigidbody3DComponent>(handle);
+                if (!rb.RuntimeBody)
+                    continue;
+                btRigidBody* body = static_cast<btRigidBody*>(rb.RuntimeBody);
+                bool enabled = rb.Enabled && IsEffectivelyActive(Entity(handle, this));
+                body->forceActivationState(enabled ? ACTIVE_TAG : DISABLE_SIMULATION);
+                if (!enabled) {
+                    body->setLinearVelocity(btVector3(0, 0, 0));
+                    body->setAngularVelocity(btVector3(0, 0, 0));
+                }
+            }
 
             // Same Kinematic push-before-step reasoning as the 2D world above -- Bullet's own
             // documented recipe for a kinematic body is to set its new transform through the
@@ -1027,6 +1305,8 @@ namespace Duality {
                     return m_Registry.get<BoxCollider3DComponent>(handle).IsTrigger;
                 if (m_Registry.all_of<SphereCollider3DComponent>(handle))
                     return m_Registry.get<SphereCollider3DComponent>(handle).IsTrigger;
+                if (m_Registry.all_of<CapsuleCollider3DComponent>(handle))
+                    return m_Registry.get<CapsuleCollider3DComponent>(handle).IsTrigger;
                 return false;
             };
             for (auto& pair : currentPairs) {
@@ -1052,13 +1332,15 @@ namespace Duality {
                     return;
                 auto& bc = m_Registry.get<BehaviourComponent>(self);
                 for (auto& script : bc.Scripts) {
-                    if (!script.Instance)
+                    if (!script.Instance || !script.Enabled)
                         continue;
+                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(self));
                     if (isTrigger) {
                         if (isBegin) script.Instance->OnTriggerEnter(other); else script.Instance->OnTriggerExit(other);
                     } else {
                         if (isBegin) script.Instance->OnCollisionEnter(other); else script.Instance->OnCollisionExit(other);
                     }
+                    ScriptContext::Clear();
                 }
             };
             fire(event.A, Entity(event.B, this), event.IsTrigger, event.IsBegin);
@@ -1068,7 +1350,7 @@ namespace Duality {
         auto flipbookView = m_Registry.view<SpriteFlipbookComponent>();
         for (auto handle : flipbookView) {
             auto& flipbook = flipbookView.get<SpriteFlipbookComponent>(handle);
-            if (!flipbook.Playing)
+            if (!flipbook.Enabled || !flipbook.Playing)
                 continue;
 
             int frameCount = FlipbookFrameCount(flipbook);
@@ -1091,38 +1373,59 @@ namespace Duality {
             }
         }
 
+        UpdateSceneRuntimeSystems(*this, deltaTime);
+
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
             if (bc.Scripts.empty())
                 continue;
 
-            bool active = IsEffectivelyActive(Entity(handle, this));
+            bool entityActive = IsEffectivelyActive(Entity(handle, this));
             for (auto& script : bc.Scripts) {
                 if (!script.Instance)
                     continue;
-                if (active != script.WasActiveLastFrame) {
-                    if (active)
+                bool enabled = entityActive && script.Enabled;
+                if (enabled != script.WasEnabledLastFrame) {
+                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(handle));
+                    if (enabled)
                         script.Instance->OnEnable();
                     else
                         script.Instance->OnDisable();
-                    script.WasActiveLastFrame = active;
+                    ScriptContext::Clear();
+                    script.WasEnabledLastFrame = enabled;
                 }
-                if (active)
+                if (enabled) {
+                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(handle));
                     script.Instance->OnUpdate(deltaTime);
+                    ScriptContext::Clear();
+                }
             }
         }
     }
 
     void Scene::OnRuntimeStop() {
+        ClearSceneRuntimeSystems(*this);
+
+        for (auto handle : m_Registry.view<AudioSourceComponent>()) {
+            auto& src = m_Registry.get<AudioSourceComponent>(handle);
+            if (src.RuntimeHandle != InvalidAudioHandle) {
+                AudioEngine::Stop(src.RuntimeHandle);
+                src.RuntimeHandle = InvalidAudioHandle;
+            }
+            src.Paused = false;
+        }
+
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
             for (auto& script : bc.Scripts) {
                 if (script.Instance) {
-                    if (script.WasActiveLastFrame)
+                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(handle));
+                    if (script.WasEnabledLastFrame)
                         script.Instance->OnDisable();
                     script.Instance->OnDestroy();
+                    ScriptContext::Clear();
                     script.Destroy(script.Instance);
                     script.Instance = nullptr;
                 }
@@ -1145,6 +1448,12 @@ namespace Duality {
             auto circleView = m_Registry.view<CircleCollider2DComponent>();
             for (auto handle : circleView)
                 circleView.get<CircleCollider2DComponent>(handle).RuntimeFixture = nullptr;
+            auto cap2DView = m_Registry.view<CapsuleCollider2DComponent>();
+            for (auto handle : cap2DView)
+                cap2DView.get<CapsuleCollider2DComponent>(handle).RuntimeFixture = nullptr;
+            auto polyView = m_Registry.view<PolygonCollider2DComponent>();
+            for (auto handle : polyView)
+                polyView.get<PolygonCollider2DComponent>(handle).RuntimeFixture = nullptr;
         }
 
         if (m_PhysicsWorld3D) {
@@ -1191,6 +1500,174 @@ namespace Duality {
     void Scene::Clear() {
         m_Registry.clear();
         m_RootEntities.clear();
+    }
+
+    namespace {
+
+        void DispatchPointerEvent(Scene& scene, entt::entity target, PointerEventData& eventData, void (Behaviour::*method)(PointerEventData&)) {
+            if (!scene.Registry().valid(target) || !scene.Registry().all_of<BehaviourComponent>(target))
+                return;
+            if (!scene.IsEffectivelyActive(Entity(target, &scene)))
+                return;
+            auto& bc = scene.Registry().get<BehaviourComponent>(target);
+            for (auto& script : bc.Scripts) {
+                if (!script.Instance || !script.Enabled)
+                    continue;
+                ScriptContext::Bind(&s_EngineServices, &scene, static_cast<unsigned int>(target));
+                (script.Instance->*method)(eventData);
+                ScriptContext::Clear();
+            }
+        }
+
+        using RaycastFromScreenFn = Entity (*)(Scene&, Entity, const glm::vec2&, float, glm::vec3&, float&);
+
+        Entity RaycastHit2DFromCamera(Scene& scene, Entity cameraEntity, const glm::vec2& screenPoint, float /*maxDistance*/, glm::vec3& outWorldPoint, float& outDistance) {
+            glm::vec2 world2D;
+            if (!scene.ScreenPointToWorld2D(cameraEntity, screenPoint, world2D))
+                return Entity{};
+            RaycastHit2D hit = scene.RaycastPoint2D(world2D);
+            outWorldPoint = { world2D.x, world2D.y, 0.0f };
+            outDistance = hit ? hit.Distance : 0.0f;
+            return hit.HitEntity;
+        }
+
+        Entity RaycastHit3DFromCamera(Scene& scene, Entity cameraEntity, const glm::vec2& screenPoint, float maxDistance, glm::vec3& outWorldPoint, float& outDistance) {
+            glm::vec3 origin, direction;
+            if (!scene.ScreenPointToRay3D(cameraEntity, screenPoint, origin, direction))
+                return Entity{};
+            RaycastHit3D hit = scene.Raycast3D(origin, direction, maxDistance);
+            if (hit) {
+                outWorldPoint = hit.Point;
+                outDistance = hit.Distance;
+                return hit.HitEntity;
+            }
+            outWorldPoint = origin + direction * maxDistance;
+            outDistance = maxDistance;
+            return Entity{};
+        }
+
+        struct RaycasterPointerState {
+            entt::entity HoveredEntity = entt::null;
+            entt::entity PressedEntity = entt::null;
+            Screen PressedScreen = Screen::Top;
+            glm::vec2 PressedPosition{ 0.0f };
+        };
+
+        void ProcessRaycaster(Scene& scene, Entity cameraEntity, Screen cameraScreen, bool enabled, RaycasterPointerState& state,
+                              RaycastFromScreenFn raycastFn, float maxDistance,
+                              const glm::vec2& pointer, Screen pointerScreen, bool pointerDown,
+                              bool pointerDownEdge, bool pointerUpEdge) {
+            if (!enabled)
+                return;
+
+            bool pointerOnThisScreen = pointerDown && pointerScreen == cameraScreen;
+            Entity hitEntity;
+            PointerEventData eventData;
+            eventData.Screen = cameraScreen;
+            eventData.Position = pointer;
+
+            if (pointerOnThisScreen) {
+                hitEntity = raycastFn(scene, cameraEntity, pointer, maxDistance, eventData.WorldPoint, eventData.Distance);
+                eventData.PointerCurrentRaycastTarget = hitEntity;
+            } else {
+                hitEntity = Entity{};
+                eventData.PointerCurrentRaycastTarget = Entity{};
+            }
+
+            entt::entity hitHandle = hitEntity ? hitEntity.Handle() : entt::null;
+
+            if (pointerOnThisScreen && hitHandle != state.HoveredEntity) {
+                if (state.HoveredEntity != entt::null) {
+                    eventData.PointerCurrentRaycastTarget = Entity(state.HoveredEntity, &scene);
+                    DispatchPointerEvent(scene, state.HoveredEntity, eventData, &Behaviour::OnPointerExit);
+                }
+                if (hitHandle != entt::null) {
+                    eventData.PointerCurrentRaycastTarget = hitEntity;
+                    DispatchPointerEvent(scene, hitHandle, eventData, &Behaviour::OnPointerEnter);
+                }
+                state.HoveredEntity = hitHandle;
+            }
+
+            if (!pointerOnThisScreen && state.HoveredEntity != entt::null) {
+                eventData.PointerCurrentRaycastTarget = Entity(state.HoveredEntity, &scene);
+                DispatchPointerEvent(scene, state.HoveredEntity, eventData, &Behaviour::OnPointerExit);
+                state.HoveredEntity = entt::null;
+            }
+
+            if (pointerDownEdge && pointerScreen == cameraScreen) {
+                hitEntity = raycastFn(scene, cameraEntity, pointer, maxDistance, eventData.WorldPoint, eventData.Distance);
+                eventData.PointerCurrentRaycastTarget = hitEntity;
+                eventData.PointerPressRaycastTarget = hitEntity;
+                state.PressedEntity = hitEntity ? hitEntity.Handle() : entt::null;
+                state.PressedScreen = pointerScreen;
+                state.PressedPosition = pointer;
+                if (hitEntity)
+                    DispatchPointerEvent(scene, hitEntity.Handle(), eventData, &Behaviour::OnPointerDown);
+            }
+
+            if (pointerUpEdge && state.PressedEntity != entt::null && state.PressedScreen == cameraScreen) {
+                Entity pressEntity(state.PressedEntity, &scene);
+                eventData.Screen = state.PressedScreen;
+                eventData.Position = pointer;
+                eventData.PointerPressRaycastTarget = pressEntity;
+                hitEntity = raycastFn(scene, cameraEntity, pointer, maxDistance, eventData.WorldPoint, eventData.Distance);
+                eventData.PointerCurrentRaycastTarget = hitEntity;
+
+                DispatchPointerEvent(scene, pressEntity.Handle(), eventData, &Behaviour::OnPointerUp);
+                if (hitEntity && pressEntity.Handle() == hitEntity.Handle())
+                    DispatchPointerEvent(scene, hitEntity.Handle(), eventData, &Behaviour::OnPointerClick);
+
+                state.PressedEntity = entt::null;
+            }
+        }
+
+    }
+
+    void UpdatePhysicsRaycasterInteractions(Scene& scene) {
+        glm::vec2 pointer = Input::GetPointerPosition();
+        Screen pointerScreen = Input::GetPointerScreen();
+        bool pointerDown = Input::GetPointerDown();
+
+        static bool s_WasPointerDown = false;
+        bool pointerDownEdge = pointerDown && !s_WasPointerDown;
+        bool pointerUpEdge = Input::GetPointerUp();
+        s_WasPointerDown = pointerDown;
+
+        auto raycaster2DView = scene.Registry().view<CameraComponent, PhysicsRaycaster2DComponent>();
+        for (auto handle : raycaster2DView) {
+            auto& raycaster = raycaster2DView.get<PhysicsRaycaster2DComponent>(handle);
+            Entity cameraEntity(handle, &scene);
+            RaycasterPointerState state{
+                raycaster.HoveredEntity,
+                raycaster.PressedEntity,
+                raycaster.PressedScreen,
+                raycaster.PressedPosition,
+            };
+            ProcessRaycaster(scene, cameraEntity, raycaster2DView.get<CameraComponent>(handle).Screen, raycaster.Enabled, state,
+                             RaycastHit2DFromCamera, 0.0f, pointer, pointerScreen, pointerDown, pointerDownEdge, pointerUpEdge);
+            raycaster.HoveredEntity = state.HoveredEntity;
+            raycaster.PressedEntity = state.PressedEntity;
+            raycaster.PressedScreen = state.PressedScreen;
+            raycaster.PressedPosition = state.PressedPosition;
+        }
+
+        auto raycaster3DView = scene.Registry().view<CameraComponent, PhysicsRaycaster3DComponent>();
+        for (auto handle : raycaster3DView) {
+            auto& raycaster = raycaster3DView.get<PhysicsRaycaster3DComponent>(handle);
+            Entity cameraEntity(handle, &scene);
+            RaycasterPointerState state{
+                raycaster.HoveredEntity,
+                raycaster.PressedEntity,
+                raycaster.PressedScreen,
+                raycaster.PressedPosition,
+            };
+            ProcessRaycaster(scene, cameraEntity, raycaster3DView.get<CameraComponent>(handle).Screen, raycaster.Enabled, state,
+                             RaycastHit3DFromCamera, raycaster.MaxDistance, pointer, pointerScreen, pointerDown, pointerDownEdge, pointerUpEdge);
+            raycaster.HoveredEntity = state.HoveredEntity;
+            raycaster.PressedEntity = state.PressedEntity;
+            raycaster.PressedScreen = state.PressedScreen;
+            raycaster.PressedPosition = state.PressedPosition;
+        }
     }
 
 }

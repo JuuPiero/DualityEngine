@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Stack — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="api-stack">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">API Reference</div>
+                <h1>API Stack — từ thấp đến cao</h1>
+                <p class="lede">
+                    Sơ đồ tham chiếu nhanh mọi lớp API trong repo — đọc từ <strong>dưới lên trên</strong>
+                    (runtime lõi → gameplay script). Mỗi mục trỏ tới trang chi tiết hoặc header source.
+                </p>
+
+                <div class="callout note">
+                    <span class="callout-title">Nguyên tắc phụ thuộc</span>
+                    <code>GameScripts</code> trên desktop <strong>chỉ include header</strong> của
+                    <code>DualityEngine</code>, không link compiled code — mọi lời gọi chạm subsystem
+                    runtime (Input, physics, audio…) đi qua <code>EngineServices</code> hoặc wrapper
+                    trong <code>Scripting/</code>.
+                </div>
+
+                <h2 style="border-top:none;margin-top:0">Tầng 0 — Platform &amp; Math</h2>
+                <table>
+                    <tr><th>Module</th><th>Vai trò</th><th>Header chính</th></tr>
+                    <tr><td>EnTT</td><td>ECS registry (<code>entt::registry</code>)</td><td><code>Vendor/EnTT</code></td></tr>
+                    <tr><td>GLM</td><td>Vector/matrix (<code>glm::vec2/3/4</code>)</td><td><code>Vendor/GLM</code></td></tr>
+                    <tr><td>Box2D / Bullet</td><td>Physics 2D / 3D backend</td><td><code>Scene.cpp</code> (opaque từ Components)</td></tr>
+                    <tr><td>OpenGL / citro2d</td><td>Renderer desktop / 3DS</td><td><code>Renderer/OpenGL/*</code>, <code>Renderer/N3DS/*</code></td></tr>
+                </table>
+
+                <h2>Tầng 1 — ECS &amp; Scene core</h2>
+                <table>
+                    <tr><th>API</th><th>Mô tả</th><th>File</th></tr>
+                    <tr><td><code>Entity</code></td><td>Handle + con trỏ <code>Scene*</code>; <code>GetComponent&lt;T&gt;()</code>, <code>AddComponent</code>, <code>RemoveComponent</code></td><td><code>ECS/Entity.h</code>, <code>Scene/Scene.h</code></td></tr>
+                    <tr><td><code>Scene</code></td><td>Registry, hierarchy, world transform, physics worlds, runtime tick</td><td><code>Scene/Scene.h</code>, <code>Scene.cpp</code></td></tr>
+                    <tr><td><code>Scene::CreateEntity</code> / <code>DestroyEntity</code></td><td>Tạo/xoá entity + 5 component bắt buộc (Name, Tag, Active, Transform, Hierarchy)</td><td><code>Scene.cpp</code></td></tr>
+                    <tr><td><code>Scene::IsEffectivelyActive</code></td><td>Active cascade theo parent (Unity <code>activeInHierarchy</code>)</td><td><code>Scene.cpp</code></td></tr>
+                    <tr><td><code>Scene::ResolveEntityLayer</code></td><td>Layer hiệu lực (walk parent chain, <code>LayerComponent</code>)</td><td><code>Scene.h</code></td></tr>
+                    <tr><td><code>Layer</code> enum</td><td><code>Default</code>, <code>TOP</code>, <code>BOTTOM</code> — map 2 màn 3DS</td><td><code>Scene/Layer.h</code></td></tr>
+                </table>
+                <p>Chi tiết kiến trúc: <a href="architecture.html">ECS &amp; Scene</a>.</p>
+
+                <h2>Tầng 2 — Reflection &amp; Serialization</h2>
+                <table>
+                    <tr><th>API</th><th>Mô tả</th><th>File</th></tr>
+                    <tr><td><code>FieldValue</code> / <code>FieldHandle</code></td><td>Variant + accessor type-erased cho Inspector/JSON</td><td><code>Reflection/Field.h</code></td></tr>
+                    <tr><td><code>MakeField</code> / <code>MakeNestedField</code> / <code>MakeEnumField</code></td><td>Đăng ký field component hoặc script property</td><td><code>Field.h</code></td></tr>
+                    <tr><td><code>TypeRegistry</code></td><td>Danh sách component + field cho Properties panel</td><td><code>Reflection/TypeRegistry.h</code>, <code>Reflection.cpp</code></td></tr>
+                    <tr><td><code>SceneSerializer</code></td><td>Đọc/ghi <code>.scene</code> JSON</td><td><code>Scene/SceneSerializer.h</code></td></tr>
+                    <tr><td><code>AssetRef</code> / <code>EntityRef</code></td><td>GUID asset; handle entity (EntityRef không round-trip save/load)</td><td><code>Field.h</code></td></tr>
+                    <tr><td><code>EnumFieldValue</code></td><td>Dropdown cho <code>enum class</code> trong <code>DUALITY_PROPERTY</code></td><td><code>Field.h</code>, <code>generate_fields.py</code></td></tr>
+                </table>
+
+                <h2>Tầng 3 — Components (data)</h2>
+                <p>Toàn bộ struct trong <code>Scene/Components.h</code> — bảng field đầy đủ: <a href="components.html">Components Reference</a>.</p>
+                <table>
+                    <tr><th>Nhóm</th><th>Component</th></tr>
+                    <tr><td>Core</td><td>Name, Tag, Active, Transform, Hierarchy, Layer</td></tr>
+                    <tr><td>Render 2D</td><td>SpriteRenderer, SpriteFlipbook, SpriteSheetAnimator, Tilemap, LineRenderer, ParticleSystem</td></tr>
+                    <tr><td>Render 3D</td><td>MeshRenderer, Camera</td></tr>
+                    <tr><td>Physics 2D</td><td>Rigidbody2D, Box/Circle/Capsule/Polygon Collider2D</td></tr>
+                    <tr><td>Physics 3D</td><td>Rigidbody3D, Box/Sphere/Capsule Collider3D</td></tr>
+                    <tr><td>Audio</td><td>AudioSource, AudioListener</td></tr>
+                    <tr><td>UI</td><td>UIRect, UIImage, UIButton, UIText, Canvas, UILayoutGroup, UISlider, UIToggle, UIInputField, UIDocumentReference</td></tr>
+                    <tr><td>Gameplay</td><td>BehaviourComponent (vector ScriptInstance), FollowTarget</td></tr>
+                </table>
+
+                <h2>Tầng 4 — Engine subsystems (runtime)</h2>
+                <table>
+                    <tr><th>Subsystem</th><th>API chính</th><th>File</th></tr>
+                    <tr><td>Input</td><td><code>Input::GetKey*</code>, axes, pointer</td><td><code>Input/Input.h</code></td></tr>
+                    <tr><td>Audio</td><td><code>AudioEngine</code>, per-entity <code>AudioSourceComponent</code></td><td><code>Audio/AudioEngine.h</code></td></tr>
+                    <tr><td>Physics</td><td>Box2D + Bullet trong <code>Scene::OnRuntimeStart/Update</code>; raycast</td><td><code>Scene.cpp</code>, <code>Physics/RaycastHit.h</code></td></tr>
+                    <tr><td>Render</td><td><code>SceneRenderer</code>, <code>UIRenderer</code>, runtime systems</td><td><code>Renderer/SceneRenderer.cpp</code>, <code>SceneRuntimeSystems.cpp</code></td></tr>
+                    <tr><td>Assets</td><td><code>AssetDatabase</code>, loaders (.mat, .physmat, .obj, .t3x…)</td><td><code>Asset/*</code></td></tr>
+                    <tr><td>SceneManager</td><td><code>RequestLoadScene</code> (deferred)</td><td><code>Scene/SceneManager.h</code></td></tr>
+                </table>
+                <p>Physics chi tiết: <a href="physics.html">Physics 2D/3D</a>. Rendering/UI: <a href="rendering.html">Rendering &amp; UI</a>.</p>
+
+                <h2>Tầng 5 — Scripting bridge</h2>
+                <table>
+                    <tr><th>API</th><th>Mô tả</th></tr>
+                    <tr><td><code>EngineServices</code></td><td>Struct con trỏ hàm C-ABI — Input, Audio, Raycast, Log, Instantiate, …</td></tr>
+                    <tr><td><code>Behaviour</code></td><td>Base class lifecycle + <code>GetComponent</code> + wrappers</td></tr>
+                    <tr><td><code>ScriptInput</code>, <code>ScriptPhysics2D/3D</code>, <code>ScriptDebug</code>, <code>ScriptScene</code></td><td>Static API Unity-style trên entity hiện tại</td></tr>
+                    <tr><td>Component wrappers</td><td><code>GetTransform()</code>, <code>GetRigidbody2D()</code>, <code>GetSpriteRenderer()</code>, <code>GetEntityLayer()</code>, <code>GetUIButton()</code>, …</td></tr>
+                    <tr><td><code>ScriptRegistry</code></td><td>Factory + <code>GetFields</code> cho Inspector</td></tr>
+                    <tr><td><code>DUALITY_PROPERTY()</code></td><td>Field Inspector-editable; enum → dropdown; nested struct → foldout</td></tr>
+                </table>
+                <p>Chi tiết: <a href="scripting-api.html">Scripting API</a>.</p>
+
+                <h2>Tầng 6 — Editor (desktop only)</h2>
+                <table>
+                    <tr><th>Panel / Tool</th><th>Chức năng</th></tr>
+                    <tr><td>Menu Bar</td><td>Project/scene I/O, build, <strong>Ctrl+S Save Scene</strong>, dirty flag <code>*</code></td></tr>
+                    <tr><td>Hierarchy</td><td>Tree entity, layer sections, drag reparent, prefab drop</td></tr>
+                    <tr><td>Properties</td><td>Reflection-driven fields; script properties; asset inspector</td></tr>
+                    <tr><td>Scene</td><td>2D/3D view, gizmo Q/W/E, collider wireframe + resize (mọi entity có Transform)</td></tr>
+                    <tr><td>Game</td><td>Play/Stop, snapshot scene on Play</td></tr>
+                    <tr><td>Content Browser</td><td>Assets, create script, open scene</td></tr>
+                </table>
+                <p>Chi tiết: <a href="editor.html">Editor Panels</a>.</p>
+
+                <h2>Script demo có sẵn (GameScripts)</h2>
+                <table>
+                    <tr><th>Class</th><th>Demo gì</th></tr>
+                    <tr><td><code>BounceBehaviour</code></td><td>DUALITY_PROPERTY, EntityRef, nested struct</td></tr>
+                    <tr><td><code>ApiShowcaseBehaviour</code></td><td>Input, Audio, SaveSystem, DateTime</td></tr>
+                    <tr><td><code>FeatureShowcaseBehaviour</code></td><td>Enum dropdown, Layer/BodyType, wrappers, raycast, nested tuning</td></tr>
+                    <tr><td><code>RaycastDemoBehaviour</code></td><td>ScreenPointToRay3D + Raycast3D click chọn</td></tr>
+                    <tr><td><code>UIDocumentDemoBehaviour</code></td><td>Instantiate UIDocument từ asset</td></tr>
+                </table>
+
+                <h2>Tính năng mới (phiên bản gần đây)</h2>
+                <ul>
+                    <li><strong>Component mở rộng:</strong> Capsule/Polygon collider 2D, Capsule 3D, PhysicsMaterial (.physmat), Canvas/Layout/UI widgets, Tilemap, LineRenderer, FollowTarget, ParticleSystem CPU, Sprite sort/flip/9-slice.</li>
+                    <li><strong>Script wrappers:</strong> <code>Transform</code>, <code>Rigidbody2D/3D</code>, <code>Collider2D/3D</code>, <code>EntityLayer</code>, UI widgets — xem <code>Behaviour.h</code>.</li>
+                    <li><strong>DUALITY_PROPERTY enum:</strong> <code>enum class</code> tự định nghĩa → Combo; engine enum (<code>Layer</code>, <code>BodyType</code>) → Combo sẵn.</li>
+                    <li><strong>Scene gizmo:</strong> Transform gizmo cho mọi entity (kể cả empty); collider resize không cần bật EditMode; picking qua collider/pivot.</li>
+                    <li><strong>Scene dirty + Ctrl+S:</strong> Dấu <code>*</code> trên menu bar khi có thay đổi chưa lưu.</li>
+                    <li><strong>LayerComponent::Value</strong> — field serialize <code>"Layer"</code> (tránh trùng tên enum trên toolchain 3DS).</li>
+                </ul>
+
+                <div class="page-nav">
+                    <a class="prev" href="architecture.html"><span class="dir">← Trước</span>ECS &amp; Scene</a>
+                    <a class="next" href="scripting-api.html"><span class="dir">Tiếp →</span>Scripting API</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

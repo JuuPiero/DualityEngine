@@ -28,6 +28,7 @@
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer3D.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
+#include "DualityEngine/Scene/PhysicsRaycaster.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -233,6 +234,7 @@ int main() {
 
         // Before OnRuntimeUpdate, not after -- see DualityPlayer's own Main.cpp for why.
         UpdateUIInteractions(scene);
+        UpdatePhysicsRaycasterInteractions(scene);
 
         double now = glfwGetTime();
         float deltaTime = static_cast<float>(now - lastTime);

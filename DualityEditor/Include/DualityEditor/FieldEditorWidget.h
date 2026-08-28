@@ -27,6 +27,6 @@ namespace Duality {
     // comment) can recurse into this directly against their own snapshotted values, since a
     // nested field's inner values live in a detached std::vector<FieldValue>, not through any
     // live `void*` instance a FieldHandle::Get/Set could operate on.
-    bool DrawFieldValueWidget(const std::string& name, FieldValue& value, Scene* scene = nullptr);
+    bool DrawFieldValueWidget(const std::string& name, FieldValue& value, Scene* scene = nullptr, int indentDepth = 0);
 
 }

@@ -54,7 +54,7 @@ namespace Duality {
         // uniformly in the shader instead of branching on whether one is bound.
         unsigned int m_WhiteTexture = 0;
 
-        GLVertexArray m_Meshes[3]; // indexed by static_cast<int>(MeshPrimitive)
+        GLVertexArray m_Meshes[static_cast<int>(MeshPrimitive::Count)]; // indexed by static_cast<int>(MeshPrimitive)
 
         // Same 1-based-handle/0-reserved convention as m_TextureCache below, for LoadMesh-
         // imported meshes (see MeshLoader.h) -- separate from m_Meshes since that one is

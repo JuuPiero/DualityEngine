@@ -25,6 +25,7 @@
 #include "DualityEngine/Renderer/N3DS/Citro3DRenderer.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
+#include "DualityEngine/Scene/PhysicsRaycaster.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -150,6 +151,7 @@ int main(int argc, char* argv[]) {
         // this frame needs this frame's value already computed, same reasoning as Input's own
         // key-state updates above running before gameplay code.
         UpdateUIInteractions(scene);
+        UpdatePhysicsRaycasterInteractions(scene);
 
         u64 now = svcGetSystemTick();
         float deltaTime = static_cast<float>(now - lastTick) / static_cast<float>(SYSCLOCK_ARM11);

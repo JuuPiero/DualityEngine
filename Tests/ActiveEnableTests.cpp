@@ -114,3 +114,37 @@ TEST_CASE("An entity that starts inactive never gets OnEnable/OnDisable") {
     CHECK_SOFT(counters.OnDisable == 0, "OnDisable does NOT fire -- it was never enabled to begin with");
     CHECK_SOFT(counters.OnDestroy == 1, "OnDestroy still fires regardless");
 }
+
+TEST_CASE("ScriptInstance::Enabled gates OnUpdate/OnEnable like MonoBehaviour.enabled") {
+    EnsureRegistered();
+    Scene scene;
+    Counters counters;
+    g_Counters = &counters;
+
+    Entity e = scene.CreateEntity("Scripted");
+    ScriptInstance slot{ "CountingBehaviour" };
+    slot.Enabled = false;
+    e.AddComponent<BehaviourComponent>().Scripts.push_back(slot);
+
+    scene.OnRuntimeStart();
+    CHECK(counters.OnCreate == 1);
+
+    scene.OnRuntimeUpdate(1.0f / 60.0f);
+    CHECK_SOFT(counters.OnEnable == 0, "disabled script never OnEnable while Enabled=false");
+    CHECK_SOFT(counters.OnUpdate == 0, "disabled script never OnUpdate");
+
+    e.GetComponent<BehaviourComponent>().Scripts[0].Enabled = true;
+    scene.OnRuntimeUpdate(1.0f / 60.0f);
+    CHECK_SOFT(counters.OnEnable == 1, "OnEnable fires when Enabled flipped on");
+    CHECK_SOFT(counters.OnUpdate == 1, "OnUpdate runs once Enabled");
+
+    auto* instance = static_cast<CountingBehaviour*>(e.GetComponent<BehaviourComponent>().Scripts[0].Instance);
+    instance->SetEnabled(false);
+    scene.OnRuntimeUpdate(1.0f / 60.0f);
+    CHECK_SOFT(counters.OnDisable == 1, "SetEnabled(false) fires OnDisable");
+    CHECK_SOFT(counters.OnUpdate == 1, "OnUpdate stops after SetEnabled(false)");
+    CHECK_SOFT(!e.GetComponent<BehaviourComponent>().Scripts[0].Enabled, "SetEnabled writes ScriptInstance::Enabled");
+
+    scene.OnRuntimeStop();
+    CHECK_SOFT(counters.OnDestroy == 1, "OnDestroy still fires");
+}

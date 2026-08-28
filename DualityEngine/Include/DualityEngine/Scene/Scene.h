@@ -8,6 +8,7 @@
 #include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Physics/RaycastHit.h"
 #include "DualityEngine/Renderer/Screen.h"
+#include "DualityEngine/Scene/Layer.h"
 
 namespace Duality {
 
@@ -53,23 +54,24 @@ namespace Duality {
         // transform.Translation/.Rotation.z/.Scale read.
         TransformComponent GetWorldTransform(Entity entity);
 
-        // Searches every ScreenGroupComponent{screen} entity's subtree (any depth, via
+        // Searches every LayerComponent{TOP/BOTTOM} entity's subtree (any depth, via
         // HierarchyComponent::Children) for one named `name`. Falls back to a scene-wide
-        // by-name search if no ScreenGroupComponent exists for that screen yet, so the
+        // by-name search if no layer root exists for that screen yet, so the
         // API isn't a no-op before a project adopts the convention. Returns an empty
         // Entity if nothing matches. This is the engine-side half of the
-        // Behaviour::FindEntityInTopScreen/FindEntityInBottomScreen scripting API.
+        // ScriptScene::FindEntityInTopScreen/FindEntityInBottomScreen scripting API.
         Entity FindEntityInScreen(Screen screen, const std::string& name);
 
-        // Walks `entity` and its Parent chain looking for a ScreenGroupComponent or
+        // Walks `entity` and its Parent chain looking for a LayerComponent or
+        // CameraComponent, returning the resolved Layer value.
+        Layer ResolveEntityLayer(Entity entity);
+
+        // Walks `entity` and its Parent chain looking for a LayerComponent or
         // CameraComponent (entity itself checked first), returning true and filling
-        // outScreen with the first one found. This is "true 2 worlds" separation for
-        // rendering: SceneRenderer::RenderScreen and ScenePanel's split-view panes
-        // use this to skip drawing an entity tagged for the OTHER screen entirely,
-        // rather than only filtering by position-relative-to-camera as before.
-        // Returns false if no tag exists anywhere in the chain (Ungrouped), in which
-        // case the caller falls back to that older position-based behavior on either
-        // screen -- untagged/legacy content keeps working exactly as before.
+        // outScreen with the physical screen for Layer::TOP/BOTTOM (or a camera's own
+        // Screen). Used by SceneRenderer::ShouldRenderOnScreen for "2 worlds" separation.
+        // Returns false for Default layer (ungrouped) -- caller falls back to position-based
+        // visibility on either screen.
         bool TryResolveEntityScreen(Entity entity, Screen& outScreen);
 
         // Unity's GameObject.activeInHierarchy -- true only if `entity`'s own
@@ -97,6 +99,13 @@ namespace Duality {
         // has no primary camera, or its camera isn't Perspective -- an Orthographic camera's
         // "ray" would need parallel-projection handling this doesn't attempt.
         bool ScreenPointToRay3D(Screen screen, const glm::vec2& screenPoint, glm::vec3& outOrigin, glm::vec3& outDirection);
+        bool ScreenPointToRay3D(Entity cameraEntity, const glm::vec2& screenPoint, glm::vec3& outOrigin, glm::vec3& outDirection);
+
+        // Inverse of SceneRenderer's orthographic 2D projection for a specific camera entity.
+        bool ScreenPointToWorld2D(Entity cameraEntity, const glm::vec2& screenPoint, glm::vec2& outWorld);
+
+        // Closest Box2D fixture whose shape contains `worldPoint` (2D "click" query).
+        RaycastHit2D RaycastPoint2D(const glm::vec2& worldPoint);
 
         // Runtime (Play mode) lifecycle -- instantiates/updates/destroys
         // every entity's BehaviourComponent, if any.
@@ -149,6 +158,11 @@ namespace Duality {
 
     template<typename T>
     T& Entity::GetComponent() {
+        return m_Scene->Registry().get<T>(m_Handle);
+    }
+
+    template<typename T>
+    const T& Entity::GetComponent() const {
         return m_Scene->Registry().get<T>(m_Handle);
     }
 

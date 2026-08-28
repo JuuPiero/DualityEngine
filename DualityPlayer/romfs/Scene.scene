@@ -9,7 +9,8 @@
           "5f6708385448b38d8085226cc0d52916"
         ],
         "Mesh": "314148b51db32e5e11a96d782e3fa3cf",
-        "Primitive": "Cube"
+        "Primitive": "Cube",
+        "Sort Order": 0
       },
       "Name": {
         "Name": "Megaman"
@@ -20,7 +21,7 @@
       },
       "Transform": {
         "Rotation": [
-          172.70396423339844,
+          191.33242797851563,
           144.42514038085938,
           0.0
         ],
@@ -31,7 +32,7 @@
         ],
         "Translation": [
           177.66250610351563,
-          159.174072265625,
+          149.34829711914063,
           -149.19720458984375
         ]
       }
@@ -57,10 +58,23 @@
           1.0,
           1.0
         ],
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
         "Size": [
           32.0,
           32.0
         ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
         "Texture": ""
       },
       "Tag": {
@@ -93,14 +107,20 @@
           "82695b523afc8e9a886a3c9443f9a759"
         ],
         "Mesh": "",
-        "Primitive": "Sphere"
+        "Primitive": "Sphere",
+        "Sort Order": 0
       },
       "Name": {
         "Name": "PhysicsBall3D"
       },
       "Parent": -1,
       "Rigidbody 3D": {
-        "Body Type": "Dynamic"
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Dynamic",
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
       },
       "Sphere Collider 3D": {
         "Density": 1.0,
@@ -112,6 +132,7 @@
           0.0,
           0.0
         ],
+        "Physics Material": "",
         "Radius": 20.0,
         "Restitution": 0.4000000059604645
       },
@@ -130,9 +151,9 @@
           40.0
         ],
         "Translation": [
-          185.58163452148438,
-          59.47947692871094,
-          -199.4073486328125
+          420.9171447753906,
+          78.76164245605469,
+          -163.53988647460938
         ]
       }
     },
@@ -142,7 +163,7 @@
       },
       "Box Collider 3D": {
         "Density": 1.0,
-        "Edit": false,
+        "Edit": true,
         "Friction": 0.5,
         "Is Trigger": false,
         "Offset": [
@@ -150,24 +171,31 @@
           0.0,
           0.0
         ],
+        "Physics Material": "",
         "Restitution": 0.0,
         "Size": [
-          100.0,
+          104.67080688476563,
           10.0,
-          100.0
+          103.95095825195313
         ]
       },
       "Mesh Renderer": {
         "Materials": [],
         "Mesh": "",
-        "Primitive": "Cube"
+        "Primitive": "Cube",
+        "Sort Order": 0
       },
       "Name": {
         "Name": "PhysicsGround3D"
       },
       "Parent": -1,
       "Rigidbody 3D": {
-        "Body Type": "Static"
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
       },
       "Tag": {
         "Tag": "Untagged"
@@ -184,9 +212,9 @@
           200.0
         ],
         "Translation": [
-          232.4009552001953,
+          420.9171447753906,
           241.3896942138672,
-          -176.36477661132813
+          -163.53988647460938
         ]
       }
     },
@@ -203,6 +231,7 @@
           0.0,
           0.0
         ],
+        "Physics Material": "",
         "Radius": 10.0,
         "Restitution": 0.4000000059604645
       },
@@ -211,8 +240,13 @@
       },
       "Parent": -1,
       "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
         "Body Type": "Dynamic",
-        "Fixed Rotation": false
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
       },
       "Sprite Renderer": {
         "Color": [
@@ -221,10 +255,23 @@
           0.20000000298023224,
           1.0
         ],
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
         "Size": [
           20.0,
           20.0
         ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
         "Texture": ""
       },
       "Tag": {
@@ -261,6 +308,7 @@
           0.0,
           0.0
         ],
+        "Physics Material": "",
         "Restitution": 0.0,
         "Size": [
           180.0,
@@ -272,8 +320,13 @@
       },
       "Parent": -1,
       "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
         "Body Type": "Static",
-        "Fixed Rotation": false
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
       },
       "Sprite Renderer": {
         "Color": [
@@ -282,10 +335,23 @@
           0.3499999940395355,
           1.0
         ],
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
         "Size": [
           360.0,
           16.0
         ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
         "Texture": ""
       },
       "Tag": {
@@ -313,13 +379,13 @@
       "Active": {
         "Active": true
       },
+      "Layer": {
+        "Layer": "BOTTOM"
+      },
       "Name": {
         "Name": "BottomQuad"
       },
       "Parent": -1,
-      "Screen Group": {
-        "Screen": "Bottom"
-      },
       "Scripts": [
         {
           "ClassName": "BounceBehaviour",
@@ -335,10 +401,23 @@
           0.8999999761581421,
           1.0
         ],
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
         "Size": [
           60.0,
           60.0
         ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
         "Texture": ""
       },
       "Tag": {
@@ -377,10 +456,23 @@
           0.25,
           1.0
         ],
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
         "Size": [
           80.0,
           80.0
         ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
         "Texture": ""
       },
       "Tag": {
@@ -413,7 +505,8 @@
           "f88066254862338300d1e7afc9357c8e"
         ],
         "Mesh": "",
-        "Primitive": "Cube"
+        "Primitive": "Cube",
+        "Sort Order": 0
       },
       "Name": {
         "Name": "TestCube3D"
@@ -451,6 +544,7 @@
           0.11999999731779099,
           1.0
         ],
+        "Culling Mask": 4294967295,
         "Far Plane": 1000.0,
         "Fov Degrees": 60.0,
         "Near Plane": 0.10000000149011612,
@@ -495,6 +589,7 @@
           0.11999999731779099,
           1.0
         ],
+        "Culling Mask": 4294967295,
         "Far Plane": 1000.0,
         "Fov Degrees": 60.0,
         "Near Plane": 0.10000000149011612,
@@ -583,6 +678,12 @@
           1.0,
           1.0
         ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
         "Texture": ""
       },
       "UI Rect": {
@@ -595,6 +696,73 @@
         "Size": [
           80.0,
           32.0
+        ],
+        "Sort Order": 0
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Materials": [],
+        "Mesh": "",
+        "Primitive": "Cube",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Particle"
+      },
+      "Parent": -1,
+      "Particle System": {
+        "Emission Rate": 20.0,
+        "End Color": [
+          1.0,
+          1.0,
+          1.0,
+          0.0
+        ],
+        "Gravity": [
+          0.0,
+          60.0
+        ],
+        "Lifetime": 1.5,
+        "Loop": true,
+        "Max Particles": 64,
+        "Playing": true,
+        "Sort Order": 0,
+        "Start Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Start Size": 8.0,
+        "Start Speed": 40.0,
+        "Texture": "",
+        "Velocity Spread": [
+          30.0,
+          30.0
+        ]
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          46.03759765625,
+          115.05777740478516,
+          -167.7742919921875
         ]
       }
     }

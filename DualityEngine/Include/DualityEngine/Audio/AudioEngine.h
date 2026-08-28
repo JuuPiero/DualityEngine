@@ -1,8 +1,12 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace Duality {
+
+    using AudioHandle = uint32_t;
+    constexpr AudioHandle InvalidAudioHandle = 0;
 
     // Real audio playback -- a static class with platform-conditional .cpp
     // implementations (AudioEngine_Desktop.cpp / AudioEngine_3DS.cpp,
@@ -15,8 +19,7 @@ namespace Duality {
     //
     // GameScripts can't call this directly on desktop for the same
     // DLL-boundary reason Input needs the EngineServices bridge --
-    // Behaviour::PlaySound/StopAllSounds are what scripts should call
-    // instead (see Scripting/EngineServices.h and Scene.cpp's adapters).
+    // use ScriptAudio / AudioSource (Scripting/) instead (see EngineServices.h).
     class AudioEngine {
     public:
         static void Init();
@@ -28,14 +31,16 @@ namespace Duality {
         static void Update();
 
         // `path` is a real file path (already resolved from an AssetRef
-        // guid by the caller, e.g. Scene.cpp's EngineServices adapter) to
-        // a WAV file. Fire-and-forget -- no handle returned, matching this
-        // pass's "start minimal" scope (see the plan/ROADMAP for why).
-        // `volume` (0..1) is that asset's own AudioImportSettings::Volume,
-        // looked up by the caller -- this is the only place volume is
-        // actually applied, there's no separate per-call override yet.
-        static void Play(const std::string& path, bool loop, float volume = 1.0f);
+        // guid by the caller). Returns a handle for per-instance control
+        // (Stop/SetVolume/SetPaused/IsPlaying), or InvalidAudioHandle on
+        // failure. `volume` (0..1) is applied on top of the asset's own
+        // AudioImportSettings::Volume (caller multiplies both).
+        static AudioHandle Play(const std::string& path, bool loop, float volume = 1.0f);
+        static void Stop(AudioHandle handle);
         static void StopAll();
+        static void SetVolume(AudioHandle handle, float volume);
+        static void SetPaused(AudioHandle handle, bool paused);
+        static bool IsPlaying(AudioHandle handle);
     };
 
 }

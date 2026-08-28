@@ -60,7 +60,7 @@ namespace Duality {
 
         // No C3D_RenderTargetCreate/SetOutput here -- see SetScreenTargets's own comment.
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < static_cast<int>(MeshPrimitive::Count); i++) {
             MeshPrimitive primitive = static_cast<MeshPrimitive>(i);
             const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(primitive);
             size_t byteSize = vertices.size() * sizeof(MeshVertex);

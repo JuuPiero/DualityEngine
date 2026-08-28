@@ -20,7 +20,7 @@ namespace Duality {
             } else if constexpr (std::is_same_v<T, ProjectionType>) {
                 return v == ProjectionType::Orthographic ? "Orthographic" : "Perspective";
             } else if constexpr (std::is_same_v<T, MeshPrimitive>) {
-                const char* names[] = { "Cube", "Sphere", "Plane" };
+                const char* names[] = { "Cube", "Sphere", "Plane", "Capsule" };
                 return names[static_cast<int>(v)];
             } else if constexpr (std::is_same_v<T, UIAnchor>) {
                 const char* names[] = { "TopLeft", "TopCenter", "TopRight", "MiddleLeft", "MiddleCenter", "MiddleRight", "BottomLeft", "BottomCenter", "BottomRight" };
@@ -35,6 +35,17 @@ namespace Duality {
             } else if constexpr (std::is_same_v<T, BodyType>) {
                 const char* names[] = { "Static", "Kinematic", "Dynamic" };
                 return names[static_cast<int>(v)];
+            } else if constexpr (std::is_same_v<T, Layer>) {
+                return LayerName(v);
+            } else if constexpr (std::is_same_v<T, CanvasRenderMode>) {
+                const char* names[] = { "ScreenSpaceOverlay", "ScreenSpaceCamera", "WorldSpace" };
+                return names[static_cast<int>(v)];
+            } else if constexpr (std::is_same_v<T, UILayoutType>) {
+                return v == UILayoutType::Horizontal ? "Horizontal" : "Vertical";
+            } else if constexpr (std::is_same_v<T, EnumFieldValue>) {
+                if (v.Value >= 0 && v.Value < static_cast<int>(v.Options.size()))
+                    return v.Options[v.Value];
+                return json();
             } else if constexpr (std::is_same_v<T, NestedFieldValue>) {
                 // Recurses into a nested JSON object keyed by the nested type's own field names
                 // -- pure (no side effects), since NestedFieldValue's values live in its own
@@ -75,6 +86,7 @@ namespace Duality {
                 std::string name = j.get<std::string>();
                 if (name == "Sphere") return MeshPrimitive::Sphere;
                 if (name == "Plane") return MeshPrimitive::Plane;
+                if (name == "Capsule") return MeshPrimitive::Capsule;
                 return MeshPrimitive::Cube;
             } else if constexpr (std::is_same_v<T, UIAnchor>) {
                 std::string name = j.get<std::string>();
@@ -94,6 +106,28 @@ namespace Duality {
                 if (name == "Static") return BodyType::Static;
                 if (name == "Kinematic") return BodyType::Kinematic;
                 return BodyType::Dynamic;
+            } else if constexpr (std::is_same_v<T, Layer>) {
+                std::string name = j.get<std::string>();
+                if (name == "TOP") return Layer::TOP;
+                if (name == "BOTTOM") return Layer::BOTTOM;
+                return Layer::Default;
+            } else if constexpr (std::is_same_v<T, CanvasRenderMode>) {
+                std::string name = j.get<std::string>();
+                if (name == "ScreenSpaceCamera") return CanvasRenderMode::ScreenSpaceCamera;
+                if (name == "WorldSpace") return CanvasRenderMode::WorldSpace;
+                return CanvasRenderMode::ScreenSpaceOverlay;
+            } else if constexpr (std::is_same_v<T, UILayoutType>) {
+                return j.get<std::string>() == "Horizontal" ? UILayoutType::Horizontal : UILayoutType::Vertical;
+            } else if constexpr (std::is_same_v<T, EnumFieldValue>) {
+                std::string name = j.get<std::string>();
+                for (int i = 0; i < static_cast<int>(proto.Options.size()); i++) {
+                    if (proto.Options[i] == name) {
+                        EnumFieldValue result = proto;
+                        result.Value = i;
+                        return result;
+                    }
+                }
+                return proto;
             } else if constexpr (std::is_same_v<T, NestedFieldValue>) {
                 // Also pure -- `proto` (the nested struct's PREVIOUS values, from whatever
                 // Get() call produced this prototype) supplies both the field list to recurse

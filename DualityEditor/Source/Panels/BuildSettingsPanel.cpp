@@ -10,6 +10,7 @@
 #include <imgui.h>
 
 #include "DualityEditor/BuildPipeline.h"
+#include "DualityEditor/SceneOps.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Project/Project.h"
@@ -121,7 +122,7 @@ namespace Duality {
         bool building = (BuildPipeline::GetStatus() == BuildStatus::Running) || (ScriptEngine::GetStatus() == ReloadStatus::Running);
         ImGui::BeginDisabled(building);
         if (ImGui::Button("Build for 3DS", ImVec2(-1.0f, 0.0f))) {
-            SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath); // build packages the last-saved scene, same as MenuBarPanel's own click handler
+            SaveScene(ctx);
             BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
         }
         ImGui::EndDisabled();

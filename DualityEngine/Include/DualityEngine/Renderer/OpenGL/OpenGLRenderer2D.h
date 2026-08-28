@@ -29,7 +29,7 @@ namespace Duality {
         void BeginScene(Screen screen, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
-        void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0) override;
+        void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0, const glm::vec4& uvRect = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)) override;
         uint32_t LoadTexture(const std::string& path) override;
         void UnloadAllTextures() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }

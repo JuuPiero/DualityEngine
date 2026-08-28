@@ -1,12 +1,9 @@
 {
   "AssetsDirectory": "Assets",
   "IconPath": "",
-  "N3DSAntiAliasing": 2,
+  "N3DSAntiAliasing": 0,
   "Name": "SampleProject",
-  "ScenesInBuild": [
-    "Scene.scene",
-    "Scenes/Test.scene"
-  ],
+  "ScenesInBuild": [],
   "ScriptsDirectory": "Scripts",
   "StartScene": ""
 }

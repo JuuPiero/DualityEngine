@@ -36,6 +36,7 @@ namespace Duality {
         static float GetAxis(const std::string& axisName);
 
         static bool GetPointerDown();
+        static bool GetPointerUp();
         // Local pixel coordinates (top-left origin, Y-down) within whichever screen
         // GetPointerScreen() reports -- NOT a single shared coordinate space across both
         // screens (Top is 400x240, Bottom is 320x240; the platform host resolves which one the

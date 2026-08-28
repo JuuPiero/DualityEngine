@@ -6,6 +6,14 @@ namespace Duality {
 
     struct EditorContext;
 
+    // Marks the active scene as having unsaved edits (shown as * in the menu bar).
+    // Skipped while Play is running — runtime tweaks revert on Stop and shouldn't
+    // prompt a save of transient state.
+    void MarkSceneDirty(EditorContext& ctx);
+
+    // Writes ctx.ScenePath and clears the dirty flag. No-op if path is empty.
+    void SaveScene(EditorContext& ctx);
+
     // Stops Play if running, clears ctx.SceneRef (Scene::Clear()), and loads `path` into it
     // as the new active scene -- lands in Edit mode regardless of whether Play was running.
     // Shared by MenuBarPanel's "Load Scene"/"Open Scene...", ContentBrowserPanel's

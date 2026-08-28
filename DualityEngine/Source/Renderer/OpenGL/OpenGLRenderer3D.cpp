@@ -70,7 +70,7 @@ namespace Duality {
         m_AttribPosition = m_Shader.GetAttribLocation("a_Position");
         m_AttribTexCoord = m_Shader.GetAttribLocation("a_TexCoord");
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < static_cast<int>(MeshPrimitive::Count); i++) {
             const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(static_cast<MeshPrimitive>(i));
             m_Meshes[i] = UploadGpuMesh(vertices);
         }

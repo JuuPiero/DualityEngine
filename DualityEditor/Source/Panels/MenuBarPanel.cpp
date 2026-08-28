@@ -6,13 +6,17 @@
 
 #include "DualityEditor/BuildPipeline.h"
 #include "DualityEditor/EditorContext.h"
-#include "DualityEditor/ScriptEngine.h"
 #include "DualityEditor/SceneOps.h"
+#include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 
 namespace Duality {
 
     void MenuBarPanel::OnImGuiRender(EditorContext& ctx) {
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S) && !io.WantTextInput)
+            SaveScene(ctx);
+
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
                 if (ImGui::MenuItem("New Project..."))
@@ -20,8 +24,8 @@ namespace Duality {
                 if (ImGui::MenuItem("Open Project..."))
                     ctx.RequestOpenProject = true;
                 ImGui::Separator();
-                if (ImGui::MenuItem("Save Scene"))
-                    SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath);
+                if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+                    SaveScene(ctx);
                 // Reloads ctx.ScenePath from disk, discarding unsaved in-memory edits --
                 // routed through SceneOps::OpenScene (clears the scene first) rather than a
                 // raw Deserialize straight onto the live scene, which used to just ADD every
@@ -50,7 +54,7 @@ namespace Duality {
                 bool building = (BuildPipeline::GetStatus() == BuildStatus::Running) ||
                     (ScriptEngine::GetStatus() == ReloadStatus::Running);
                 if (ImGui::MenuItem(building ? "Build for 3DS (building...)" : "Build for 3DS", nullptr, false, !building)) {
-                    SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath); // build packages the last-saved scene
+                    SaveScene(ctx);
                     BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
                 }
                 // Shares the same `building`/s_Status as "Build for 3DS" above (BuildPipeline
@@ -61,7 +65,7 @@ namespace Duality {
                 // an incremental rebuild of that one target -- saving the scene first still
                 // matters, so the next launch sees the latest edits.
                 if (ImGui::MenuItem(building ? "Build for PC (building...)" : "Build for PC", nullptr, false, !building)) {
-                    SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath);
+                    SaveScene(ctx);
                     BuildPipeline::BuildForPCAsync(ctx.BuildDirectory);
                 }
                 ImGui::Separator();
@@ -83,7 +87,10 @@ namespace Duality {
             // once "Open Scene..."/Content Browser double-click/the Scene asset inspector's
             // "Open Scene" button can all change it; a plain menu bar Text widget (ImGui allows
             // arbitrary widgets between BeginMenuBar/EndMenuBar, not just BeginMenu blocks).
-            ImGui::TextDisabled("  Scene: %s", std::filesystem::path(ctx.ScenePath).filename().string().c_str());
+            std::string sceneLabel = std::filesystem::path(ctx.ScenePath).filename().string();
+            if (ctx.SceneDirty)
+                sceneLabel += "*";
+            ImGui::TextDisabled("  Scene: %s", sceneLabel.c_str());
 
             ImGui::EndMenuBar();
         }

@@ -1,20 +1,57 @@
 #include "DualityEngine/Renderer/SceneRenderer.h"
 
 #include <algorithm>
+#include <vector>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
+#include "DualityEngine/Renderer/DrawHelpers2D.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/Layer.h"
+#include "DualityEngine/Scene/SceneRuntimeSystems.h"
 
 namespace Duality {
+
+    namespace {
+        struct SpriteDrawItem {
+            entt::entity Handle;
+            int SortOrder = 0;
+            float SortY = 0.0f;
+        };
+
+        glm::vec4 FrameUV(int frame, int columns, int rows) {
+            if (columns <= 0 || rows <= 0)
+                return { 0.0f, 0.0f, 1.0f, 1.0f };
+            int col = frame % columns;
+            int row = frame / columns;
+            float uw = 1.0f / static_cast<float>(columns);
+            float vh = 1.0f / static_cast<float>(rows);
+            return { col * uw, row * vh, (col + 1) * uw, (row + 1) * vh };
+        }
+
+        void ResolveSpriteVisual(Scene& scene, entt::entity handle, AssetRef& outTexture, glm::vec4& outUV) {
+            outUV = { 0.0f, 0.0f, 1.0f, 1.0f };
+            if (scene.Registry().all_of<SpriteSheetAnimatorComponent>(handle)) {
+                auto& anim = scene.Registry().get<SpriteSheetAnimatorComponent>(handle);
+                if (anim.Enabled && !anim.Texture.Guid.empty()) {
+                    outTexture = anim.Texture;
+                    outUV = FrameUV(anim.CurrentFrame, anim.Columns, anim.Rows);
+                    return;
+                }
+            }
+            outTexture = GetActiveSpriteTexture(scene, handle);
+        }
+    }
 
     AssetRef GetActiveSpriteTexture(Scene& scene, entt::entity handle) {
         if (scene.Registry().all_of<SpriteFlipbookComponent>(handle)) {
             auto& flipbook = scene.Registry().get<SpriteFlipbookComponent>(handle);
-            AssetRef& frame = GetFlipbookFrame(flipbook, flipbook.CurrentFrame);
-            if (!frame.Guid.empty())
-                return frame;
+            if (flipbook.Enabled) {
+                AssetRef& frame = GetFlipbookFrame(flipbook, flipbook.CurrentFrame);
+                if (!frame.Guid.empty())
+                    return frame;
+            }
         }
         return scene.Registry().get<SpriteRendererComponent>(handle).Texture;
     }
@@ -55,11 +92,20 @@ namespace Duality {
         return renderer.LoadMesh(path);
     }
 
-    bool ShouldRenderOnScreen(Scene& scene, entt::entity handle, Screen screen) {
-        Screen entityScreen;
-        if (scene.TryResolveEntityScreen(Entity(handle, &scene), entityScreen))
-            return entityScreen == screen;
-        return true; // Ungrouped -- still a candidate, position-relative-to-camera decides
+    bool ShouldRenderOnScreen(Scene& scene, entt::entity handle, Screen screen, const CameraComponent* camera) {
+        Layer layer = scene.ResolveEntityLayer(Entity(handle, &scene));
+
+        if (camera) {
+            uint32_t mask = camera->CullingMask;
+            int layerIndex = static_cast<int>(layer);
+            if (layerIndex >= 0 && layerIndex < LayerCount && !(mask & LayerBit(layerIndex)))
+                return false;
+        }
+
+        Screen layerScreen;
+        if (LayerToScreen(layer, layerScreen))
+            return layerScreen == screen;
+        return true;
     }
 
     static void ScreenExtents(Screen screen, float& outWidth, float& outHeight) {
@@ -75,19 +121,8 @@ namespace Duality {
     void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor) {
         Entity camera = scene.GetPrimaryCamera(screen);
 
-        // The camera's own Background field wins once a camera exists -- `clearColor` (the
-        // caller's hardcoded default, see Application.cpp/DualityPlayer's Main.cpp) only
-        // applies to a screen with no camera at all, same as every other "no camera" fallback
-        // in this function.
         glm::vec4 effectiveClearColor = camera ? camera.GetComponent<CameraComponent>().Background : clearColor;
 
-        // Both a mesh pass and a sprite pass always run for every screen now, regardless of
-        // the camera's own Projection -- matching Unity's own convention that a camera's
-        // projection is a lens property, not a switch between mutually exclusive renderers
-        // (see IRenderer3D.h's own comment). The mesh pass runs first and clears the screen;
-        // sprites draw on top of it without re-clearing. With no camera at all, only the (now
-        // a no-op) sprite pass runs, still clearing -- this function's original no-camera
-        // behavior.
         if (camera)
             RenderScreen3D(renderer3D, scene, screen, effectiveClearColor, true);
 
@@ -99,41 +134,123 @@ namespace Duality {
             float screenWidth, screenHeight;
             ScreenExtents(screen, screenWidth, screenHeight);
 
-            // Every untagged sprite in the scene is a candidate for this screen --
-            // whether it ends up visible depends purely on where it sits relative
-            // to this camera (a sprite far from every active camera just draws off
-            // the fixed 400x240/320x240 target, which is effectively culling by
-            // construction). This is real camera-relative composition, not "only
-            // the camera's own sprite" like the very first version of this
-            // function. A sprite tagged (directly or via an ancestor) for the
-            // OTHER screen is skipped outright -- true "2 worlds" separation, not
-            // just position-based culling.
+            std::vector<SpriteDrawItem> sprites;
             auto view = scene.Registry().view<TransformComponent, SpriteRendererComponent>();
             for (auto handle : view) {
-                if (!ShouldRenderOnScreen(scene, handle, screen))
+                if (!ShouldRenderOnScreen(scene, handle, screen, &cameraComponent))
                     continue;
-                // Only the real game/Game-panel/on-device render path respects Active --
-                // ScenePanel.cpp's own Editor Scene-view panes deliberately keep showing
-                // inactive entities unfiltered, matching Unity's Scene view vs. Game view.
                 if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                     continue;
+                if (!view.get<SpriteRendererComponent>(handle).Enabled)
+                    continue;
                 TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
-                auto& sprite = view.get<SpriteRendererComponent>(handle);
+                sprites.push_back({ handle, view.get<SpriteRendererComponent>(handle).SortOrder, transform.Translation.y });
+            }
+            std::sort(sprites.begin(), sprites.end(), [](const SpriteDrawItem& a, const SpriteDrawItem& b) {
+                if (a.SortOrder != b.SortOrder)
+                    return a.SortOrder < b.SortOrder;
+                return a.SortY < b.SortY;
+            });
 
+            for (auto& item : sprites) {
+                TransformComponent transform = scene.GetWorldTransform(Entity(item.Handle, &scene));
+                auto& sprite = scene.Registry().get<SpriteRendererComponent>(item.Handle);
+
+                glm::vec2 size = sprite.Size * cameraComponent.Zoom;
+                glm::vec2 pivotOffset{ size.x * sprite.Pivot.x, size.y * sprite.Pivot.y };
                 glm::vec2 screenCenter{
                     (transform.Translation.x - cameraTransform.Translation.x) * cameraComponent.Zoom + screenWidth * 0.5f,
                     (transform.Translation.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f
                 };
-                glm::vec2 size = sprite.Size * cameraComponent.Zoom;
-                uint32_t textureId = ResolveSpriteTexture(renderer2D, GetActiveSpriteTexture(scene, handle));
+                glm::vec2 topLeft = screenCenter - pivotOffset;
 
-                renderer2D.DrawQuad({ screenCenter.x - size.x * 0.5f, screenCenter.y - size.y * 0.5f }, size, sprite.Color, transform.Rotation.z, textureId);
+                AssetRef texRef;
+                glm::vec4 uv;
+                ResolveSpriteVisual(scene, item.Handle, texRef, uv);
+                uint32_t textureId = ResolveSpriteTexture(renderer2D, texRef);
+
+                if (sprite.SliceBorder.x > 0.0f || sprite.SliceBorder.y > 0.0f || sprite.SliceBorder.z > 0.0f || sprite.SliceBorder.w > 0.0f)
+                    DrawNineSlice(renderer2D, topLeft, size, sprite.Color, textureId, sprite.SliceBorder);
+                else
+                    DrawSpriteQuad(renderer2D, topLeft, size, sprite.Color, transform.Rotation.z, textureId, sprite.FlipX, sprite.FlipY, uv);
+            }
+
+            auto tileView = scene.Registry().view<TransformComponent, TilemapComponent>();
+            for (auto handle : tileView) {
+                if (!ShouldRenderOnScreen(scene, handle, screen, &cameraComponent))
+                    continue;
+                if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
+                    continue;
+                auto& tilemap = tileView.get<TilemapComponent>(handle);
+                if (!tilemap.Enabled)
+                    continue;
+                TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
+                TilemapData data;
+                if (!tilemap.TileData.Guid.empty())
+                    data = TilemapLoader::Load(AssetDatabase::ResolvePath(tilemap.TileData.Guid));
+                uint32_t tileTex = ResolveSpriteTexture(renderer2D, tilemap.Tileset);
+                int w = data.Width > 0 ? data.Width : tilemap.GridWidth;
+                int h = data.Height > 0 ? data.Height : tilemap.GridHeight;
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        int idx = y * w + x;
+                        if (idx >= static_cast<int>(data.Tiles.size()) || data.Tiles[idx] < 0)
+                            continue;
+                        glm::vec2 worldPos = {
+                            transform.Translation.x + x * tilemap.CellSize.x,
+                            transform.Translation.y + y * tilemap.CellSize.y
+                        };
+                        glm::vec2 screenCenter{
+                            (worldPos.x - cameraTransform.Translation.x) * cameraComponent.Zoom + screenWidth * 0.5f,
+                            (worldPos.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f
+                        };
+                        glm::vec2 size = tilemap.CellSize * cameraComponent.Zoom;
+                        glm::vec2 topLeft = screenCenter - size * 0.5f;
+                        renderer2D.DrawQuad(topLeft, size, { 1, 1, 1, 1 }, 0.0f, tileTex);
+                    }
+                }
+            }
+
+            auto lineView = scene.Registry().view<TransformComponent, LineRendererComponent>();
+            for (auto handle : lineView) {
+                if (!ShouldRenderOnScreen(scene, handle, screen, &cameraComponent))
+                    continue;
+                if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
+                    continue;
+                auto& line = lineView.get<LineRendererComponent>(handle);
+                if (!line.Enabled)
+                    continue;
+                TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
+                glm::vec2 points[8];
+                int count = std::min(line.PointCount, 8);
+                for (int i = 0; i < count; i++) {
+                    glm::vec3 p = GetLinePoint(line, i) + transform.Translation;
+                    points[i] = {
+                        (p.x - cameraTransform.Translation.x) * cameraComponent.Zoom + screenWidth * 0.5f,
+                        (p.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f
+                    };
+                }
+                DrawLineStrip2D(renderer2D, points, count, line.Width * cameraComponent.Zoom, line.Color, line.Loop);
+            }
+
+            auto particleView = scene.Registry().view<ParticleSystemComponent>();
+            for (auto handle : particleView) {
+                if (!ShouldRenderOnScreen(scene, handle, screen, &cameraComponent))
+                    continue;
+                auto& sys = particleView.get<ParticleSystemComponent>(handle);
+                if (!sys.Enabled)
+                    continue;
+                uint32_t tex = ResolveSpriteTexture(renderer2D, sys.Texture);
+                for (const Particle& p : GetParticlePool(handle)) {
+                    glm::vec2 topLeft{
+                        (p.Position.x - cameraTransform.Translation.x) * cameraComponent.Zoom + screenWidth * 0.5f - p.Size * 0.5f,
+                        (p.Position.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f - p.Size * 0.5f
+                    };
+                    renderer2D.DrawQuad(topLeft, { p.Size, p.Size }, p.Color, 0.0f, tex);
+                }
             }
         }
 
-        // UI always draws last/on top, regardless of whether this screen even has a camera --
-        // it has no gameplay camera dependency at all (see Renderer/UIRenderer.h's own
-        // comment).
         RenderScreenUI(renderer2D, scene, screen);
 
         renderer2D.EndScene();
@@ -142,40 +259,29 @@ namespace Duality {
     void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
         Entity camera = scene.GetPrimaryCamera(screen);
         if (!camera)
-            return; // nothing to render without a camera, matching RenderScreen's own no-camera behavior
+            return;
 
         TransformComponent cameraTransform = scene.GetWorldTransform(camera);
         auto& cameraComponent = camera.GetComponent<CameraComponent>();
         float screenWidth, screenHeight;
         ScreenExtents(screen, screenWidth, screenHeight);
 
-        // Orthographic's world-units-visible derives from Zoom the exact same way
-        // IRenderer2D::DrawQuad's own pixel-space math does (screenHeight * zoom), so a mesh
-        // and a sprite at the same world position land on the same screen pixel -- see
-        // IRenderer3D.h's own comment.
         float orthoHalfHeight = screenHeight * 0.5f / cameraComponent.Zoom;
 
         renderer.BeginScene(screen, cameraComponent.Projection, cameraTransform.Translation, cameraTransform.Rotation, cameraComponent.FovDegrees, orthoHalfHeight, screenWidth / screenHeight, cameraComponent.NearPlane, cameraComponent.FarPlane, clearColor, clear);
 
         auto view = scene.Registry().view<TransformComponent, MeshRendererComponent>();
         for (auto handle : view) {
-            if (!ShouldRenderOnScreen(scene, handle, screen))
+            if (!ShouldRenderOnScreen(scene, handle, screen, &cameraComponent))
                 continue;
-            // See RenderScreen's own sprite loop comment -- Active is only respected here,
-            // not in ScenePanel.cpp's Editor Scene-view panes.
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
-            TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
             auto& mesh = view.get<MeshRendererComponent>(handle);
+            if (!mesh.Enabled)
+                continue;
+            TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
             uint32_t meshHandle = ResolveMeshGeometry(renderer, mesh.Mesh);
 
-            // One real draw call per submesh (see IRenderer3D::DrawMesh's own comment) -- a
-            // procedural Primitive or an imported mesh with no "usemtl" material groups is
-            // exactly one submesh, so this is a single iteration in the common case, same as
-            // before this feature. Materials[i], clamped to the last entry once the list runs
-            // short (matches Unity's own Renderer.materials behavior) -- an empty list resolves
-            // every submesh to the default white Material via ResolveMeshMaterial's existing
-            // AssetRef{} fallback.
             uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
             for (uint32_t i = 0; i < subMeshCount; i++) {
                 const AssetRef& materialRef = mesh.Materials.empty()

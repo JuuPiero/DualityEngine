@@ -9,7 +9,9 @@ namespace Duality {
     enum class MeshPrimitive {
         Cube,
         Sphere,
-        Plane
+        Plane,
+        Capsule,
+        Count // sentinel -- not a valid MeshRendererComponent::Primitive value
     };
 
 }

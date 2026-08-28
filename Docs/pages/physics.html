@@ -59,29 +59,22 @@
                 <h2>Collider</h2>
                 <table>
                     <tr><th>Component</th><th>Field chính</th></tr>
-                    <tr><td><code>BoxCollider2DComponent</code> <span class="badge badge-2d">2D</span></td><td><code>Offset</code>, <code>Size</code> (nửa-kích-thước), <code>Density</code>/<code>Friction</code>/<code>Restitution</code>, <code>IsTrigger</code></td></tr>
-                    <tr><td><code>CircleCollider2DComponent</code> <span class="badge badge-2d">2D</span></td><td><code>Offset</code>, <code>Radius</code>, <code>Density</code>/<code>Friction</code>/<code>Restitution</code>, <code>IsTrigger</code></td></tr>
-                    <tr><td><code>BoxCollider3DComponent</code> <span class="badge badge-3d">3D</span></td><td><code>Offset</code>, <code>Size</code> (nửa-kích-thước), <code>Restitution</code>, <code>IsTrigger</code></td></tr>
-                    <tr><td><code>SphereCollider3DComponent</code> <span class="badge badge-3d">3D</span></td><td><code>Offset</code>, <code>Radius</code>, <code>Restitution</code>, <code>IsTrigger</code></td></tr>
+                    <tr><td><code>BoxCollider2DComponent</code> <span class="badge badge-2d">2D</span></td><td><code>Offset</code>, <code>Size</code>, <code>PhysicsMaterial</code>, <code>IsTrigger</code>, …</td></tr>
+                    <tr><td><code>CircleCollider2DComponent</code> <span class="badge badge-2d">2D</span></td><td><code>Radius</code>, …</td></tr>
+                    <tr><td><code>CapsuleCollider2DComponent</code> <span class="badge badge-2d">2D</span></td><td><code>Radius</code>, <code>Height</code></td></tr>
+                    <tr><td><code>PolygonCollider2DComponent</code> <span class="badge badge-2d">2D</span></td><td>8 vertex tối đa</td></tr>
+                    <tr><td><code>BoxCollider3DComponent</code> <span class="badge badge-3d">3D</span></td><td><code>Size</code>, …</td></tr>
+                    <tr><td><code>SphereCollider3DComponent</code> <span class="badge badge-3d">3D</span></td><td><code>Radius</code>, …</td></tr>
+                    <tr><td><code>CapsuleCollider3DComponent</code> <span class="badge badge-3d">3D</span></td><td><code>Radius</code>, <code>Height</code></td></tr>
                 </table>
                 <p>
-                    Trong Scene view, mọi entity có collider vẽ khung wireframe xanh lá (kể cả
-                    không được chọn) — chỉ để xem, không bao giờ render trong Game view/trên máy
-                    thật, giống Unity's Gizmos. Entity đang chọn có thêm handle kéo được để chỉnh
-                    <code>Size</code>/<code>Radius</code> trực tiếp trong viewport (3D: một handle
-                    mỗi mặt cho box, một handle trên xích đạo cho sphere).
+                    Asset <code>.physmat</code> gán qua <code>PhysicsMaterial</code> trên collider.
+                    Scene view: wireframe + handle resize khi entity được chọn (Capsule/Polygon gizmo mới).
                 </p>
                 <div class="callout note">
-                    <span class="callout-title">Mới: EditMode + outline chỉ hiện cho entity đang chọn</span>
-                    Cả 4 collider (Box/Circle 2D, Box/Sphere 3D) giờ có thêm field
-                    <code>EditMode</code> (checkbox, tắt mặc định) — chỉ khi bật, outline của đúng
-                    collider đó mới có handle kéo được để resize trực tiếp trong Scene view như mô
-                    tả ở trên. Cập nhật so với đoạn trên: khung wireframe xanh lá bản thân nó giờ
-                    <strong>chỉ vẽ cho entity đang được chọn</strong>, không còn vẽ cho mọi collider
-                    trong scene cùng lúc — <code>EditMode</code> chỉ quyết định outline đó có kéo
-                    được hay không, không quyết định outline có hiện hay không. Chi tiết đầy đủ
-                    field từng loại collider: xem <a href="components.html">Components
-                    Reference</a>.
+                    <span class="callout-title">Collider gizmo</span>
+                    Outline chỉ vẽ cho selection. Handle resize luôn bật — không cần EditMode.
+                    Xem <a href="components.html">Components Reference</a>.
                 </div>
 
                 <h2>Collision vs Trigger</h2>

@@ -12,6 +12,7 @@
 
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/SceneGizmo.h"
+#include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MeshLoader.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
@@ -118,6 +119,7 @@ namespace Duality {
             switch (primitive) {
                 case MeshPrimitive::Sphere: return 0.5f;
                 case MeshPrimitive::Plane:  return 0.5f * std::sqrt(2.0f);
+                case MeshPrimitive::Capsule: return 0.5f;
                 case MeshPrimitive::Cube:
                 default:                    return 0.5f * std::sqrt(3.0f);
             }
@@ -358,6 +360,145 @@ namespace Duality {
             ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
             float dragAmount = (mouseDelta.x * screenDir.x + mouseDelta.y * screenDir.y) / zoom;
             return std::max(0.01f, current + dragAmount);
+        }
+
+        glm::vec2 GetPolygonVertex2DConst(const PolygonCollider2DComponent& poly, int index) {
+            switch (index) {
+                case 0: return poly.Vertex0;
+                case 1: return poly.Vertex1;
+                case 2: return poly.Vertex2;
+                case 3: return poly.Vertex3;
+                case 4: return poly.Vertex4;
+                case 5: return poly.Vertex5;
+                case 6: return poly.Vertex6;
+                default: return poly.Vertex7;
+            }
+        }
+
+        bool PointInPolygon2D(const glm::vec2& point, const PolygonCollider2DComponent& poly) {
+            bool inside = false;
+            int vertexCount = std::clamp(poly.VertexCount, 3, 8);
+            for (int i = 0, j = vertexCount - 1; i < vertexCount; j = i++) {
+                glm::vec2 vi = GetPolygonVertex2DConst(poly, i);
+                glm::vec2 vj = GetPolygonVertex2DConst(poly, j);
+                if (((vi.y > point.y) != (vj.y > point.y)) &&
+                    (point.x < (vj.x - vi.x) * (point.y - vi.y) / (vj.y - vi.y + 1e-8f) + vi.x))
+                    inside = !inside;
+            }
+            return inside;
+        }
+
+        bool PointInCapsule2D(const glm::vec2& point, const glm::vec2& center, float radius, float height) {
+            float halfBody = std::max(0.0f, (height - 2.0f * radius) * 0.5f);
+            glm::vec2 topCap = center + glm::vec2{ 0.0f, halfBody };
+            glm::vec2 bottomCap = center - glm::vec2{ 0.0f, halfBody };
+            if (glm::distance(point, topCap) <= radius || glm::distance(point, bottomCap) <= radius)
+                return true;
+            return std::abs(point.x - center.x) <= radius &&
+                   point.y >= bottomCap.y && point.y <= topCap.y;
+        }
+
+        void DrawCapsule2DOutline(ImDrawList* drawList, const ImVec2& topCapScreen, const ImVec2& bottomCapScreen,
+            float radiusPx, ImU32 color) {
+            drawList->AddLine(ImVec2(topCapScreen.x + radiusPx, topCapScreen.y),
+                ImVec2(bottomCapScreen.x + radiusPx, bottomCapScreen.y), color, 2.0f);
+            drawList->AddLine(ImVec2(topCapScreen.x - radiusPx, topCapScreen.y),
+                ImVec2(bottomCapScreen.x - radiusPx, bottomCapScreen.y), color, 2.0f);
+            constexpr int arcSegments = 16;
+            drawList->PathClear();
+            drawList->PathArcTo(topCapScreen, radiusPx, 0.0f, glm::pi<float>(), arcSegments);
+            drawList->PathStroke(color, 0, 2.0f);
+            drawList->PathClear();
+            drawList->PathArcTo(bottomCapScreen, radiusPx, glm::pi<float>(), glm::pi<float>() * 2.0f, arcSegments);
+            drawList->PathStroke(color, 0, 2.0f);
+        }
+
+        void DrawCapsuleCollider3D(const Projector3D& proj, const glm::vec3& center, const glm::quat& rotation,
+            float radius, float height, ImVec2& outRadiusHandle, ImVec2& outHeightHandle) {
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            float halfBody = std::max(0.0f, (height - 2.0f * radius) * 0.5f);
+            glm::mat3 rotMat = glm::mat3(rotation);
+            auto toWorld = [&](const glm::vec3& local) { return center + rotMat * local; };
+
+            const int circleSegments = 24;
+            auto drawCircle = [&](const glm::vec3& circleCenter, const glm::vec3& axisA, const glm::vec3& axisB) {
+                std::vector<ImVec2> points;
+                points.reserve(circleSegments + 1);
+                for (int i = 0; i <= circleSegments; i++) {
+                    float angle = (static_cast<float>(i) / circleSegments) * glm::pi<float>() * 2.0f;
+                    glm::vec3 point = circleCenter + (axisA * std::cos(angle) + axisB * std::sin(angle)) * radius;
+                    ImVec2 screen;
+                    if (proj.Project(point, screen))
+                        points.push_back(screen);
+                }
+                if (points.size() >= 2)
+                    drawList->AddPolyline(points.data(), static_cast<int>(points.size()), Collider3DColor, ImDrawFlags_None, 2.0f);
+            };
+
+            glm::vec3 axisY = rotMat * glm::vec3(0.0f, 1.0f, 0.0f);
+            glm::vec3 axisX = rotMat * glm::vec3(1.0f, 0.0f, 0.0f);
+            glm::vec3 axisZ = rotMat * glm::vec3(0.0f, 0.0f, 1.0f);
+            glm::vec3 topCap = toWorld({ 0.0f, halfBody, 0.0f });
+            glm::vec3 bottomCap = toWorld({ 0.0f, -halfBody, 0.0f });
+            drawCircle(topCap, axisX, axisZ);
+            drawCircle(bottomCap, axisX, axisZ);
+            drawCircle(center, axisX, axisZ);
+
+            for (int i = 0; i < 4; i++) {
+                float angle = static_cast<float>(i) * glm::pi<float>() * 0.5f;
+                glm::vec3 offset = (axisX * std::cos(angle) + axisZ * std::sin(angle)) * radius;
+                ImVec2 topScreen, bottomScreen;
+                if (proj.Project(topCap + offset, topScreen) && proj.Project(bottomCap + offset, bottomScreen))
+                    drawList->AddLine(topScreen, bottomScreen, Collider3DColor, 2.0f);
+            }
+
+            auto radiusAtLocalY = [halfBody, radius](float yLocal) {
+                if (yLocal > halfBody) {
+                    float d = yLocal - halfBody;
+                    return std::sqrt(std::max(radius * radius - d * d, 0.0f));
+                }
+                if (yLocal < -halfBody) {
+                    float d = -halfBody - yLocal;
+                    return std::sqrt(std::max(radius * radius - d * d, 0.0f));
+                }
+                return radius;
+            };
+            auto drawMeridian = [&](const glm::vec3& sideAxis, float sideSign) {
+                std::vector<ImVec2> points;
+                points.reserve(17);
+                constexpr int segments = 16;
+                for (int i = 0; i <= segments; i++) {
+                    float t = static_cast<float>(i) / segments;
+                    float yLocal = (-halfBody - radius) + t * (2.0f * halfBody + 2.0f * radius);
+                    float rAtY = radiusAtLocalY(yLocal);
+                    glm::vec3 local = axisY * yLocal + sideAxis * (rAtY * sideSign);
+                    ImVec2 screen;
+                    if (proj.Project(toWorld(local), screen))
+                        points.push_back(screen);
+                }
+                if (points.size() >= 2)
+                    drawList->AddPolyline(points.data(), static_cast<int>(points.size()), Collider3DColor, ImDrawFlags_None, 2.0f);
+            };
+            drawMeridian(axisX, 1.0f);
+            drawMeridian(axisX, -1.0f);
+            drawMeridian(axisZ, 1.0f);
+            drawMeridian(axisZ, -1.0f);
+
+            glm::vec3 radiusPoint = toWorld({ radius, 0.0f, 0.0f });
+            glm::vec3 heightPoint = toWorld({ 0.0f, halfBody + radius, 0.0f });
+            ImVec2 radiusScreen, heightScreen;
+            if (proj.Project(radiusPoint, radiusScreen)) {
+                drawList->AddCircleFilled(radiusScreen, Collider3DHandleHalfSize, Collider3DColor);
+                outRadiusHandle = radiusScreen;
+            } else {
+                outRadiusHandle = ImVec2(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+            }
+            if (proj.Project(heightPoint, heightScreen)) {
+                drawList->AddCircleFilled(heightScreen, Collider3DHandleHalfSize, Collider3DColor);
+                outHeightHandle = heightScreen;
+            } else {
+                outHeightHandle = ImVec2(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+            }
         }
 
         // Clips the segment a-b against a plane `nearDistance` in front of the camera (NOT
@@ -684,8 +825,10 @@ namespace Duality {
                 // deliberately stay visible regardless (still useful to see/edit while inactive).
                 if (!ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef)))
                     continue;
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 auto& mesh = ctx.SceneRef.Registry().get<MeshRendererComponent>(handle);
+                if (!mesh.Enabled)
+                    continue;
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 uint32_t meshHandle = ResolveMeshGeometry(renderer3D, mesh.Mesh);
                 // One draw call per submesh -- see SceneRenderer.cpp's RenderScreen3D, same loop.
                 uint32_t subMeshCount = renderer3D.GetSubMeshCount(meshHandle);
@@ -711,8 +854,10 @@ namespace Duality {
                     continue;
                 if (!ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef)))
                     continue; // see the mesh loop above for why this pane hides inactive entities too
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 auto& sprite = ctx.SceneRef.Registry().get<SpriteRendererComponent>(handle);
+                if (!sprite.Enabled)
+                    continue;
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 // Resolved via renderer3D's own texture cache, not ctx.Renderer's -- keeps this
                 // draw call self-contained to the renderer it's actually issued through (a
                 // harmless double-allocation if the same file is also drawn by a real sprite
@@ -776,15 +921,9 @@ namespace Duality {
                 DrawCameraFrustum(proj, camTransform.Translation, camForward, camRight, camUp, cameraComponent.Projection, cameraComponent.FovDegrees, camOrthoHalfHeight, aspect, cameraComponent.NearPlane, cameraComponent.FarPlane, frustumColor);
             }
 
-            // 3D collider gizmo -- green wireframe, editor-only (never actually rendered by the
-            // real IRenderer3D pass), drawn ONLY for the selected entity (previously drawn for
-            // every collider in the scene at once, which got visually noisy fast in anything
-            // beyond a small demo scene). Draggable resize handles only respond once the
-            // component's own "Edit" checkbox (Properties panel) is on, so a collider isn't
-            // accidentally reshaped by a stray drag while just moving/inspecting the entity --
-            // the wireframe+handle markers themselves still draw regardless of Edit, matching
-            // Unity's own "always show the gizmo, only let you grab it in edit mode" feel.
-            if (ctx.Selected && ctx.Selected.HasComponent<BoxCollider3DComponent>() && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+            // 3D collider gizmo -- green wireframe for the selected entity only. Resize handles
+            // are always draggable while the entity is selected (no extra Edit toggle needed).
+            if (ctx.Selected && ctx.Selected.HasComponent<BoxCollider3DComponent>() && ctx.Selected.GetComponent<BoxCollider3DComponent>().Enabled && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
                 auto& collider = ctx.Selected.GetComponent<BoxCollider3DComponent>();
                 glm::vec3 center = transform.Translation + collider.Offset;
@@ -793,21 +932,21 @@ namespace Duality {
                 ImVec2 faceHandles[3];
                 DrawBoxCollider3D(proj, center, rotation, collider.Size, faceHandles);
 
-                if (collider.EditMode) {
-                    ImVec2 centerScreen;
-                    if (proj.Project(center, centerScreen)) {
-                        const char* ids[3] = { "##ColliderResizeX", "##ColliderResizeY", "##ColliderResizeZ" };
-                        for (int i = 0; i < 3; i++) {
-                            if (std::isnan(faceHandles[i].x))
-                                continue;
-                            float newValue = DragCollider3DHandle(ids[i], centerScreen, faceHandles[i], camera3D.Distance, collider.Size[i]);
-                            if (newValue != collider.Size[i])
-                                collider.Size[i] = newValue;
+                ImVec2 centerScreen;
+                if (proj.Project(center, centerScreen)) {
+                    const char* ids[3] = { "##ColliderResizeX", "##ColliderResizeY", "##ColliderResizeZ" };
+                    for (int i = 0; i < 3; i++) {
+                        if (std::isnan(faceHandles[i].x))
+                            continue;
+                        float newValue = DragCollider3DHandle(ids[i], centerScreen, faceHandles[i], camera3D.Distance, collider.Size[i]);
+                        if (newValue != collider.Size[i]) {
+                            collider.Size[i] = newValue;
+                            MarkSceneDirty(ctx);
                         }
                     }
                 }
             }
-            if (ctx.Selected && ctx.Selected.HasComponent<SphereCollider3DComponent>() && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+            if (ctx.Selected && ctx.Selected.HasComponent<SphereCollider3DComponent>() && ctx.Selected.GetComponent<SphereCollider3DComponent>().Enabled && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
                 auto& collider = ctx.Selected.GetComponent<SphereCollider3DComponent>();
                 glm::vec3 center = transform.Translation + collider.Offset;
@@ -815,23 +954,52 @@ namespace Duality {
                 ImVec2 equatorHandle;
                 DrawSphereCollider3D(proj, center, collider.Radius, equatorHandle);
 
-                if (collider.EditMode && !std::isnan(equatorHandle.x)) {
+                if (!std::isnan(equatorHandle.x)) {
                     ImVec2 centerScreen;
                     if (proj.Project(center, centerScreen)) {
                         float newRadius = DragCollider3DHandle("##ColliderResizeRadius", centerScreen, equatorHandle, camera3D.Distance, collider.Radius);
                         if (newRadius != collider.Radius)
                             collider.Radius = newRadius;
+                        MarkSceneDirty(ctx);
                     }
+                }
+            }
+            if (ctx.Selected && ctx.Selected.HasComponent<CapsuleCollider3DComponent>() && ctx.Selected.GetComponent<CapsuleCollider3DComponent>().Enabled && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
+                auto& collider = ctx.Selected.GetComponent<CapsuleCollider3DComponent>();
+                glm::vec3 center = transform.Translation + collider.Offset;
+                glm::quat rotation = EulerDegreesToQuat(transform.Rotation);
+
+                ImVec2 radiusHandle, heightHandle;
+                DrawCapsuleCollider3D(proj, center, rotation, collider.Radius, collider.Height, radiusHandle, heightHandle);
+
+                ImVec2 centerScreen;
+                if (proj.Project(center, centerScreen)) {
+                    bool colliderChanged = false;
+                    if (!std::isnan(radiusHandle.x)) {
+                        float newRadius = DragCollider3DHandle("##Collider3DCapsuleRadius", centerScreen, radiusHandle, camera3D.Distance, collider.Radius);
+                        if (newRadius != collider.Radius) {
+                            collider.Radius = newRadius;
+                            colliderChanged = true;
+                        }
+                    }
+                    if (!std::isnan(heightHandle.x)) {
+                        float newHeight = DragCollider3DHandle("##Collider3DCapsuleHeight", centerScreen, heightHandle, camera3D.Distance, collider.Height);
+                        if (newHeight != collider.Height) {
+                            collider.Height = newHeight;
+                            colliderChanged = true;
+                        }
+                    }
+                    if (colliderChanged)
+                        MarkSceneDirty(ctx);
                 }
             }
 
             // Draw+hit-test the gizmo every frame (not just while hovered), matching the 2D
             // pane's own reasoning -- a drag already in progress keeps tracking even if the
-            // mouse drifts outside the image mid-drag. Cameras get a gizmo too, same as any
-            // other 3D object (Unity's own convention) -- picking/moving a camera in the Scene
-            // view shouldn't need a different tool than picking/moving a mesh.
-            bool hasGizmoTarget = ctx.Selected && ctx.Selected.HasComponent<TransformComponent>() &&
-                (ctx.Selected.HasComponent<MeshRendererComponent>() || ctx.Selected.HasComponent<CameraComponent>());
+            // mouse drifts outside the image mid-drag. Any entity with a Transform gets a
+            // gizmo when selected (empty GameObjects included), same as the 2D pane.
+            bool hasGizmoTarget = ctx.Selected && ctx.Selected.HasComponent<TransformComponent>();
             GizmoAxis hoveredGizmoAxis = GizmoAxis::None;
             ImVec2 gizmoOriginScreen{};
             if (hasGizmoTarget) {
@@ -905,20 +1073,59 @@ namespace Duality {
                             Entity candidate(handle, &ctx.SceneRef);
                             TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
                             auto& mesh = candidate.GetComponent<MeshRendererComponent>();
+                            if (!mesh.Enabled)
+                                continue;
                             float maxScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
                             testSphere(candidate, transform.Translation, MeshBoundingRadius(mesh) * maxScale);
                         }
-                        // Cameras are pickable in this pane too now (Unity's own convention --
-                        // any 3D object, camera included, is selectable/movable from the Scene
-                        // view), using a fixed marker radius since a camera has no mesh/bounds
-                        // of its own to measure.
-                        constexpr float CameraPickRadius = 20.0f;
                         for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CameraComponent>()) {
                             if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                                 continue;
                             Entity candidate(handle, &ctx.SceneRef);
                             TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
-                            testSphere(candidate, transform.Translation, CameraPickRadius);
+                            testSphere(candidate, transform.Translation, 20.0f);
+                        }
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, BoxCollider3DComponent>()) {
+                            if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                                continue;
+                            Entity candidate(handle, &ctx.SceneRef);
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            auto& collider = candidate.GetComponent<BoxCollider3DComponent>();
+                            glm::vec3 center = transform.Translation + collider.Offset;
+                            float pickRadius = glm::length(collider.Size);
+                            testSphere(candidate, center, pickRadius);
+                        }
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SphereCollider3DComponent>()) {
+                            if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                                continue;
+                            Entity candidate(handle, &ctx.SceneRef);
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            auto& collider = candidate.GetComponent<SphereCollider3DComponent>();
+                            testSphere(candidate, transform.Translation + collider.Offset, collider.Radius);
+                        }
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CapsuleCollider3DComponent>()) {
+                            if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                                continue;
+                            Entity candidate(handle, &ctx.SceneRef);
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            auto& collider = candidate.GetComponent<CapsuleCollider3DComponent>();
+                            glm::vec3 center = transform.Translation + collider.Offset;
+                            float pickRadius = std::max(collider.Radius, collider.Height * 0.5f);
+                            testSphere(candidate, center, pickRadius);
+                        }
+                        constexpr float EmptyEntityPickRadius3D = 15.0f;
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent>()) {
+                            if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                                continue;
+                            Entity candidate(handle, &ctx.SceneRef);
+                            if (candidate.HasComponent<MeshRendererComponent>() ||
+                                candidate.HasComponent<CameraComponent>() ||
+                                candidate.HasComponent<BoxCollider3DComponent>() ||
+                                candidate.HasComponent<SphereCollider3DComponent>() ||
+                                candidate.HasComponent<CapsuleCollider3DComponent>())
+                                continue;
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            testSphere(candidate, transform.Translation, EmptyEntityPickRadius3D);
                         }
                         if (hit)
                             ctx.Selected = hit;
@@ -930,6 +1137,7 @@ namespace Duality {
             // mouse even if the cursor leaves the image, matching the 2D pane's own gizmo drag.
             if (ctx.DraggingGizmoAxis != GizmoAxis::None && ctx.DraggingGizmoScreen == screen) {
                 if (hasGizmoTarget && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                    MarkSceneDirty(ctx);
                     auto& selectedTransform = ctx.Selected.GetComponent<TransformComponent>();
                     glm::vec2 mouseDelta{ io.MouseDelta.x, io.MouseDelta.y };
 
@@ -1038,8 +1246,10 @@ namespace Duality {
                     continue;
                 if (!ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef)))
                     continue; // see DrawScenePane3D's own mesh loop for why this pane hides inactive entities too
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 auto& mesh = ctx.SceneRef.Registry().get<MeshRendererComponent>(handle);
+                if (!mesh.Enabled)
+                    continue;
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 uint32_t meshHandle = ResolveMeshGeometry(ctx.Renderer3D, mesh.Mesh);
                 uint32_t subMeshCount = ctx.Renderer3D.GetSubMeshCount(meshHandle);
                 for (uint32_t i = 0; i < subMeshCount; i++) {
@@ -1063,8 +1273,10 @@ namespace Duality {
                     continue;
                 if (!ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef)))
                     continue; // see DrawScenePane3D's own mesh loop for why this pane hides inactive entities too
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 auto& sprite = ctx.SceneRef.Registry().get<SpriteRendererComponent>(handle);
+                if (!sprite.Enabled)
+                    continue;
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 glm::vec2 topLeft{ transform.Translation.x - sprite.Size.x * 0.5f, transform.Translation.y - sprite.Size.y * 0.5f };
                 uint32_t textureId = ResolveSpriteTexture(ctx.Renderer, GetActiveSpriteTexture(ctx.SceneRef, handle));
                 ctx.Renderer.DrawQuad(topLeft, sprite.Size, sprite.Color, transform.Rotation.z, textureId);
@@ -1081,6 +1293,8 @@ namespace Duality {
                     continue;
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 auto& cameraComponent = ctx.SceneRef.Registry().get<CameraComponent>(handle);
+                if (!cameraComponent.Enabled)
+                    continue;
                 float markerSize = 14.0f / camera.Zoom;
                 glm::vec4 markerColor = (cameraComponent.Screen == Screen::Top) ? glm::vec4{ 0.3f, 0.9f, 0.9f, 1.0f } : glm::vec4{ 0.95f, 0.6f, 0.2f, 1.0f };
                 ctx.Renderer.DrawQuad({ transform.Translation.x - markerSize * 0.5f, transform.Translation.y - markerSize * 0.5f }, { markerSize, markerSize }, markerColor);
@@ -1099,22 +1313,14 @@ namespace Duality {
                     imagePos.y + (worldPos.y - camera.Position.y) * camera.Zoom + viewportH * 0.5f);
             };
 
-            // Collider gizmo -- Unity/Unreal-style green wireframe outline, drawn ONLY for the
-            // selected entity (previously drawn for every collider in the scene at once, which
-            // got visually noisy fast in anything beyond a small demo scene), on top of the
-            // rendered sprites but under the translate/rotate/scale gizmo below. Purely an
-            // editor-only overlay (ImDrawList, like the translate/rotate/scale gizmo) --
-            // colliders are never actually rendered by the real IRenderer2D pass, on desktop or
-            // on-device, same as Unity's own Gizmos only ever showing in the Scene view. Small
-            // square resize handles are drawn alongside the outline whenever selected, but only
-            // respond to a drag once the component's own "Edit" checkbox (Properties panel) is
-            // on -- see DragCollider2DHandle's own comment for why.
+            // Collider gizmo -- green wireframe for the selected entity only. Handles are always
+            // draggable while selected (no extra Edit toggle needed).
             ImDrawList* colliderDrawList = ImGui::GetWindowDrawList();
             const ImU32 colliderColor = IM_COL32(60, 230, 90, 255);
             // Offset is added in world space untransformed by the parent's rotation --
             // a tiny, purely-visual imprecision for rotated parents (colliders are never
             // simulated as children of a moving parent anyway, see Scene::OnRuntimeStart).
-            if (ctx.Selected && ctx.Selected.HasComponent<BoxCollider2DComponent>() && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+            if (ctx.Selected && ctx.Selected.HasComponent<BoxCollider2DComponent>() && ctx.Selected.GetComponent<BoxCollider2DComponent>().Enabled && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
                 auto& collider = ctx.Selected.GetComponent<BoxCollider2DComponent>();
                 glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
@@ -1130,16 +1336,18 @@ namespace Duality {
                 colliderDrawList->AddRectFilled(ImVec2(yHandle.x - Collider2DHandleHalfSize, yHandle.y - Collider2DHandleHalfSize),
                     ImVec2(yHandle.x + Collider2DHandleHalfSize, yHandle.y + Collider2DHandleHalfSize), colliderColor);
 
-                if (collider.EditMode) {
-                    float newX = DragCollider2DHandle("##Collider2DResizeX", centerScreen, xHandle, camera.Zoom, collider.Size.x);
-                    if (newX != collider.Size.x)
-                        collider.Size.x = newX;
-                    float newY = DragCollider2DHandle("##Collider2DResizeY", centerScreen, yHandle, camera.Zoom, collider.Size.y);
-                    if (newY != collider.Size.y)
-                        collider.Size.y = newY;
+                float newX = DragCollider2DHandle("##Collider2DResizeX", centerScreen, xHandle, camera.Zoom, collider.Size.x);
+                if (newX != collider.Size.x) {
+                    collider.Size.x = newX;
+                    MarkSceneDirty(ctx);
+                }
+                float newY = DragCollider2DHandle("##Collider2DResizeY", centerScreen, yHandle, camera.Zoom, collider.Size.y);
+                if (newY != collider.Size.y) {
+                    collider.Size.y = newY;
+                    MarkSceneDirty(ctx);
                 }
             }
-            if (ctx.Selected && ctx.Selected.HasComponent<CircleCollider2DComponent>() && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+            if (ctx.Selected && ctx.Selected.HasComponent<CircleCollider2DComponent>() && ctx.Selected.GetComponent<CircleCollider2DComponent>().Enabled && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
                 auto& collider = ctx.Selected.GetComponent<CircleCollider2DComponent>();
                 glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
@@ -1150,11 +1358,64 @@ namespace Duality {
                 colliderDrawList->AddRectFilled(ImVec2(radiusHandle.x - Collider2DHandleHalfSize, radiusHandle.y - Collider2DHandleHalfSize),
                     ImVec2(radiusHandle.x + Collider2DHandleHalfSize, radiusHandle.y + Collider2DHandleHalfSize), colliderColor);
 
-                if (collider.EditMode) {
-                    float newRadius = DragCollider2DHandle("##Collider2DResizeRadius", screenCenter, radiusHandle, camera.Zoom, collider.Radius);
-                    if (newRadius != collider.Radius)
-                        collider.Radius = newRadius;
+                float newRadius = DragCollider2DHandle("##Collider2DResizeRadius", screenCenter, radiusHandle, camera.Zoom, collider.Radius);
+                if (newRadius != collider.Radius) {
+                    collider.Radius = newRadius;
+                    MarkSceneDirty(ctx);
                 }
+            }
+            if (ctx.Selected && ctx.Selected.HasComponent<CapsuleCollider2DComponent>() && ctx.Selected.GetComponent<CapsuleCollider2DComponent>().Enabled && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
+                auto& collider = ctx.Selected.GetComponent<CapsuleCollider2DComponent>();
+                glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
+                float halfBody = std::max(0.0f, (collider.Height - 2.0f * collider.Radius) * 0.5f);
+                glm::vec2 topCap = center + glm::vec2{ 0.0f, halfBody };
+                glm::vec2 bottomCap = center - glm::vec2{ 0.0f, halfBody };
+                ImVec2 topCapScreen = worldToPaneScreen(topCap);
+                ImVec2 bottomCapScreen = worldToPaneScreen(bottomCap);
+                float radiusPx = collider.Radius * camera.Zoom;
+                DrawCapsule2DOutline(colliderDrawList, topCapScreen, bottomCapScreen, radiusPx, colliderColor);
+                colliderDrawList->AddCircleFilled(topCapScreen, radiusPx, IM_COL32(60, 230, 90, 40));
+                colliderDrawList->AddCircleFilled(bottomCapScreen, radiusPx, IM_COL32(60, 230, 90, 40));
+                if (halfBody > 0.0f) {
+                    colliderDrawList->AddRectFilled(
+                        ImVec2(topCapScreen.x - radiusPx, topCapScreen.y),
+                        ImVec2(bottomCapScreen.x + radiusPx, bottomCapScreen.y),
+                        IM_COL32(60, 230, 90, 40));
+                }
+
+                ImVec2 centerScreen = worldToPaneScreen(center);
+                ImVec2 radiusHandle = worldToPaneScreen(center + glm::vec2{ collider.Radius, 0.0f });
+                ImVec2 heightHandle = worldToPaneScreen(topCap + glm::vec2{ 0.0f, collider.Radius });
+                colliderDrawList->AddRectFilled(ImVec2(radiusHandle.x - Collider2DHandleHalfSize, radiusHandle.y - Collider2DHandleHalfSize),
+                    ImVec2(radiusHandle.x + Collider2DHandleHalfSize, radiusHandle.y + Collider2DHandleHalfSize), colliderColor);
+                colliderDrawList->AddRectFilled(ImVec2(heightHandle.x - Collider2DHandleHalfSize, heightHandle.y - Collider2DHandleHalfSize),
+                    ImVec2(heightHandle.x + Collider2DHandleHalfSize, heightHandle.y + Collider2DHandleHalfSize), colliderColor);
+
+                float newRadius = DragCollider2DHandle("##Collider2DCapsuleRadius", centerScreen, radiusHandle, camera.Zoom, collider.Radius);
+                if (newRadius != collider.Radius) {
+                    collider.Radius = newRadius;
+                    MarkSceneDirty(ctx);
+                }
+                float newHeight = DragCollider2DHandle("##Collider2DCapsuleHeight", centerScreen, heightHandle, camera.Zoom, collider.Height);
+                if (newHeight != collider.Height) {
+                    collider.Height = newHeight;
+                    MarkSceneDirty(ctx);
+                }
+            }
+            if (ctx.Selected && ctx.Selected.HasComponent<PolygonCollider2DComponent>() && ctx.Selected.GetComponent<PolygonCollider2DComponent>().Enabled && ShouldRenderOnScreen(ctx.SceneRef, ctx.Selected.Handle(), screen)) {
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(ctx.Selected);
+                auto& collider = ctx.Selected.GetComponent<PolygonCollider2DComponent>();
+                glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
+                int vertexCount = std::clamp(collider.VertexCount, 3, 8);
+                std::vector<ImVec2> polygonScreen;
+                polygonScreen.reserve(vertexCount);
+                for (int i = 0; i < vertexCount; i++) {
+                    glm::vec2 vertex = center + GetPolygonVertex2DConst(collider, i);
+                    polygonScreen.push_back(worldToPaneScreen(vertex));
+                }
+                if (polygonScreen.size() >= 2)
+                    colliderDrawList->AddPolyline(polygonScreen.data(), static_cast<int>(polygonScreen.size()), colliderColor, ImDrawFlags_Closed, 2.0f);
             }
 
             // Draw+hit-test the gizmo every frame (not just while hovered) so a
@@ -1200,20 +1461,75 @@ namespace Duality {
                         };
 
                         Entity hit;
+                        auto tryPick = [&](Entity candidate) {
+                            if (!ShouldRenderOnScreen(ctx.SceneRef, candidate.Handle(), screen))
+                                return;
+                            if (!ctx.SceneRef.IsEffectivelyActive(candidate))
+                                return;
+                            hit = candidate; // topmost (last drawn) match wins
+                        };
+
                         for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
-                            if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
-                                continue; // not visible in this pane -- shouldn't be clickable here either
-                            if (!ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef)))
-                                continue; // same -- inactive entities aren't drawn here, so not clickable either
                             Entity candidate(handle, &ctx.SceneRef);
                             TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
                             auto& sprite = candidate.GetComponent<SpriteRendererComponent>();
+                            if (!sprite.Enabled)
+                                continue;
                             bool inside = worldPoint.x >= transform.Translation.x - sprite.Size.x * 0.5f &&
                                           worldPoint.x <= transform.Translation.x + sprite.Size.x * 0.5f &&
                                           worldPoint.y >= transform.Translation.y - sprite.Size.y * 0.5f &&
                                           worldPoint.y <= transform.Translation.y + sprite.Size.y * 0.5f;
                             if (inside)
-                                hit = candidate; // topmost (last drawn) match wins
+                                tryPick(candidate);
+                        }
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, BoxCollider2DComponent>()) {
+                            Entity candidate(handle, &ctx.SceneRef);
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            auto& collider = candidate.GetComponent<BoxCollider2DComponent>();
+                            glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
+                            bool inside = std::abs(worldPoint.x - center.x) <= collider.Size.x &&
+                                          std::abs(worldPoint.y - center.y) <= collider.Size.y;
+                            if (inside)
+                                tryPick(candidate);
+                        }
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CircleCollider2DComponent>()) {
+                            Entity candidate(handle, &ctx.SceneRef);
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            auto& collider = candidate.GetComponent<CircleCollider2DComponent>();
+                            glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
+                            if (glm::distance(worldPoint, center) <= collider.Radius)
+                                tryPick(candidate);
+                        }
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CapsuleCollider2DComponent>()) {
+                            Entity candidate(handle, &ctx.SceneRef);
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            auto& collider = candidate.GetComponent<CapsuleCollider2DComponent>();
+                            glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
+                            if (PointInCapsule2D(worldPoint, center, collider.Radius, collider.Height))
+                                tryPick(candidate);
+                        }
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, PolygonCollider2DComponent>()) {
+                            Entity candidate(handle, &ctx.SceneRef);
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            auto& collider = candidate.GetComponent<PolygonCollider2DComponent>();
+                            glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
+                            glm::vec2 localPoint = worldPoint - center;
+                            if (PointInPolygon2D(localPoint, collider))
+                                tryPick(candidate);
+                        }
+                        constexpr float EmptyEntityPickRadius2D = 12.0f;
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent>()) {
+                            Entity candidate(handle, &ctx.SceneRef);
+                            if (candidate.HasComponent<SpriteRendererComponent>() ||
+                                candidate.HasComponent<BoxCollider2DComponent>() ||
+                                candidate.HasComponent<CircleCollider2DComponent>() ||
+                                candidate.HasComponent<CapsuleCollider2DComponent>() ||
+                                candidate.HasComponent<PolygonCollider2DComponent>())
+                                continue;
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            glm::vec2 pivot{ transform.Translation.x, transform.Translation.y };
+                            if (glm::distance(worldPoint, pivot) <= EmptyEntityPickRadius2D)
+                                tryPick(candidate);
                         }
                         if (hit)
                             ctx.Selected = hit;
@@ -1229,6 +1545,7 @@ namespace Duality {
             // drag using this pane's (wrong) camera pan/zoom.
             if (ctx.DraggingGizmoAxis != GizmoAxis::None && ctx.DraggingGizmoScreen == screen) {
                 if (hasGizmoTarget && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                    MarkSceneDirty(ctx);
                     auto& selectedTransform = ctx.Selected.GetComponent<TransformComponent>();
 
                     if (ctx.ActiveGizmoMode == GizmoMode::Rotate) {
