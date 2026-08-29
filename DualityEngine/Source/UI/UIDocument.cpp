@@ -139,12 +139,22 @@ namespace Duality {
             auto& rect = entity.GetComponent<UIRectComponent>();
             if (auto it = props.find("screen"); it != props.end())
                 rect.Screen = EqualsIgnoreCase(it->second, "Bottom") ? Screen::Bottom : Screen::Top;
+
+            // .uidoc markup only ever spoke the legacy anchor/x/y/width/height vocabulary --
+            // stage it into locals (matching the pre-RectTransform UIRectComponent's own
+            // defaults: TopLeft/Offset{0,0}/Size{100,40}, not the new component's own default
+            // AnchorMin/Max/Pivot of {0.5,0.5}) then convert once, same as scene-file migration.
+            UIAnchor anchor = UIAnchor::TopLeft;
+            glm::vec2 offset{ 0.0f, 0.0f };
+            glm::vec2 size{ 100.0f, 40.0f };
             if (auto it = props.find("anchor"); it != props.end())
-                rect.Anchor = ParseUIAnchor(it->second);
-            if (auto it = props.find("x"); it != props.end()) rect.Offset.x = SafeStof(it->second, rect.Offset.x);
-            if (auto it = props.find("y"); it != props.end()) rect.Offset.y = SafeStof(it->second, rect.Offset.y);
-            if (auto it = props.find("width"); it != props.end()) rect.Size.x = SafeStof(it->second, rect.Size.x);
-            if (auto it = props.find("height"); it != props.end()) rect.Size.y = SafeStof(it->second, rect.Size.y);
+                anchor = ParseUIAnchor(it->second);
+            if (auto it = props.find("x"); it != props.end()) offset.x = SafeStof(it->second, offset.x);
+            if (auto it = props.find("y"); it != props.end()) offset.y = SafeStof(it->second, offset.y);
+            if (auto it = props.find("width"); it != props.end()) size.x = SafeStof(it->second, size.x);
+            if (auto it = props.find("height"); it != props.end()) size.y = SafeStof(it->second, size.y);
+            LegacyUIAnchorToRectTransform(anchor, offset, size,
+                rect.AnchorMin, rect.AnchorMax, rect.Pivot, rect.AnchoredPosition, rect.SizeDelta);
 
             if (entity.HasComponent<UIImageComponent>()) {
                 auto& image = entity.GetComponent<UIImageComponent>();

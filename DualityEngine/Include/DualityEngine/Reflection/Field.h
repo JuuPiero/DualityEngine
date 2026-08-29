@@ -14,6 +14,7 @@
 #include "DualityEngine/Renderer/MeshPrimitive.h"
 #include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
+#include "DualityEngine/Renderer/TextAlignment.h"
 #include "DualityEngine/Renderer/UIAnchor.h"
 #include "DualityEngine/Renderer/UILayoutType.h"
 #include "DualityEngine/Scene/Layer.h"
@@ -91,7 +92,7 @@ namespace Duality {
     // FieldValueToJson/JsonToFieldValue) needs exactly one new `if constexpr` branch per case --
     // TypeRegistry/MakeField/EntitySerialization.cpp need no changes at all, already fully
     // generic over whatever alternatives this variant holds.
-    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef, ProjectionType, MeshPrimitive, UIAnchor, BodyType, Layer, uint32_t, EntityRef, CanvasRenderMode, UILayoutType, EnumFieldValue, std::vector<AssetRef>, NestedFieldValue>;
+    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef, ProjectionType, MeshPrimitive, UIAnchor, BodyType, Layer, uint32_t, EntityRef, CanvasRenderMode, UILayoutType, TextAlignment, EnumFieldValue, std::vector<AssetRef>, NestedFieldValue>;
 
     // A named, type-erased accessor for one field of a component/script
     // instance. Reflection is only ever walked from the Properties panel

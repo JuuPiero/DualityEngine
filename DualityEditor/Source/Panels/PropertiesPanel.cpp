@@ -88,6 +88,32 @@ namespace Duality {
             return nullptr;
         }
 
+        // Unity-style "Anchor Presets" quick-set: a 3x3 grid matching the legacy UIAnchor grid,
+        // snapping AnchorMin/AnchorMax/Pivot to a point anchor at the clicked cell. Deliberately
+        // does not touch AnchoredPosition/SizeDelta (matches Unity's own plain, non-Alt-click
+        // preset-button behavior) -- the rect will visibly jump to sit at the new anchor point
+        // using its existing AnchoredPosition/SizeDelta, same as clicking a preset in Unity.
+        void DrawUIRectAnchorPresets(UIRectComponent* rect, EditorContext& ctx) {
+            static const UIAnchor kGrid[3][3] = {
+                { UIAnchor::TopLeft,    UIAnchor::TopCenter,    UIAnchor::TopRight },
+                { UIAnchor::MiddleLeft, UIAnchor::MiddleCenter, UIAnchor::MiddleRight },
+                { UIAnchor::BottomLeft, UIAnchor::BottomCenter, UIAnchor::BottomRight },
+            };
+            ImGui::TextUnformatted("Anchor Presets");
+            for (int row = 0; row < 3; row++) {
+                for (int col = 0; col < 3; col++) {
+                    ImGui::PushID(row * 3 + col);
+                    if (col > 0)
+                        ImGui::SameLine();
+                    if (ImGui::Button("##AnchorPreset", ImVec2(24.0f, 24.0f))) {
+                        UIAnchorPresetToMinMaxPivot(kGrid[row][col], rect->AnchorMin, rect->AnchorMax, rect->Pivot);
+                        MarkSceneDirty(ctx);
+                    }
+                    ImGui::PopID();
+                }
+            }
+        }
+
         // Renders BehaviourComponent's "Scripts" section -- one collapsible card per attached
         // script slot (own header, own "..." Remove Script popup), instead of the single
         // generic header/fields/remove flow every other TypeRegistry component gets, since one
@@ -232,6 +258,8 @@ namespace Duality {
                 // can corrupt either widget's persistent state (a header's open/
                 // closed flag colliding with a text field's edit buffer).
                 ImGui::PushID("Fields");
+                if (type.DisplayName == "UI Rect")
+                    DrawUIRectAnchorPresets(static_cast<UIRectComponent*>(component), ctx);
                 for (auto& field : type.Fields) {
                     if (field.Name == "Enabled")
                         continue; // drawn on the header above

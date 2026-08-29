@@ -22,6 +22,7 @@ add_library(DualityEngine STATIC
     Source/Renderer/SceneRenderer.cpp
     Source/Renderer/DrawHelpers2D.cpp
     Source/Renderer/UIRenderer.cpp
+    Source/Renderer/UIAnchor.cpp
     Source/Renderer/PrimitiveMeshes.cpp
     Source/Project/Project.cpp
     Source/UI/UIMarkupParser.cpp
@@ -78,6 +79,7 @@ else()
         Source/Renderer/OpenGL/OpenGLRenderer2D.cpp
         Source/Renderer/OpenGL/OpenGLRenderer3D.cpp
         Source/Renderer/OpenGL/GLTextureLoader.cpp
+        Source/Renderer/OpenGL/GLFontLoader.cpp
         Source/Renderer/OpenGL/GLShaderProgram.cpp
         Source/Renderer/OpenGL/GLVertexArray.cpp
         Source/Audio/AudioEngine_Desktop.cpp

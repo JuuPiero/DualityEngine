@@ -13,6 +13,7 @@
 #include "DualityEngine/Renderer/MeshPrimitive.h"
 #include "DualityEngine/Renderer/ProjectionType.h"
 #include "DualityEngine/Renderer/Screen.h"
+#include "DualityEngine/Renderer/TextAlignment.h"
 #include "DualityEngine/Renderer/UIAnchor.h"
 #include "DualityEngine/Renderer/UILayoutType.h"
 #include "DualityEngine/Scene/ActiveComponent.h"
@@ -422,15 +423,24 @@ namespace Duality {
     // adding a new widget type later (e.g. a slider) means adding one new component + one loop
     // in UIRenderer.cpp, without touching this positioning component at all.
 
-    // Where/how big a UI element is: Anchor + Offset (pixels from that anchor corner/edge) +
-    // Size (pixels) resolves to a rect in `Screen`'s own fixed pixel space (see
-    // Renderer/UIRenderer.h's ResolveUIRect) -- entirely independent of any CameraComponent.
+    // Where/how big a UI element is -- Unity RectTransform-equivalent. AnchorMin/AnchorMax are
+    // normalized [0,1] positions within the parent rect (or the physical screen, at the root);
+    // equal on an axis means a point anchor, different means that axis stretches with the
+    // parent. Pivot is a normalized [0,1] point within this rect's own resolved bounds.
+    // AnchoredPosition offsets the pivot from the anchor point (point-anchor axes) or shifts a
+    // stretched rect from the parent's own center (stretch axes; ignored on that axis
+    // otherwise -- see Renderer/UIRenderer.h's ResolveUIRect). SizeDelta is this rect's size on
+    // a point-anchor axis, or the amount added to the anchor-implied size on a stretch axis.
+    // UIAnchor (Renderer/UIAnchor.h) is kept only as an editor-side "anchor preset" convenience
+    // for quick-setting AnchorMin/AnchorMax/Pivot -- it is not stored on the component itself.
     struct UIRectComponent {
         bool Enabled = true;
         Duality::Screen Screen = Duality::Screen::Top;
-        UIAnchor Anchor = UIAnchor::TopLeft;
-        glm::vec2 Offset{ 0.0f, 0.0f };
-        glm::vec2 Size{ 100.0f, 40.0f };
+        glm::vec2 AnchorMin{ 0.5f, 0.5f };
+        glm::vec2 AnchorMax{ 0.5f, 0.5f };
+        glm::vec2 Pivot{ 0.5f, 0.5f };
+        glm::vec2 AnchoredPosition{ 0.0f, 0.0f };
+        glm::vec2 SizeDelta{ 100.0f, 40.0f };
         int SortOrder = 0;
     };
 
@@ -464,15 +474,20 @@ namespace Duality {
         bool WasClicked = false; // true for exactly one frame: pointer released while still over the button
     };
 
-    // A text label's string content (pair with UIRectComponent for a <Text> widget, see
-    // UIDocument.h). Data-only for now, deliberately -- there is no font/glyph rendering system
-    // on either backend yet (citro2d has one built in on 3DS; desktop's OpenGLRenderer2D is
-    // legacy fixed-function with no font atlas at all), so UIRenderer.cpp does not draw this
-    // Text anywhere yet. Exists now so UIDocument markup can already author/round-trip text
-    // content ahead of that renderer work, rather than the two being coupled into one big change.
+    // A text label (pair with UIRectComponent for a <Text> widget, see UIDocument.h). Drawn by
+    // UIRenderer.cpp via IRenderer2D::DrawText, horizontally positioned within the paired
+    // UIRectComponent's resolved rect per Alignment -- vertical is always centered (a
+    // deliberate v1 scope limit, no separate vertical-alignment enum). Font is an AssetRef to a
+    // .ttf/.otf (empty = default/system font); real per-platform behavior differs -- see
+    // IRenderer2D::LoadFont's own comment (desktop rasterizes any assigned font for real,
+    // 3DS always uses citro2d's built-in system font regardless, logged once if ignored).
     struct UITextComponent {
         bool Enabled = true;
         std::string Text;
+        AssetRef Font;
+        float FontSize = 16.0f;
+        glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+        TextAlignment Alignment = TextAlignment::Left;
     };
 
     // Unity Canvas root -- children UI widgets inherit render mode / sort.

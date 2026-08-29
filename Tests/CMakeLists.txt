@@ -22,6 +22,8 @@ add_executable(DualityEngineTests
     SceneManagementTests.cpp
     RaycastTests.cpp
     UIDocumentTests.cpp
+    UIRectComponentTests.cpp
     MultiScriptTests.cpp
+    ScriptContextDllBoundaryTests.cpp
 )
 target_link_libraries(DualityEngineTests PRIVATE DualityEngine)

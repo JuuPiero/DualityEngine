@@ -13,6 +13,7 @@
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Renderer/CanvasRenderMode.h"
+#include "DualityEngine/Renderer/TextAlignment.h"
 #include "DualityEngine/Renderer/UILayoutType.h"
 #include "DualityEngine/Scene/Layer.h"
 #include "DualityEngine/Scene/Scene.h"
@@ -116,6 +117,13 @@ namespace Duality {
                 int current = static_cast<int>(v);
                 if (ImGui::Combo(name.c_str(), &current, items, 2)) {
                     v = static_cast<UILayoutType>(current);
+                    changed = true;
+                }
+            } else if constexpr (std::is_same_v<T, TextAlignment>) {
+                const char* items[] = { "Left", "Center", "Right" };
+                int current = static_cast<int>(v);
+                if (ImGui::Combo(name.c_str(), &current, items, 3)) {
+                    v = static_cast<TextAlignment>(current);
                     changed = true;
                 }
             } else if constexpr (std::is_same_v<T, EnumFieldValue>) {

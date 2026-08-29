@@ -252,6 +252,7 @@ int main() {
             // replaced -- freed here rather than left cached for the rest of the
             // process's lifetime (see IRenderer2D::UnloadAllTextures's own comment).
             renderer.UnloadAllTextures();
+            renderer.UnloadAllFonts();
             renderer3D.UnloadAllTextures();
             renderer3D.UnloadAllMeshes();
             scene = Scene();

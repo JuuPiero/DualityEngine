@@ -20,6 +20,13 @@ namespace Duality {
     }
 
     void OpenGLRenderer2D::Init() {
+        // Required for real text rendering (a glyph atlas is white RGB + alpha coverage,
+        // tinted by DrawQuad's own color-modulate) -- this renderer never enabled blending
+        // before, so alpha was previously ignored entirely (any existing content authored with
+        // Color.a < 1 expecting transparency was silently rendering fully opaque). This is a
+        // real, visible behavior fix, not just an addition.
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     }
 
     void OpenGLRenderer2D::Shutdown() {
@@ -146,6 +153,76 @@ namespace Duality {
         }
     }
 
+    void OpenGLRenderer2D::DrawText(const std::string& text, const glm::vec2& position, float fontSize, const glm::vec4& color, uint32_t fontId) {
+        uint32_t resolvedId = fontId != 0 ? fontId : LoadFont("");
+        if (resolvedId == 0 || resolvedId > m_Fonts.size())
+            return;
+        const GLFont& font = m_Fonts[resolvedId - 1];
+        if (font.AtlasTexture == 0)
+            return;
+
+        // Walk the string in the font's own bake-scale pixel space (cursor starts at the
+        // baseline, GLFont::Ascent below the requested top-left `position`), then scale each
+        // resulting glyph quad by fontSize/GLFontBakePixelHeight and offset by `position` to
+        // land in real screen-pixel space -- keeps stbtt_GetBakedQuad's own coordinate math
+        // (which only knows about the bake-time pixel height) decoupled from whatever size the
+        // caller actually asked for.
+        float scale = fontSize / GLFontBakePixelHeight;
+        float x = 0.0f, y = font.Ascent;
+        for (char c : text) {
+            if (c < GLFontFirstChar || c >= GLFontFirstChar + GLFontNumChars)
+                continue;
+            stbtt_aligned_quad q;
+            stbtt_GetBakedQuad(font.Chars.data(), font.AtlasWidth, font.AtlasHeight, c - GLFontFirstChar, &x, &y, &q, 1);
+
+            glm::vec2 glyphPos = position + glm::vec2(q.x0, q.y0) * scale;
+            glm::vec2 glyphSize = glm::vec2(q.x1 - q.x0, q.y1 - q.y0) * scale;
+            DrawQuad(glyphPos, glyphSize, color, 0.0f, font.AtlasTexture, { q.s0, q.t0, q.s1, q.t1 });
+        }
+    }
+
+    glm::vec2 OpenGLRenderer2D::MeasureText(const std::string& text, float fontSize, uint32_t fontId) {
+        uint32_t resolvedId = fontId != 0 ? fontId : LoadFont("");
+        if (resolvedId == 0 || resolvedId > m_Fonts.size())
+            return { 0.0f, 0.0f };
+        const GLFont& font = m_Fonts[resolvedId - 1];
+        if (font.AtlasTexture == 0)
+            return { 0.0f, 0.0f };
+
+        float scale = fontSize / GLFontBakePixelHeight;
+        float x = 0.0f, y = font.Ascent;
+        for (char c : text) {
+            if (c < GLFontFirstChar || c >= GLFontFirstChar + GLFontNumChars)
+                continue;
+            stbtt_aligned_quad q;
+            stbtt_GetBakedQuad(font.Chars.data(), font.AtlasWidth, font.AtlasHeight, c - GLFontFirstChar, &x, &y, &q, 1);
+        }
+        return { x * scale, fontSize }; // height is a single-line approximation, no wrapping this pass
+    }
+
+    uint32_t OpenGLRenderer2D::LoadFont(const std::string& path) {
+        // No font is vendored/shipped -- the zero-config default mirrors Citro2DRenderer's own
+        // "use the platform's system font, no asset needed" fallback via a well-known OS font
+        // path (this project's entire dev/build environment is Windows-only, every build script
+        // in this repo assumes it).
+        std::string resolvedPath = path.empty() ? "C:\\Windows\\Fonts\\segoeui.ttf" : path;
+
+        auto it = m_FontCache.find(resolvedPath);
+        if (it != m_FontCache.end())
+            return it->second;
+
+        GLFont font = GLFontLoader::LoadFontFromFile(resolvedPath);
+        if (font.AtlasTexture == 0) {
+            m_FontCache[resolvedPath] = 0;
+            return 0;
+        }
+
+        m_Fonts.push_back(std::move(font));
+        uint32_t id = static_cast<uint32_t>(m_Fonts.size()); // index+1, matching m_TextureCache's own 0-reserved convention
+        m_FontCache[resolvedPath] = id;
+        return id;
+    }
+
     uint32_t OpenGLRenderer2D::LoadTexture(const std::string& path) {
         auto it = m_TextureCache.find(path);
         if (it != m_TextureCache.end())
@@ -164,6 +241,17 @@ namespace Duality {
             }
         }
         m_TextureCache.clear();
+    }
+
+    void OpenGLRenderer2D::UnloadAllFonts() {
+        for (auto& font : m_Fonts) {
+            if (font.AtlasTexture != 0) {
+                GLuint id = font.AtlasTexture;
+                glDeleteTextures(1, &id);
+            }
+        }
+        m_Fonts.clear();
+        m_FontCache.clear();
     }
 
 }

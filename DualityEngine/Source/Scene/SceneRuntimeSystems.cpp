@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/UI/UIDocument.h"
 #include "DualityEngine/UI/UIDocumentLoader.h"
@@ -27,26 +28,36 @@ namespace Duality {
             if (!entity.HasComponent<UILayoutGroupComponent>() || !entity.HasComponent<UIRectComponent>())
                 return;
             auto& layout = entity.GetComponent<UILayoutGroupComponent>();
-            auto& parentRect = entity.GetComponent<UIRectComponent>();
             auto& hierarchy = entity.GetComponent<HierarchyComponent>();
+
+            // The parent's own resolved size may differ from its raw SizeDelta if it's stretch-
+            // anchored -- must resolve it for real rather than reading a raw field.
+            glm::vec2 parentTopLeft, parentSize;
+            ResolveUIRect(scene, entity, parentTopLeft, parentSize);
 
             float cursor = layout.Layout == UILayoutType::Vertical ? layout.Padding.y : layout.Padding.x;
             for (Entity child : hierarchy.Children) {
                 if (!child || !child.HasComponent<UIRectComponent>())
                     continue;
                 auto& childRect = child.GetComponent<UIRectComponent>();
+                // A layout group takes full control of every managed child's anchor, matching
+                // Unity's own LayoutGroup (SetInsetAndSizeFromParentEdge forces
+                // anchorMin=anchorMax=pivot to the controlled corner unconditionally on every
+                // rebuild) -- re-forced every pass, not just once, so AnchoredPosition plays
+                // exactly the role the old top-left-relative Offset used to.
+                childRect.AnchorMin = childRect.AnchorMax = childRect.Pivot = { 0.0f, 0.0f };
                 if (layout.Layout == UILayoutType::Vertical) {
                     if (layout.ChildControlWidth)
-                        childRect.Size.x = parentRect.Size.x - layout.Padding.x * 2.0f;
-                    childRect.Offset.y = cursor;
-                    childRect.Offset.x = layout.Padding.x;
-                    cursor += childRect.Size.y + layout.Spacing;
+                        childRect.SizeDelta.x = parentSize.x - layout.Padding.x * 2.0f;
+                    childRect.AnchoredPosition.y = cursor;
+                    childRect.AnchoredPosition.x = layout.Padding.x;
+                    cursor += childRect.SizeDelta.y + layout.Spacing;
                 } else {
                     if (layout.ChildControlHeight)
-                        childRect.Size.y = parentRect.Size.y - layout.Padding.y * 2.0f;
-                    childRect.Offset.x = cursor;
-                    childRect.Offset.y = layout.Padding.y;
-                    cursor += childRect.Size.x + layout.Spacing;
+                        childRect.SizeDelta.y = parentSize.y - layout.Padding.y * 2.0f;
+                    childRect.AnchoredPosition.x = cursor;
+                    childRect.AnchoredPosition.y = layout.Padding.y;
+                    cursor += childRect.SizeDelta.x + layout.Spacing;
                 }
                 ApplyUILayoutRecursive(scene, child);
             }

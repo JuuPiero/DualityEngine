@@ -324,6 +324,29 @@ this file whenever something below actually gets built, or a new deferred item c
       Physics section's Raycast API entry) so a button correctly only reacts to a pointer
       actually over its own screen -- fixed alongside the Raycast work above, since both needed
       the same "which screen was this pointer event for" fact.
+- [x] UI Transform upgrade -- `UIRectComponent` replaced its old `Anchor`+`Offset`+`Size` fields
+      (a single 9-way anchor preset, no stretch concept) with a real `RectTransform`-equivalent:
+      `AnchorMin`/`AnchorMax` (normalized [0,1], equal on an axis = point anchor, different =
+      that axis stretches with the parent), `Pivot`, `AnchoredPosition`, `SizeDelta` -- see
+      `UIRenderer.cpp`'s rewritten `ResolveUIRect` for the exact per-axis point/stretch formula
+      (independently re-derived and confirmed against Unity's own documented behavior during
+      design review). `UIAnchor` (the old 9-way enum) is no longer a stored field -- it survives
+      only as an Editor "Anchor Presets" quick-set convenience
+      (`UIAnchor.h`'s `UIAnchorPresetToMinMaxPivot`, wired into `PropertiesPanel.cpp`) and as the
+      vocabulary legacy data was authored in. Old scene files and `.uidoc` documents auto-migrate
+      on load (`UIAnchor.h`'s `LegacyUIAnchorToRectTransform`, wired into
+      `EntitySerialization.cpp` and `UIDocument.cpp`) to the exact same resolved pixel rect --
+      hand-verified against all 9 legacy anchor cases in `Tests/UIRectComponentTests.cpp`, no
+      layout reset for existing content. `UILayoutGroupComponent`'s runtime layout
+      (`SceneRuntimeSystems.cpp`) was adapted to resolve the parent's real size (it can now be
+      stretched) and force each managed child to a point-TopLeft anchor every pass, matching
+      Unity's own `LayoutGroup` behavior. A new visual gizmo in the Game panel (not the Scene
+      view -- UI rects live in a fixed, un-panned/un-zoomed pixel space that has nothing to do
+      with the Scene view's free-roam world camera) supports click-to-select, drag-to-move, and
+      4-corner drag-to-resize (pivot/anchor-aware, keeps the opposite edge fixed) directly on the
+      rendered UI, gated to Edit mode. `CanvasComponent::RenderMode` (Camera/World Space) is
+      still unimplemented -- deliberately out of scope for this pass, `ScreenSpaceOverlay`
+      remains the only real behavior, no regression.
 - [ ] Text/label UI widget -- needs real font rendering on both backends (citro2d has one
       built in; desktop has none, `OpenGLRenderer2D` is legacy fixed-function with no font atlas
       at all yet). The natural next widget after Panel/Button above.

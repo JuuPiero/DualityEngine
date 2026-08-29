@@ -141,9 +141,10 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     target_include_directories(ImGui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/ImGui/include)
     target_link_libraries(ImGui PUBLIC glfw)
 
-    # stb_image, for loading real thumbnail previews of image assets in the
-    # Content Browser (Editor-only for now -- the Engine doesn't have a
-    # texture/asset-loading subsystem yet, that's a later phase).
+    # stb_image (desktop sprite/texture PNG decode, GLTextureLoader.cpp; also Content Browser
+    # thumbnail previews) and stb_truetype (desktop UI text glyph-atlas baking, GLFontLoader.cpp
+    # -- NOT ImGui's own private imstb_truetype.h copy above, which ImGui isn't linked into on
+    # DualityPlayerDesktop or the 3DS build at all).
     add_library(stb INTERFACE)
     target_include_directories(stb INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/stb/include)
 

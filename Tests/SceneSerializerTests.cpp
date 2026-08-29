@@ -59,6 +59,38 @@ TEST_CASE("SceneSerializer round-trips multiple entities and a parent/child link
     std::filesystem::remove(path);
 }
 
+TEST_CASE("SceneSerializer round-trips UITextComponent's font/size/color/alignment fields") {
+    std::string path = TempScenePath();
+
+    Scene sourceScene;
+    Entity label = sourceScene.CreateEntity("Label");
+    label.AddComponent<UIRectComponent>();
+    auto& text = label.AddComponent<UITextComponent>();
+    text.Text = "Score: 0";
+    text.Font = AssetRef{ "some-font-guid" };
+    text.FontSize = 24.0f;
+    text.Color = { 0.2f, 0.4f, 0.9f, 1.0f };
+    text.Alignment = TextAlignment::Center;
+
+    CHECK(SceneSerializer(sourceScene).Serialize(path));
+
+    Scene loadedScene;
+    CHECK(SceneSerializer(loadedScene).Deserialize(path));
+
+    Entity loadedLabel = loadedScene.FindEntityInScreen(Screen::Top, "Label");
+    CHECK_SOFT(static_cast<bool>(loadedLabel), "label entity was found by name after loading");
+    if (loadedLabel) {
+        auto& loadedText = loadedLabel.GetComponent<UITextComponent>();
+        CHECK_SOFT(loadedText.Text == "Score: 0", "Text round-tripped");
+        CHECK_SOFT(loadedText.Font.Guid == "some-font-guid", "Font AssetRef round-tripped");
+        CHECK_SOFT(loadedText.FontSize == 24.0f, "FontSize round-tripped");
+        CHECK_SOFT(loadedText.Color.b == 0.9f, "Color round-tripped");
+        CHECK_SOFT(loadedText.Alignment == TextAlignment::Center, "Alignment round-tripped");
+    }
+
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("SceneSerializer::Deserialize fails gracefully for a missing file") {
     Scene scene;
     CHECK_SOFT(!SceneSerializer(scene).Deserialize("this_scene_file_does_not_exist.scene"), "Deserialize returns false for a missing file");

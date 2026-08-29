@@ -168,6 +168,7 @@ int main(int argc, char* argv[]) {
             std::string pendingPath = SceneManager::ConsumePendingLoad();
             scene.OnRuntimeStop();
             renderer.UnloadAllTextures();
+            renderer.UnloadAllFonts();
             renderer3D.UnloadAllTextures();
             renderer3D.UnloadAllMeshes();
             scene = Scene();

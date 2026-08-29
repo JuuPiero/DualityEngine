@@ -265,18 +265,30 @@
 
                 <h3>UIRectComponent</h3>
                 <p>
-                    Vị trí/kích thước một UI element: <code>Anchor</code> + <code>Offset</code>
-                    (pixel tính từ góc/cạnh neo đó) + <code>Size</code> (pixel) resolve thành một
-                    rect trong không gian pixel cố định của <code>Screen</code> (xem
-                    <code>UIRenderer.h</code>'s <code>ResolveUIRect</code>) — hoàn toàn độc lập với
-                    mọi <code>CameraComponent</code>.
+                    Vị trí/kích thước một UI element — giống hệt <code>RectTransform</code> của
+                    Unity: <code>AnchorMin</code>/<code>AnchorMax</code> (điểm neo chuẩn hoá [0,1]
+                    trong parent rect, hoặc trong chính <code>Screen</code> nếu là rect gốc; bằng
+                    nhau trên 1 trục = neo điểm, khác nhau = trục đó giãn/stretch theo parent),
+                    <code>Pivot</code> (điểm chuẩn hoá [0,1] trong chính rect này),
+                    <code>AnchoredPosition</code> (lệch pivot khỏi điểm neo trên trục điểm-neo, hoặc
+                    lệch tâm rect khỏi tâm parent trên trục stretch) và <code>SizeDelta</code>
+                    (kích thước thật trên trục điểm-neo, hoặc phần cộng thêm vào kích thước do neo
+                    quyết định trên trục stretch) — xem <code>UIRenderer.cpp</code>'s
+                    <code>ResolveUIRect</code> cho công thức chính xác. Hoàn toàn độc lập với mọi
+                    <code>CameraComponent</code>. <code>UIAnchor</code> (9 preset kiểu Unity) không
+                    còn là field lưu trữ nữa — chỉ còn là tiện ích quick-set phía Editor
+                    ("Anchor Presets" trong Properties panel) và là từ vựng cũ mà scene/
+                    <code>.uidoc</code> đã lưu trước đây tự động quy đổi sang khi load (xem
+                    <code>UIAnchor.h</code>'s <code>LegacyUIAnchorToRectTransform</code>).
                 </p>
                 <table>
                     <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
                     <tr><td><code>Screen</code></td><td><code>Screen</code></td><td><code>Top</code></td><td>Màn chứa UI element này.</td></tr>
-                    <tr><td><code>Anchor</code></td><td><code>UIAnchor</code></td><td><code>TopLeft</code></td><td>1 trong 9 preset kiểu <code>RectTransform</code> Unity — góc/cạnh nào của <code>Screen</code> mà <code>Offset</code> đo từ đó.</td></tr>
-                    <tr><td><code>Offset</code></td><td><code>glm::vec2</code></td><td><code>{0, 0}</code></td><td>Pixel tính từ <code>Anchor</code>.</td></tr>
-                    <tr><td><code>Size</code></td><td><code>glm::vec2</code></td><td><code>{100, 40}</code></td><td>Kích thước rect, pixel.</td></tr>
+                    <tr><td><code>AnchorMin</code></td><td><code>glm::vec2</code></td><td><code>{0.5, 0.5}</code></td><td>Điểm neo nhỏ nhất, chuẩn hoá [0,1] trong parent rect.</td></tr>
+                    <tr><td><code>AnchorMax</code></td><td><code>glm::vec2</code></td><td><code>{0.5, 0.5}</code></td><td>Điểm neo lớn nhất — bằng <code>AnchorMin</code> trên 1 trục = neo điểm, khác = trục đó stretch.</td></tr>
+                    <tr><td><code>Pivot</code></td><td><code>glm::vec2</code></td><td><code>{0.5, 0.5}</code></td><td>Điểm chuẩn hoá trong chính rect — chỉ có tác dụng trên trục neo điểm.</td></tr>
+                    <tr><td><code>AnchoredPosition</code></td><td><code>glm::vec2</code></td><td><code>{0, 0}</code></td><td>Lệch pixel từ điểm neo (trục neo điểm) hoặc từ tâm parent (trục stretch).</td></tr>
+                    <tr><td><code>SizeDelta</code></td><td><code>glm::vec2</code></td><td><code>{100, 40}</code></td><td>Kích thước thật (trục neo điểm) hoặc phần cộng thêm (trục stretch), pixel.</td></tr>
                 </table>
 
                 <h3>UIImageComponent</h3>

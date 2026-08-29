@@ -55,6 +55,31 @@ namespace Duality {
         // unmodified).
         virtual void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0, const glm::vec4& uvRect = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)) = 0;
 
+        // Draws `text` left-aligned with its top-left corner at `position` (the target screen's
+        // own pixel space, same convention as DrawQuad), at `fontSize` pixels tall, tinted by
+        // `color`. Deliberately NOT alignment-aware -- horizontal/vertical alignment within a
+        // UIRectComponent's rect is computed once in UIRenderer.cpp (via MeasureText below),
+        // never duplicated per-backend, so both platforms agree on layout pixel-for-pixel
+        // instead of each rounding/kerning slightly differently through their own native
+        // alignment flags. `fontId` is a handle from LoadFont (0 = default/system font).
+        virtual void DrawText(const std::string& text, const glm::vec2& position, float fontSize, const glm::vec4& color, uint32_t fontId = 0) = 0;
+
+        // Width/height `text` would occupy if drawn via DrawText at `fontSize` -- used by
+        // UIRenderer.cpp to compute alignment offsets against a UIRectComponent's resolved rect.
+        // Height is a single-line approximation (no wrapping/multi-line support this pass).
+        virtual glm::vec2 MeasureText(const std::string& text, float fontSize, uint32_t fontId = 0) = 0;
+
+        // Loads (and should internally cache) a font, returning an opaque backend-specific
+        // handle for DrawText/MeasureText's fontId, or 0 for the default/system font (also what
+        // an empty `path` means). OpenGLRenderer2D bakes a real glyph atlas from the referenced
+        // .ttf/.otf via stb_truetype -- a project can assign a custom font asset and see it on
+        // desktop. Citro2DRenderer ignores `path` entirely this pass and always uses citro2d's
+        // own built-in system font (C2D_FontLoadSystem, no asset needed) -- there is no
+        // BCFNT-authoring pipeline in this project yet, so a custom .ttf silently falls back to
+        // the system font on device (logged once), a deliberate, documented v1 limitation, not
+        // an oversight.
+        virtual uint32_t LoadFont(const std::string& path) = 0;
+
         // Loads (and should internally cache) a texture from an image file
         // on disk, returning an opaque backend-specific handle for
         // DrawQuad's textureId, or 0 if the file doesn't exist or isn't a
@@ -71,6 +96,10 @@ namespace Duality {
         // baked into an in-flight draw call becomes invalid the instant this returns -- only
         // call it between scenes, never mid-frame.
         virtual void UnloadAllTextures() = 0;
+
+        // Same contract as UnloadAllTextures, for LoadFont's own cache -- called at every
+        // existing UnloadAllTextures call site so scene transitions never leak fonts either.
+        virtual void UnloadAllFonts() = 0;
 
         // Number of DrawQuad calls since the last BeginFrame -- both backends are
         // unbatched (one DrawQuad = one real draw call), so this is an exact,

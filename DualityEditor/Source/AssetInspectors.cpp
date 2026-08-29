@@ -168,6 +168,7 @@ namespace Duality {
                 // unload, but this already-existing method (added for SceneManager's scene-
                 // transition cache clear) covers it with no new renderer API needed.
                 ctx.Renderer.UnloadAllTextures();
+                ctx.Renderer.UnloadAllFonts();
             }
         }
 

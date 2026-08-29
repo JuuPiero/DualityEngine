@@ -1563,7 +1563,7 @@ namespace Duality {
             bool pointerOnThisScreen = pointerDown && pointerScreen == cameraScreen;
             Entity hitEntity;
             PointerEventData eventData;
-            eventData.Screen = cameraScreen;
+            eventData.TargetScreen = cameraScreen;
             eventData.Position = pointer;
 
             if (pointerOnThisScreen) {
@@ -1607,7 +1607,7 @@ namespace Duality {
 
             if (pointerUpEdge && state.PressedEntity != entt::null && state.PressedScreen == cameraScreen) {
                 Entity pressEntity(state.PressedEntity, &scene);
-                eventData.Screen = state.PressedScreen;
+                eventData.TargetScreen = state.PressedScreen;
                 eventData.Position = pointer;
                 eventData.PointerPressRaycastTarget = pressEntity;
                 hitEntity = raycastFn(scene, cameraEntity, pointer, maxDistance, eventData.WorldPoint, eventData.Distance);

@@ -69,28 +69,55 @@ namespace Duality {
                 m_Entity.GetComponent<UIRectComponent>().Screen = screen;
         }
 
-        UIAnchor GetAnchor() const {
-            return m_Entity ? m_Entity.GetComponent<UIRectComponent>().Anchor : UIAnchor::TopLeft;
+        glm::vec2 GetAnchorMin() const {
+            return m_Entity ? m_Entity.GetComponent<UIRectComponent>().AnchorMin : glm::vec2{};
         }
-        void SetAnchor(UIAnchor anchor) {
+        void SetAnchorMin(const glm::vec2& anchorMin) {
             if (*this)
-                m_Entity.GetComponent<UIRectComponent>().Anchor = anchor;
+                m_Entity.GetComponent<UIRectComponent>().AnchorMin = anchorMin;
         }
 
-        glm::vec2 GetOffset() const {
-            return m_Entity ? m_Entity.GetComponent<UIRectComponent>().Offset : glm::vec2{};
+        glm::vec2 GetAnchorMax() const {
+            return m_Entity ? m_Entity.GetComponent<UIRectComponent>().AnchorMax : glm::vec2{};
         }
-        void SetOffset(const glm::vec2& offset) {
+        void SetAnchorMax(const glm::vec2& anchorMax) {
             if (*this)
-                m_Entity.GetComponent<UIRectComponent>().Offset = offset;
+                m_Entity.GetComponent<UIRectComponent>().AnchorMax = anchorMax;
         }
 
-        glm::vec2 GetSize() const {
-            return m_Entity ? m_Entity.GetComponent<UIRectComponent>().Size : glm::vec2{};
+        glm::vec2 GetPivot() const {
+            return m_Entity ? m_Entity.GetComponent<UIRectComponent>().Pivot : glm::vec2{};
         }
-        void SetSize(const glm::vec2& size) {
+        void SetPivot(const glm::vec2& pivot) {
             if (*this)
-                m_Entity.GetComponent<UIRectComponent>().Size = size;
+                m_Entity.GetComponent<UIRectComponent>().Pivot = pivot;
+        }
+
+        glm::vec2 GetAnchoredPosition() const {
+            return m_Entity ? m_Entity.GetComponent<UIRectComponent>().AnchoredPosition : glm::vec2{};
+        }
+        void SetAnchoredPosition(const glm::vec2& anchoredPosition) {
+            if (*this)
+                m_Entity.GetComponent<UIRectComponent>().AnchoredPosition = anchoredPosition;
+        }
+
+        glm::vec2 GetSizeDelta() const {
+            return m_Entity ? m_Entity.GetComponent<UIRectComponent>().SizeDelta : glm::vec2{};
+        }
+        void SetSizeDelta(const glm::vec2& sizeDelta) {
+            if (*this)
+                m_Entity.GetComponent<UIRectComponent>().SizeDelta = sizeDelta;
+        }
+
+        // One-call convenience matching the Editor's own "Anchor Presets" quick-set buttons
+        // (PropertiesPanel.cpp) -- snaps AnchorMin/AnchorMax/Pivot to a point anchor, leaving
+        // AnchoredPosition/SizeDelta untouched. Scripts that only need Unity's classic 9-way
+        // anchor grid (no stretch) can use this instead of setting all three vectors by hand.
+        void SetAnchorPreset(UIAnchor preset) {
+            if (!*this)
+                return;
+            auto& rect = m_Entity.GetComponent<UIRectComponent>();
+            UIAnchorPresetToMinMaxPivot(preset, rect.AnchorMin, rect.AnchorMax, rect.Pivot);
         }
 
     private:
@@ -124,7 +151,7 @@ namespace Duality {
         Entity m_Entity;
     };
 
-    // UITextComponent -- string content (rendering not implemented yet).
+    // UITextComponent -- string content, drawn by UIRenderer.cpp via IRenderer2D::DrawText.
     class UIText {
     public:
         explicit UIText(Entity entity) : m_Entity(entity) {}

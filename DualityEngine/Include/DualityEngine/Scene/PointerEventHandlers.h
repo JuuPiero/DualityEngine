@@ -10,7 +10,10 @@ namespace Duality {
     // Payload for world-space pointer events dispatched by PhysicsRaycaster2DComponent /
     // PhysicsRaycaster3DComponent (Unity's PointerEventData, trimmed to what this engine needs today).
     struct PointerEventData {
-        Screen Screen = Screen::Top;
+        // Named TargetScreen, not Screen, so this member doesn't shadow the Screen TYPE within
+        // the struct's own scope -- devkitARM's GCC rejects that as "changes meaning of 'Screen'"
+        // ([-Wchanges-meaning]), even though desktop's compiler happens to accept it.
+        Screen TargetScreen = Screen::Top;
         // Local pixel coordinates within `Screen` (top-left origin, Y-down) -- same space as
         // Input::GetPointerPosition().
         glm::vec2 Position{ 0.0f };

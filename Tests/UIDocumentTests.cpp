@@ -102,7 +102,9 @@ TEST_CASE("UIDocument Instantiate creates entities with the right components fro
     CHECK_SOFT(!panel.HasComponent<UIButtonComponent>(), "Panel does NOT get UIButton");
     auto& panelRect = panel.GetComponent<UIRectComponent>();
     CHECK_SOFT(panelRect.Screen == Screen::Bottom, "explicit screen=\"Bottom\" attribute overrides Instantiate's default screen");
-    CHECK_SOFT(panelRect.Size.x == 320.0f && panelRect.Size.y == 240.0f, "width/height attributes applied");
+    glm::vec2 panelResolvedTopLeft, panelResolvedSize;
+    ResolveUIRect(scene, panel, panelResolvedTopLeft, panelResolvedSize);
+    CHECK_SOFT(panelResolvedSize.x == 320.0f && panelResolvedSize.y == 240.0f, "width/height attributes applied");
     CHECK_SOFT(panel.GetComponent<UIImageComponent>().Color.b > 0.2f, "color attribute parsed (hex #204060 has a real blue component)");
 
     CHECK(panel.GetComponent<HierarchyComponent>().Children.size() == 2);
@@ -137,9 +139,13 @@ TEST_CASE("UIDocument CSS cascade: class beats element, inline style beats every
     Entity docRoot = doc.Instantiate(scene, Screen::Top);
     auto& children = docRoot.GetComponent<HierarchyComponent>().Children;
     CHECK(children.size() == 3);
-    CHECK_SOFT(children[0].GetComponent<UIRectComponent>().Size.x == 999.0f, "inline style wins over both class and element rules");
-    CHECK_SOFT(children[1].GetComponent<UIRectComponent>().Size.x == 200.0f, "class selector (specificity 10) beats element selector (specificity 1)");
-    CHECK_SOFT(children[2].GetComponent<UIRectComponent>().Size.x == 50.0f, "plain element rule still applies with no class/inline override");
+    glm::vec2 childTopLeft, childSize;
+    ResolveUIRect(scene, children[0], childTopLeft, childSize);
+    CHECK_SOFT(childSize.x == 999.0f, "inline style wins over both class and element rules");
+    ResolveUIRect(scene, children[1], childTopLeft, childSize);
+    CHECK_SOFT(childSize.x == 200.0f, "class selector (specificity 10) beats element selector (specificity 1)");
+    ResolveUIRect(scene, children[2], childTopLeft, childSize);
+    CHECK_SOFT(childSize.x == 50.0f, "plain element rule still applies with no class/inline override");
 
     std::filesystem::remove(path);
 }

@@ -1,9 +1,11 @@
 {
   "AssetsDirectory": "Assets",
   "IconPath": "",
-  "N3DSAntiAliasing": 0,
+  "N3DSAntiAliasing": 2,
   "Name": "SampleProject",
-  "ScenesInBuild": [],
+  "ScenesInBuild": [
+    "Scenes/Platformer.scene"
+  ],
   "ScriptsDirectory": "Scripts",
   "StartScene": ""
 }

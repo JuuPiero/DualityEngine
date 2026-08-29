@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Input/Input.h"
 #include "DualityEngine/Renderer/DrawHelpers2D.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
@@ -22,21 +23,21 @@ namespace Duality {
             parentSize.y = (rect.Screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
         }
 
-        outSize = rect.Size;
-        float x, y;
-        switch (rect.Anchor) {
-            case UIAnchor::TopCenter:    x = parentSize.x * 0.5f + rect.Offset.x - outSize.x * 0.5f; y = rect.Offset.y; break;
-            case UIAnchor::TopRight:     x = parentSize.x - rect.Offset.x - outSize.x; y = rect.Offset.y; break;
-            case UIAnchor::MiddleLeft:   x = rect.Offset.x; y = parentSize.y * 0.5f + rect.Offset.y - outSize.y * 0.5f; break;
-            case UIAnchor::MiddleCenter: x = parentSize.x * 0.5f + rect.Offset.x - outSize.x * 0.5f; y = parentSize.y * 0.5f + rect.Offset.y - outSize.y * 0.5f; break;
-            case UIAnchor::MiddleRight:  x = parentSize.x - rect.Offset.x - outSize.x; y = parentSize.y * 0.5f + rect.Offset.y - outSize.y * 0.5f; break;
-            case UIAnchor::BottomLeft:   x = rect.Offset.x; y = parentSize.y - rect.Offset.y - outSize.y; break;
-            case UIAnchor::BottomCenter: x = parentSize.x * 0.5f + rect.Offset.x - outSize.x * 0.5f; y = parentSize.y - rect.Offset.y - outSize.y; break;
-            case UIAnchor::BottomRight:  x = parentSize.x - rect.Offset.x - outSize.x; y = parentSize.y - rect.Offset.y - outSize.y; break;
-            case UIAnchor::TopLeft:
-            default:                     x = rect.Offset.x; y = rect.Offset.y; break;
+        // RectTransform-style resolution, per axis independently. AnchorMin==AnchorMax on an
+        // axis is a point anchor (Pivot places this rect's own point at the anchor point, offset
+        // by AnchoredPosition); otherwise the axis stretches to fill the anchor span, and Pivot
+        // has no effect on that axis (matches Unity exactly).
+        for (int axis = 0; axis < 2; axis++) {
+            float minPx = parentTopLeft[axis] + rect.AnchorMin[axis] * parentSize[axis];
+            float maxPx = parentTopLeft[axis] + rect.AnchorMax[axis] * parentSize[axis];
+            if (rect.AnchorMin[axis] == rect.AnchorMax[axis]) {
+                outSize[axis] = rect.SizeDelta[axis];
+                outTopLeft[axis] = minPx + rect.AnchoredPosition[axis] - rect.Pivot[axis] * outSize[axis];
+            } else {
+                outSize[axis] = (maxPx - minPx) + rect.SizeDelta[axis];
+                outTopLeft[axis] = (minPx + maxPx) * 0.5f + rect.AnchoredPosition[axis] - outSize[axis] * 0.5f;
+            }
         }
-        outTopLeft = { parentTopLeft.x + x, parentTopLeft.y + y };
     }
 
     static bool PointerInsideRect(Scene& scene, Entity entity, glm::vec2 pointer, Screen pointerScreen) {
@@ -127,36 +128,83 @@ namespace Duality {
         }
     }
 
+    // Resolves fontRef to a loaded font handle via AssetDatabase + IRenderer2D::LoadFont, or 0
+    // (default/system font) if the ref is empty or doesn't resolve to an existing file -- same
+    // guid->path->Load chain/graceful-degradation convention as SceneRenderer.cpp's
+    // ResolveSpriteTexture, just for fonts and only ever needed here so far.
+    static uint32_t ResolveFont(IRenderer2D& renderer, const AssetRef& fontRef) {
+        if (fontRef.Guid.empty())
+            return 0;
+        std::string path = AssetDatabase::ResolvePath(fontRef.Guid);
+        if (path.empty())
+            return 0;
+        return renderer.LoadFont(path);
+    }
+
     void RenderScreenUI(IRenderer2D& renderer, Scene& scene, Screen screen) {
-        struct UIItem { entt::entity Handle; int SortOrder; };
+        // Kind-tagged, not just UIImageComponent-shaped: a UIRectComponent+UITextComponent
+        // entity (no Image at all -- exactly what UIDocument's <Text> tag produces) has to
+        // share this same sorted draw list so Text and Image widgets interleave correctly under
+        // a shared CanvasComponent, but the per-item draw step below can no longer assume every
+        // item carries a UIImageComponent.
+        enum class UIItemKind { Image, Text };
+        struct UIItem { entt::entity Handle; int SortOrder; UIItemKind Kind; };
         std::vector<UIItem> items;
-        auto collectView = scene.Registry().view<UIRectComponent, UIImageComponent>();
-        for (auto handle : collectView) {
-            auto& rect = collectView.get<UIRectComponent>(handle);
-            if (rect.Screen != screen)
-                continue;
-            if (!rect.Enabled || !collectView.get<UIImageComponent>(handle).Enabled)
-                continue;
-            if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
-                continue;
-            int sort = rect.SortOrder;
+
+        auto resolveSort = [&](entt::entity handle, int baseSort) {
+            int sort = baseSort;
             Entity current(handle, &scene);
             while (current) {
                 if (current.HasComponent<CanvasComponent>())
                     sort += current.GetComponent<CanvasComponent>().SortOrder * 1000;
                 current = current.GetComponent<HierarchyComponent>().Parent;
             }
-            items.push_back({ handle, sort });
+            return sort;
+        };
+
+        auto imageView = scene.Registry().view<UIRectComponent, UIImageComponent>();
+        for (auto handle : imageView) {
+            auto& rect = imageView.get<UIRectComponent>(handle);
+            if (rect.Screen != screen || !rect.Enabled || !imageView.get<UIImageComponent>(handle).Enabled)
+                continue;
+            if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
+                continue;
+            items.push_back({ handle, resolveSort(handle, rect.SortOrder), UIItemKind::Image });
         }
+
+        auto textView = scene.Registry().view<UIRectComponent, UITextComponent>();
+        for (auto handle : textView) {
+            auto& rect = textView.get<UIRectComponent>(handle);
+            if (rect.Screen != screen || !rect.Enabled || !textView.get<UITextComponent>(handle).Enabled)
+                continue;
+            if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
+                continue;
+            items.push_back({ handle, resolveSort(handle, rect.SortOrder), UIItemKind::Text });
+        }
+
         std::sort(items.begin(), items.end(), [](const UIItem& a, const UIItem& b) { return a.SortOrder < b.SortOrder; });
 
         for (auto& item : items) {
             auto handle = item.Handle;
-            auto& rect = scene.Registry().get<UIRectComponent>(handle);
-            auto& image = scene.Registry().get<UIImageComponent>(handle);
 
             glm::vec2 topLeft, size;
             ResolveUIRect(scene, Entity(handle, &scene), topLeft, size);
+
+            if (item.Kind == UIItemKind::Text) {
+                auto& text = scene.Registry().get<UITextComponent>(handle);
+                uint32_t fontId = ResolveFont(renderer, text.Font);
+                glm::vec2 textSize = renderer.MeasureText(text.Text, text.FontSize, fontId);
+                float offsetX = 0.0f;
+                if (text.Alignment == TextAlignment::Center)
+                    offsetX = (size.x - textSize.x) * 0.5f;
+                else if (text.Alignment == TextAlignment::Right)
+                    offsetX = size.x - textSize.x;
+                float offsetY = (size.y - text.FontSize) * 0.5f; // vertical always centered, see UITextComponent's own comment
+                renderer.DrawText(text.Text, topLeft + glm::vec2(offsetX, offsetY), text.FontSize, text.Color, fontId);
+                continue;
+            }
+
+            auto& image = scene.Registry().get<UIImageComponent>(handle);
 
             glm::vec4 color = image.Color;
             if (scene.Registry().all_of<UIButtonComponent>(handle)) {

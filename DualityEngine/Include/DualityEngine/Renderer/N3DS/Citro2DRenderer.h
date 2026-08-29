@@ -38,6 +38,25 @@ namespace Duality {
 
         void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0, const glm::vec4& uvRect = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)) override;
 
+        // Uses citro2d's own native C2D_Font/C2D_TextBuf/C2D_DrawText API directly -- a
+        // fundamentally different, hardware-optimized draw path, not DrawQuad-based like
+        // desktop's stb_truetype glyph atlas. Only the built-in system font is supported this
+        // pass (see LoadFont below); DrawText itself never uses citro2d's native alignment
+        // flags -- position is always the plain top-left DrawText's own interface contract
+        // promises, matching desktop pixel-for-pixel (UIRenderer.cpp computes alignment once,
+        // not per-backend).
+        void DrawText(const std::string& text, const glm::vec2& position, float fontSize, const glm::vec4& color, uint32_t fontId = 0) override;
+        glm::vec2 MeasureText(const std::string& text, float fontSize, uint32_t fontId = 0) override;
+
+        // `path` is ignored entirely this pass -- there is no BCFNT-authoring pipeline in this
+        // project, so a custom .ttf/.otf project asset can't be consumed here (unlike desktop,
+        // which rasterizes it directly via stb_truetype). Always resolves to citro2d's built-in
+        // system font (C2D_FontLoadSystem, zero asset shipping needed), logging a one-time
+        // warning if `path` was actually non-empty so an assigned custom Font asset silently
+        // falling back here is at least visible in the log, not a total surprise.
+        uint32_t LoadFont(const std::string& path) override;
+        void UnloadAllFonts() override;
+
         // `path` is expected to already be a citro2d-loadable ".t3x" path (e.g.
         // "romfs:/Assets/Textures/foo.t3x") -- BuildPipeline::CookAssets converts every
         // project PNG to this format at "Build for 3DS" time, and AssetDatabase::LoadManifest
@@ -72,6 +91,15 @@ namespace Duality {
         // by many entities only calls C2D_SpriteSheetLoad once.
         std::vector<C2D_SpriteSheet> m_TextureSheets;
         std::unordered_map<std::string, uint32_t> m_TextureCache;
+
+        // Lazily created on first LoadFont/DrawText/MeasureText call, not in Init -- most
+        // scenes may never draw text at all, and C2D_FontLoadSystem/C2D_TextBufNew both cost
+        // real memory. m_TextBuf is a single reused scratch buffer, cleared at the start of
+        // every DrawText/MeasureText call -- safe because each call is a fully self-contained
+        // immediate parse+use+done before the next one, same immediate style as DrawQuad.
+        C2D_Font m_SystemFont = nullptr;
+        C2D_TextBuf m_TextBuf = nullptr;
+        bool m_WarnedAboutCustomFont = false;
     };
 
 }

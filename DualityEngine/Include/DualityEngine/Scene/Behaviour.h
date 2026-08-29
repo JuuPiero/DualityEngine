@@ -15,6 +15,7 @@
 #include "DualityEngine/Scripting/MeshRenderer.h"
 #include "DualityEngine/Scripting/Rigidbody2D.h"
 #include "DualityEngine/Scripting/Rigidbody3D.h"
+#include "DualityEngine/Scripting/ScriptContext.h"
 #include "DualityEngine/Scripting/SpriteFlipbook.h"
 #include "DualityEngine/Scripting/SpriteRenderer.h"
 #include "DualityEngine/Scripting/Transform.h"
@@ -162,9 +163,22 @@ namespace Duality {
             return entity ? EntityRef{ static_cast<uint32_t>(entity.Handle()) } : EntityRef{};
         }
 
-        // Called by Scene right after creating this instance -- not for
-        // scripts to call themselves.
-        void SetEngineServices(const EngineServices* services) { m_Services = services; }
+        // Called by Scene right after creating this instance -- not for scripts to call
+        // themselves. Also self-heals ScriptContext's own copy of the services pointer for
+        // whichever binary THIS code actually executes from (see ScriptContext::EnsureBound's
+        // own comment) -- on desktop, script subclasses live inside GameScripts.dll, a separate
+        // binary from the engine/host that calls this method via a plain `Behaviour*`. Must
+        // stay `virtual` for that self-heal to matter at all: a NON-virtual method called
+        // through a base-class pointer is resolved at the CALL SITE's own compile time (i.e.
+        // using Scene.cpp's/the host's own inlined copy, updating the HOST's copy of
+        // ScriptContext's static storage, not GameScripts.dll's) -- virtual dispatch instead
+        // goes through the concrete object's own vtable, which for a GameScripts-allocated
+        // instance was built (and points into code compiled) inside GameScripts.dll itself, so
+        // the call actually executes there.
+        virtual void SetEngineServices(const EngineServices* services) {
+            m_Services = services;
+            ScriptContext::EnsureBound(services);
+        }
 
     private:
         Entity m_Entity;

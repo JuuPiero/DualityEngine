@@ -17,6 +17,7 @@
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
+#include "DualityEngine/Asset/PhysicsMaterialLoader.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
@@ -80,28 +81,43 @@ namespace Duality {
         SetupDemoScene();
     }
 
+    // One clean showcase scene demonstrating every engine technology/component, replacing what
+    // had become 16 entities accumulated ad hoc over many sessions (two of them still labeled
+    // "TEMPORARY, to be reverted" long after becoming permanent). Grouped under plain marker
+    // entities (a Name + the default identity Transform, no renderable component of their own)
+    // via Scene::SetParent so the Hierarchy panel reads as a categorized tree instead of one
+    // long flat list -- purely organizational: none of these markers carry a UIRectComponent or
+    // UILayoutGroupComponent, so parenting under them never changes a child's resolved world
+    // position (Transform-based) or resolved rect (UIRectComponent-based) at all.
     void Application::SetupDemoScene() {
-        // Cameras are their own entities (no SpriteRendererComponent),
-        // matching Unity/Cocos convention.
+        auto group = [&](const char* name) { return m_Scene.CreateEntity(name); };
+
+        // ---------------------------------------------------------------- Cameras
+        Entity camerasGroup = group("-- Cameras --");
+
         Entity topCamera = m_Scene.CreateEntity("TopCamera");
         topCamera.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f, 0.0f };
         topCamera.AddComponent<CameraComponent>().Screen = Screen::Top;
         topCamera.AddComponent<PhysicsRaycaster2DComponent>();
+        m_Scene.SetParent(topCamera, camerasGroup);
 
+        // Bottom screen runs Perspective/3D -- every 3D demo below (mesh rendering, Bullet
+        // physics, 3D raycasting) renders and is clickable through this camera.
         Entity bottomCamera = m_Scene.CreateEntity("BottomCamera");
-        bottomCamera.GetComponent<TransformComponent>().Translation = { BottomScreenWidth * 0.5f, BottomScreenHeight * 0.5f, 0.0f };
         auto& bottomCameraComponent = bottomCamera.AddComponent<CameraComponent>();
         bottomCamera.AddComponent<PhysicsRaycaster3DComponent>();
         bottomCameraComponent.Screen = Screen::Bottom;
-        // TEMPORARY 3D pipeline smoke test (to be reverted once verified) -- switches the
-        // Bottom screen over to Perspective/3D for this run, per the plan's verification step.
         bottomCameraComponent.Projection = ProjectionType::Perspective;
         bottomCamera.GetComponent<TransformComponent>().Translation = { 0.0f, 60.0f, 200.0f };
         bottomCamera.GetComponent<TransformComponent>().Rotation = { -10.0f, 0.0f, 0.0f };
+        m_Scene.SetParent(bottomCamera, camerasGroup);
 
-        // TEMPORARY 3D pipeline smoke test entity + Material asset (to be reverted once
-        // verified) -- also exercises the full Material file/.meta/AssetDatabase pipeline
-        // end to end, not just a MeshRendererComponent field.
+        // ---------------------------------------------------------------- Rendering
+        Entity renderingGroup = group("-- Rendering --");
+
+        // Real asset pipeline exercise (file + .meta + AssetDatabase), not just a
+        // MeshRendererComponent field -- reused by both 3D mesh entities below via
+        // MeshRendererComponent::Materials (a real list now, not a single AssetRef).
         std::filesystem::path materialsDir = m_Project->GetAssetsDirectory() + "/Materials";
         std::filesystem::create_directories(materialsDir);
         std::filesystem::path materialPath = materialsDir / "TestOrange.mat";
@@ -110,22 +126,23 @@ namespace Duality {
         AssetDatabase::Register(materialGuid, materialPath.string());
 
         Entity testCube = m_Scene.CreateEntity("TestCube3D");
-        testCube.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
         testCube.GetComponent<TransformComponent>().Rotation = { 20.0f, 35.0f, 0.0f };
         testCube.GetComponent<TransformComponent>().Scale = { 60.0f, 60.0f, 60.0f };
         auto& testCubeMesh = testCube.AddComponent<MeshRendererComponent>();
         testCubeMesh.Primitive = MeshPrimitive::Cube;
         testCubeMesh.Materials.push_back(AssetRef{ materialGuid });
-        // Same script class as the 2D ApiShowcase entity below -- demonstrates it adapting to a
-        // 3D mesh entity instead of a sprite (ground-plane movement, yaw spin) via
+        // Same script class as the ApiShowcase entity below -- demonstrates it adapting to a 3D
+        // mesh entity instead of a sprite (ground-plane movement, yaw spin) via
         // GetEntity().HasComponent<T>(), see ApiShowcaseBehaviour.cpp.
         testCube.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "ApiShowcaseBehaviour" });
+        m_Scene.SetParent(testCube, renderingGroup);
 
         Entity topQuad = m_Scene.CreateEntity("TopQuad");
         topQuad.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, TopScreenHeight * 0.5f, 0.0f };
         auto& topSprite = topQuad.AddComponent<SpriteRendererComponent>();
         topSprite.Size = { 80.0f, 80.0f };
         topSprite.Color = { 0.85f, 0.25f, 0.25f, 1.0f };
+        m_Scene.SetParent(topQuad, renderingGroup);
 
         Entity bottomQuad = m_Scene.CreateEntity("BottomQuad");
         bottomQuad.GetComponent<TransformComponent>().Translation = { BottomScreenWidth * 0.5f, BottomScreenHeight * 0.5f, 0.0f };
@@ -133,19 +150,33 @@ namespace Duality {
         bottomSprite.Size = { 60.0f, 60.0f };
         bottomSprite.Color = { 0.25f, 0.45f, 0.9f, 1.0f };
         bottomQuad.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "BounceBehaviour" });
+        m_Scene.SetParent(bottomQuad, renderingGroup);
 
-        // Physics demo: a ball falls onto a static platform when Play
-        // starts, proving Box2D integration + camera-relative multi-sprite
-        // rendering.
+        // ---------------------------------------------------------------- Physics 2D
+        Entity physics2DGroup = group("-- Physics 2D --");
+
+        // Reusable friction/restitution asset (real .physmat + .meta + AssetDatabase pipeline,
+        // same 3-step registration as the Material above) -- assigned to PhysicsCapsule2D below
+        // to prove a collider's own Friction/Restitution get overridden by it.
+        std::filesystem::path physMatDir = m_Project->GetAssetsDirectory() + "/Physics";
+        std::filesystem::create_directories(physMatDir);
+        std::filesystem::path physMatPath = physMatDir / "Bouncy.physmat";
+        PhysicsMaterialLoader::Save(physMatPath.string(), PhysicsMaterial{ 0.2f, 0.9f, 1.0f });
+        std::string bouncyMaterialGuid = AssetMeta::EnsureMetaFile(physMatPath);
+        AssetDatabase::Register(bouncyMaterialGuid, physMatPath.string());
+
+        // A ball falls onto a static platform when Play starts, proving Box2D integration +
+        // camera-relative multi-sprite rendering. CollisionLogBehaviour rides alongside
+        // PointerClickDemoBehaviour to prove one entity can carry multiple scripts at once and
+        // shows every OnCollision/OnTrigger Enter/Exit firing in the Console the instant it lands.
         Entity physicsGround = m_Scene.CreateEntity("PhysicsGround");
         physicsGround.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, 220.0f, 0.0f };
         auto& groundSprite = physicsGround.AddComponent<SpriteRendererComponent>();
         groundSprite.Size = { 360.0f, 16.0f };
         groundSprite.Color = { 0.3f, 0.75f, 0.35f, 1.0f };
-        auto& groundBody = physicsGround.AddComponent<Rigidbody2DComponent>();
-        groundBody.Type = BodyType::Static;
-        auto& groundCollider = physicsGround.AddComponent<BoxCollider2DComponent>();
-        groundCollider.Size = { 180.0f, 8.0f };
+        physicsGround.AddComponent<Rigidbody2DComponent>().Type = BodyType::Static;
+        physicsGround.AddComponent<BoxCollider2DComponent>().Size = { 180.0f, 8.0f };
+        m_Scene.SetParent(physicsGround, physics2DGroup);
 
         Entity physicsBall = m_Scene.CreateEntity("PhysicsBall");
         physicsBall.GetComponent<TransformComponent>().Translation = { 100.0f, 40.0f, 0.0f };
@@ -157,80 +188,183 @@ namespace Duality {
         ballCollider.Radius = 10.0f;
         ballCollider.Restitution = 0.4f;
         physicsBall.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "PointerClickDemoBehaviour" });
+        physicsBall.GetComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "CollisionLogBehaviour" });
+        m_Scene.SetParent(physicsBall, physics2DGroup);
 
-        // Same idea as the 2D physics demo above, but with Bullet: a sphere falls onto a
-        // static platform, visible in the Bottom screen's Perspective camera alongside
-        // TestCube3D (offset in X so it doesn't overlap it). Proves Scene's
-        // btDiscreteDynamicsWorld integration end to end -- body creation, gravity,
-        // collision response, and the physics-to-Transform sync-back every frame.
+        // CapsuleCollider2DComponent, plus the Bouncy.physmat above overriding its own
+        // Friction/Restitution -- watch it bounce noticeably higher off PhysicsGround than the
+        // plain PhysicsBall above.
+        Entity physicsCapsule2D = m_Scene.CreateEntity("PhysicsCapsule2D");
+        physicsCapsule2D.GetComponent<TransformComponent>().Translation = { 160.0f, 40.0f, 0.0f };
+        auto& capsule2DSprite = physicsCapsule2D.AddComponent<SpriteRendererComponent>();
+        capsule2DSprite.Size = { 16.0f, 32.0f };
+        capsule2DSprite.Color = { 0.65f, 0.4f, 0.9f, 1.0f };
+        physicsCapsule2D.AddComponent<Rigidbody2DComponent>();
+        auto& capsule2DCollider = physicsCapsule2D.AddComponent<CapsuleCollider2DComponent>();
+        capsule2DCollider.PhysicsMaterial = AssetRef{ bouncyMaterialGuid };
+        m_Scene.SetParent(physicsCapsule2D, physics2DGroup);
+
+        // PolygonCollider2DComponent -- default vertices form a diamond, distinct from every
+        // Box/Circle/Capsule shape already demoed above.
+        Entity physicsPolygon2D = m_Scene.CreateEntity("PhysicsPolygon2D");
+        physicsPolygon2D.GetComponent<TransformComponent>().Translation = { 220.0f, 40.0f, 0.0f };
+        auto& polygon2DSprite = physicsPolygon2D.AddComponent<SpriteRendererComponent>();
+        polygon2DSprite.Size = { 16.0f, 16.0f };
+        polygon2DSprite.Color = { 0.9f, 0.6f, 0.3f, 1.0f };
+        physicsPolygon2D.AddComponent<Rigidbody2DComponent>();
+        physicsPolygon2D.AddComponent<PolygonCollider2DComponent>();
+        m_Scene.SetParent(physicsPolygon2D, physics2DGroup);
+
+        // ---------------------------------------------------------------- Physics 3D
+        Entity physics3DGroup = group("-- Physics 3D --");
+
+        // Same idea as the 2D physics group above, but with Bullet: proves Scene's own
+        // btDiscreteDynamicsWorld integration end to end -- body creation, gravity, collision
+        // response, and the physics-to-Transform sync-back every frame.
         Entity physicsGround3D = m_Scene.CreateEntity("PhysicsGround3D");
         physicsGround3D.GetComponent<TransformComponent>().Translation = { 0.0f, 150.0f, 0.0f };
         physicsGround3D.GetComponent<TransformComponent>().Scale = { 200.0f, 20.0f, 200.0f };
         auto& groundMesh3D = physicsGround3D.AddComponent<MeshRendererComponent>();
         groundMesh3D.Primitive = MeshPrimitive::Cube;
-        groundMesh3D.Materials.push_back(AssetRef{ materialGuid }); // reuses the TestOrange material above, just for a visible surface
-        auto& groundBody3D = physicsGround3D.AddComponent<Rigidbody3DComponent>();
-        groundBody3D.Type = BodyType::Static;
-        auto& groundCollider3D = physicsGround3D.AddComponent<BoxCollider3DComponent>();
-        groundCollider3D.Size = { 100.0f, 10.0f, 100.0f };
+        groundMesh3D.Materials.push_back(AssetRef{ materialGuid }); // reuses TestOrange, just for a visible surface
+        physicsGround3D.AddComponent<Rigidbody3DComponent>().Type = BodyType::Static;
+        physicsGround3D.AddComponent<BoxCollider3DComponent>().Size = { 100.0f, 10.0f, 100.0f };
+        m_Scene.SetParent(physicsGround3D, physics3DGroup);
 
         Entity physicsBall3D = m_Scene.CreateEntity("PhysicsBall3D");
         physicsBall3D.GetComponent<TransformComponent>().Translation = { 80.0f, -40.0f, 0.0f };
         physicsBall3D.GetComponent<TransformComponent>().Scale = { 40.0f, 40.0f, 40.0f };
-        auto& ballMesh3D = physicsBall3D.AddComponent<MeshRendererComponent>();
-        ballMesh3D.Primitive = MeshPrimitive::Sphere;
+        physicsBall3D.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Sphere;
         physicsBall3D.AddComponent<Rigidbody3DComponent>();
         auto& ballCollider3D = physicsBall3D.AddComponent<SphereCollider3DComponent>();
         ballCollider3D.Radius = 20.0f;
         ballCollider3D.Restitution = 0.4f;
         physicsBall3D.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "PointerClickDemoBehaviour" });
+        m_Scene.SetParent(physicsBall3D, physics3DGroup);
 
-        // Living documentation for the scripting API surface -- Input,
-        // SaveSystem, DateTime, AudioEngine -- all exercised by
-        // ApiShowcaseBehaviour (see GameScripts/Source/
-        // ApiShowcaseBehaviour.cpp). Move it with WASD/arrows (or the
-        // Circle Pad on 3DS), hold the mouse/touch to pull it toward the
-        // pointer, press Space/A for a beep, watch it spin once a minute
-        // driven by the real clock.
+        // CapsuleCollider3DComponent, rendered with the real MeshPrimitive::Capsule (not a
+        // stand-in Cube/Sphere) so its visual shape actually matches its collider.
+        Entity physicsCapsule3D = m_Scene.CreateEntity("PhysicsCapsule3D");
+        physicsCapsule3D.GetComponent<TransformComponent>().Translation = { -80.0f, -40.0f, 0.0f };
+        physicsCapsule3D.GetComponent<TransformComponent>().Scale = { 20.0f, 40.0f, 20.0f };
+        physicsCapsule3D.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Capsule;
+        physicsCapsule3D.AddComponent<Rigidbody3DComponent>();
+        physicsCapsule3D.AddComponent<CapsuleCollider3DComponent>();
+        m_Scene.SetParent(physicsCapsule3D, physics3DGroup);
+
+        // ---------------------------------------------------------------- Scripting API
+        Entity scriptingGroup = group("-- Scripting API --");
+
+        // Living documentation for the scripting API surface -- Input, SaveSystem, DateTime,
+        // AudioEngine -- all exercised by ApiShowcaseBehaviour (see GameScripts/Source/
+        // ApiShowcaseBehaviour.cpp). Move it with WASD/arrows (or the Circle Pad on 3DS), hold
+        // the mouse/touch to pull it toward the pointer, press Space/A for a beep, watch it spin
+        // once a minute driven by the real clock.
         Entity apiShowcase = m_Scene.CreateEntity("ApiShowcase");
         apiShowcase.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, 60.0f, 0.0f };
-        auto& showcaseSprite = apiShowcase.AddComponent<SpriteRendererComponent>();
-        showcaseSprite.Size = { 32.0f, 32.0f };
+        apiShowcase.AddComponent<SpriteRendererComponent>().Size = { 32.0f, 32.0f };
         apiShowcase.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "ApiShowcaseBehaviour" });
+        m_Scene.SetParent(apiShowcase, scriptingGroup);
+
+        // Live demo of DUALITY_PROPERTY's full surface in one script -- scalars, bool, AssetRef,
+        // EntityRef, a nested DUALITY_SERIALIZABLE() struct, a script-defined enum, and engine
+        // enum dropdowns (Layer/BodyType) -- see GameScripts/FeatureShowcaseBehaviour.h. WASD/
+        // arrows move it too; every field is tunable live in the Properties panel.
+        Entity featureShowcase = m_Scene.CreateEntity("FeatureShowcase");
+        featureShowcase.GetComponent<TransformComponent>().Translation = { 320.0f, 60.0f, 0.0f };
+        auto& featureSprite = featureShowcase.AddComponent<SpriteRendererComponent>();
+        featureSprite.Size = { 24.0f, 24.0f };
+        featureShowcase.AddComponent<Rigidbody2DComponent>();
+        auto& featureCollider = featureShowcase.AddComponent<CircleCollider2DComponent>();
+        featureCollider.Radius = 12.0f;
+        featureShowcase.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "FeatureShowcaseBehaviour" });
+        m_Scene.SetParent(featureShowcase, scriptingGroup);
 
         // Physics Raycast API demo -- no Transform/collider of its own needed, just watches the
         // Bottom screen's pointer (BottomCamera above is Perspective, so ScreenPointToRay3D
-        // works against it) and logs whichever 3D collider a click/touch hits (PhysicsGround3D/
-        // PhysicsBall3D above, or TestCube3D). See GameScripts/RaycastDemoBehaviour.cpp.
+        // works against it) and logs whichever 3D collider a click/touch hits (any entity in the
+        // Physics 3D group above). See GameScripts/RaycastDemoBehaviour.cpp.
         Entity raycastController = m_Scene.CreateEntity("RaycastController");
         raycastController.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "RaycastDemoBehaviour" });
+        m_Scene.SetParent(raycastController, scriptingGroup);
 
-        // Per-project scripts demo -- ProjectDemoBehaviour lives in
-        // SampleProject/Assets/Scripts/ (this PROJECT's own script, not GameScripts/'s shared
-        // ones), compiled in via GameScripts/CMakeLists.txt's DUALITY_PROJECT_SCRIPTS_DIR. Logs
-        // once on Play start -- a real, permanent proof this pipeline works, matching every
-        // other feature demo in this function.
+        // Per-project scripts demo -- ProjectDemoBehaviour lives in SampleProject/Assets/
+        // Scripts/ (this PROJECT's own script, not GameScripts/'s shared ones), compiled in via
+        // GameScripts/CMakeLists.txt's DUALITY_PROJECT_SCRIPTS_DIR. Logs once on Play start -- a
+        // real, permanent proof this pipeline works, matching every other demo in this function.
         Entity projectScriptDemo = m_Scene.CreateEntity("ProjectScriptDemo");
         projectScriptDemo.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "ProjectDemoBehaviour" });
+        m_Scene.SetParent(projectScriptDemo, scriptingGroup);
 
-        // Demo Button (UI system) in the Bottom screen's bottom-right corner -- its own
-        // Normal/Hover/Pressed color already shows interaction feedback with no script needed;
-        // try touching/clicking it.
+        // ---------------------------------------------------------------- UI (Legacy Widgets)
+        Entity uiWidgetsGroup = group("-- UI (Legacy Widgets) --");
+
+        // First real use of Phase 1's font rendering -- Text was previously data-only and never
+        // drawn by UIRenderer.cpp at all.
+        Entity demoLabel = m_Scene.CreateEntity("DemoLabel");
+        auto& demoLabelRect = demoLabel.AddComponent<UIRectComponent>();
+        demoLabelRect.Screen = Screen::Bottom;
+        demoLabelRect.AnchorMin = demoLabelRect.AnchorMax = demoLabelRect.Pivot = { 0.5f, 0.0f };
+        demoLabelRect.AnchoredPosition = { 0.0f, 8.0f };
+        demoLabelRect.SizeDelta = { 220.0f, 20.0f };
+        auto& demoLabelText = demoLabel.AddComponent<UITextComponent>();
+        demoLabelText.Text = "Duality Engine Demo";
+        demoLabelText.FontSize = 14.0f;
+        demoLabelText.Alignment = TextAlignment::Center;
+        m_Scene.SetParent(demoLabel, uiWidgetsGroup);
+
+        Entity demoSlider = m_Scene.CreateEntity("DemoSlider");
+        auto& demoSliderRect = demoSlider.AddComponent<UIRectComponent>();
+        demoSliderRect.Screen = Screen::Bottom;
+        demoSliderRect.AnchorMin = demoSliderRect.AnchorMax = demoSliderRect.Pivot = { 0.0f, 0.5f };
+        demoSliderRect.AnchoredPosition = { 20.0f, -30.0f };
+        demoSliderRect.SizeDelta = { 100.0f, 16.0f };
+        demoSlider.AddComponent<UIImageComponent>();
+        demoSlider.AddComponent<UISliderComponent>();
+        m_Scene.SetParent(demoSlider, uiWidgetsGroup);
+
+        Entity demoToggle = m_Scene.CreateEntity("DemoToggle");
+        auto& demoToggleRect = demoToggle.AddComponent<UIRectComponent>();
+        demoToggleRect.Screen = Screen::Bottom;
+        demoToggleRect.AnchorMin = demoToggleRect.AnchorMax = demoToggleRect.Pivot = { 0.0f, 0.5f };
+        demoToggleRect.AnchoredPosition = { 20.0f, 0.0f };
+        demoToggleRect.SizeDelta = { 24.0f, 24.0f };
+        demoToggle.AddComponent<UIImageComponent>();
+        demoToggle.AddComponent<UIToggleComponent>();
+        m_Scene.SetParent(demoToggle, uiWidgetsGroup);
+
+        Entity demoInputField = m_Scene.CreateEntity("DemoInputField");
+        auto& demoInputRect = demoInputField.AddComponent<UIRectComponent>();
+        demoInputRect.Screen = Screen::Bottom;
+        demoInputRect.AnchorMin = demoInputRect.AnchorMax = demoInputRect.Pivot = { 0.0f, 0.5f };
+        demoInputRect.AnchoredPosition = { 20.0f, 30.0f };
+        demoInputRect.SizeDelta = { 140.0f, 24.0f };
+        demoInputField.AddComponent<UIImageComponent>();
+        demoInputField.AddComponent<UIInputFieldComponent>();
+        m_Scene.SetParent(demoInputField, uiWidgetsGroup);
+
+        // Demo Button in the Bottom screen's bottom-right corner -- its own Normal/Hover/
+        // Pressed color already shows interaction feedback with no script needed; try
+        // touching/clicking it.
         Entity testButton = m_Scene.CreateEntity("TestButton");
         auto& testButtonRect = testButton.AddComponent<UIRectComponent>();
         testButtonRect.Screen = Screen::Bottom;
-        testButtonRect.Anchor = UIAnchor::BottomRight;
-        testButtonRect.Offset = { 10.0f, 10.0f };
-        testButtonRect.Size = { 80.0f, 32.0f };
+        LegacyUIAnchorToRectTransform(UIAnchor::BottomRight, { 10.0f, 10.0f }, { 80.0f, 32.0f },
+            testButtonRect.AnchorMin, testButtonRect.AnchorMax, testButtonRect.Pivot,
+            testButtonRect.AnchoredPosition, testButtonRect.SizeDelta);
         testButton.AddComponent<UIImageComponent>();
         testButton.AddComponent<UIButtonComponent>();
+        m_Scene.SetParent(testButton, uiWidgetsGroup);
+
+        // ---------------------------------------------------------------- UI (Document)
+        Entity uiDocumentGroup = group("-- UI (Document) --");
 
         // UIDocument demo (Unity UI Toolkit-style declarative UI) -- spawns SampleProject's
         // Assets/UI/DemoMenu.uidoc onto the Bottom screen at Play start (UIDocumentDemoBehaviour),
         // a real markup+stylesheet document with two Buttons each wired to UIButtonClickBehaviour
-        // via the markup's own `behaviour="..."` attribute. Same 3-step asset registration
-        // Material's own setup above uses, since a Behaviour field's AssetRef needs a real guid
-        // to point at, not a raw path.
+        // via the markup's own `behaviour="..."` attribute, plus two <Text> labels that now
+        // actually render (Phase 1). Same 3-step asset registration Material's own setup above
+        // uses, since a Behaviour field's AssetRef needs a real guid to point at, not a raw path.
         std::filesystem::path uiDocPath = m_Project->GetAssetsDirectory() + "/UI/DemoMenu.uidoc";
         std::string uiDocGuid = AssetMeta::EnsureMetaFile(uiDocPath);
         AssetDatabase::Register(uiDocGuid, uiDocPath.string());
@@ -239,6 +373,71 @@ namespace Duality {
         ScriptInstance uiMenuScript{ "UIDocumentDemoBehaviour" };
         uiMenuScript.PropertyOverrides["MenuDocument"] = FieldValue(AssetRef{ uiDocGuid });
         uiMenuController.AddComponent<BehaviourComponent>().Scripts.push_back(uiMenuScript);
+        m_Scene.SetParent(uiMenuController, uiDocumentGroup);
+
+        // ---------------------------------------------------------------- Gameplay Components
+        Entity gameplayGroup = group("-- Gameplay Components --");
+
+        // ParticleSystemComponent -- no Texture assigned, so it emits flat colored quads (same
+        // graceful-degradation convention as every other AssetRef in this engine).
+        Entity particleDemo = m_Scene.CreateEntity("ParticleDemo");
+        particleDemo.GetComponent<TransformComponent>().Translation = { 350.0f, 90.0f, 0.0f };
+        particleDemo.AddComponent<ParticleSystemComponent>();
+        m_Scene.SetParent(particleDemo, gameplayGroup);
+
+        // LineRendererComponent -- Points are entity-local offsets from this Transform, a small
+        // open chevron shape.
+        Entity lineDemo = m_Scene.CreateEntity("LineDemo");
+        lineDemo.GetComponent<TransformComponent>().Translation = { 50.0f, 150.0f, 0.0f };
+        auto& line = lineDemo.AddComponent<LineRendererComponent>();
+        line.PointCount = 3;
+        line.Point0 = { 0.0f, 0.0f, 0.0f };
+        line.Point1 = { 30.0f, -30.0f, 0.0f };
+        line.Point2 = { 60.0f, 0.0f, 0.0f };
+        line.Color = { 0.4f, 0.9f, 0.95f, 1.0f };
+        m_Scene.SetParent(lineDemo, gameplayGroup);
+
+        // TilemapComponent -- no Tileset/TileData assigned yet (same "component slot with no
+        // asset" precedent as PhysicsBall3D's own unmaterialed mesh above), just demonstrates
+        // the component exists and is reflected/editable.
+        Entity tilemapDemo = m_Scene.CreateEntity("TilemapDemo");
+        tilemapDemo.AddComponent<TilemapComponent>();
+        m_Scene.SetParent(tilemapDemo, gameplayGroup);
+
+        // FollowTargetComponent -- tracks PhysicsBall's fall in real time (SmoothSpeed > 0, so
+        // it eases toward it rather than snapping every frame); a small marker sprite makes the
+        // following motion visible without a real camera rig.
+        Entity followDemo = m_Scene.CreateEntity("FollowTargetDemo");
+        followDemo.GetComponent<TransformComponent>().Translation = { 100.0f, 20.0f, 0.0f };
+        auto& followSprite = followDemo.AddComponent<SpriteRendererComponent>();
+        followSprite.Size = { 8.0f, 8.0f };
+        followSprite.Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        auto& follow = followDemo.AddComponent<FollowTargetComponent>();
+        follow.Target = EntityRef{ static_cast<uint32_t>(physicsBall.Handle()) };
+        follow.Offset = { 0.0f, -30.0f, 0.0f };
+        follow.SmoothSpeed = 2.0f;
+        follow.FollowZ = false;
+        m_Scene.SetParent(followDemo, gameplayGroup);
+
+        // LayerComponent -- replaces the old ScreenGroupComponent tag; Default (this demo's
+        // value) means "ungrouped, visible on whichever screen's camera sees it by position",
+        // same as every other entity in this scene that has no LayerComponent at all.
+        Entity layerDemo = m_Scene.CreateEntity("LayerDemo");
+        layerDemo.GetComponent<TransformComponent>().Translation = { 350.0f, 150.0f, 0.0f };
+        auto& layerSprite = layerDemo.AddComponent<SpriteRendererComponent>();
+        layerSprite.Size = { 12.0f, 12.0f };
+        layerSprite.Color = { 0.8f, 0.8f, 0.8f, 1.0f };
+        layerDemo.AddComponent<LayerComponent>().Value = Layer::Default;
+        m_Scene.SetParent(layerDemo, gameplayGroup);
+
+        // AudioSourceComponent -- PlayOnAwake is deliberately off (a beep firing on every single
+        // Editor launch would get old fast); press Space/A on ApiShowcase or FeatureShowcase
+        // above to actually hear a clip play through this same component type.
+        Entity audioDemo = m_Scene.CreateEntity("AudioSourceDemo");
+        auto& audioSource = audioDemo.AddComponent<AudioSourceComponent>();
+        audioSource.Clip = AssetRef{ "8a4d16acd221a915c511d03ab1e78b16" }; // SampleProject/Assets/Audio/beep.wav
+        audioSource.PlayOnAwake = false;
+        m_Scene.SetParent(audioDemo, gameplayGroup);
 
         m_Selected = topQuad;
     }
@@ -401,6 +600,7 @@ namespace Duality {
                     std::string pendingPath = SceneManager::ConsumePendingLoad();
                     m_Scene.OnRuntimeStop();
                     m_Renderer.UnloadAllTextures();
+                    m_Renderer.UnloadAllFonts();
                     m_Renderer3D.UnloadAllTextures();
                     m_Renderer3D.UnloadAllMeshes();
                     m_Scene = Scene();

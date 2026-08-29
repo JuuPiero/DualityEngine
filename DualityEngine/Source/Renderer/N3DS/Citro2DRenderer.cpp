@@ -1,6 +1,9 @@
 #include "DualityEngine/Renderer/N3DS/Citro2DRenderer.h"
 
+#include <3ds/services/cfgu.h>
+
 #include "DualityEngine/Asset/TextureImportSettings.h"
+#include "DualityEngine/Core/Log.h"
 
 namespace Duality {
 
@@ -65,6 +68,15 @@ namespace Duality {
             C2D_SpriteSheetFree(sheet);
         m_TextureSheets.clear();
         m_TextureCache.clear();
+
+        if (m_TextBuf) {
+            C2D_TextBufDelete(m_TextBuf);
+            m_TextBuf = nullptr;
+        }
+        if (m_SystemFont) {
+            C2D_FontFree(m_SystemFont);
+            m_SystemFont = nullptr;
+        }
 
         if (m_OwnsScreenTargets) {
             C3D_RenderTargetDelete(m_TopTarget);
@@ -154,6 +166,63 @@ namespace Duality {
         C2D_ViewRotateDegrees(rotationDegrees);
         C2D_DrawRectSolid(-size.x * 0.5f, -size.y * 0.5f, 0.0f, size.x, size.y, ToC2DColor(color));
         C2D_ViewReset();
+    }
+
+    void Citro2DRenderer::DrawText(const std::string& text, const glm::vec2& position, float fontSize, const glm::vec4& color, uint32_t fontId) {
+        (void)fontId; // only one font (the system font) exists on this backend this pass -- see LoadFont
+        // Counts as exactly one draw call here (the whole string, one C2D_DrawText call) --
+        // deliberately NOT per-glyph like desktop's DrawQuad-per-character path, since this is
+        // citro2d's own single native draw call for the whole string, a fundamentally different
+        // (and more efficient) draw path, not an inconsistency to fix.
+        m_DrawCallCount++;
+
+        if (!m_SystemFont)
+            LoadFont("");
+        if (!m_TextBuf)
+            m_TextBuf = C2D_TextBufNew(4096);
+
+        C2D_TextBufClear(m_TextBuf);
+        C2D_Text c2dText;
+        C2D_TextFontParse(&c2dText, m_SystemFont, m_TextBuf, text.c_str());
+        C2D_TextOptimize(&c2dText);
+
+        float scale = fontSize / 30.0f; // system font's own documented 30px native glyph height
+        C2D_DrawText(&c2dText, C2D_WithColor, position.x, position.y, 0.0f, scale, scale, ToC2DColor(color));
+    }
+
+    glm::vec2 Citro2DRenderer::MeasureText(const std::string& text, float fontSize, uint32_t fontId) {
+        (void)fontId;
+        if (!m_SystemFont)
+            LoadFont("");
+        if (!m_TextBuf)
+            m_TextBuf = C2D_TextBufNew(4096);
+
+        C2D_TextBufClear(m_TextBuf);
+        C2D_Text c2dText;
+        C2D_TextFontParse(&c2dText, m_SystemFont, m_TextBuf, text.c_str());
+
+        float scale = fontSize / 30.0f;
+        float width, height;
+        C2D_TextGetDimensions(&c2dText, scale, scale, &width, &height);
+        return { width, height };
+    }
+
+    uint32_t Citro2DRenderer::LoadFont(const std::string& path) {
+        if (!path.empty() && !m_WarnedAboutCustomFont) {
+            Log::Warn("Citro2DRenderer: custom fonts not supported on 3DS yet, using the system font ('" + path + "' ignored)");
+            m_WarnedAboutCustomFont = true;
+        }
+        if (!m_SystemFont)
+            m_SystemFont = C2D_FontLoadSystem(CFG_REGION_USA);
+        return 1; // fixed handle -- always the same lazily-created system font
+    }
+
+    void Citro2DRenderer::UnloadAllFonts() {
+        // Nothing to actually free here -- the one system font is meant to live for the whole
+        // process's lifetime (freed only in Shutdown), not per-scene like textures. This exists
+        // purely so the IRenderer2D contract stays symmetric at every UnloadAllTextures call
+        // site -- a future custom-font pipeline on this backend would free per-project fonts
+        // here instead.
     }
 
     uint32_t Citro2DRenderer::LoadTexture(const std::string& path) {

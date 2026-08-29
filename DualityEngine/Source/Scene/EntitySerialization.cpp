@@ -88,6 +88,26 @@ namespace Duality {
                 continue;
             }
 
+            // Pre-RectTransform scene files only have Anchor/Offset/Size -- convert those to the
+            // equivalent AnchorMin/AnchorMax/Pivot/AnchoredPosition/SizeDelta so old UI layouts
+            // resolve to the exact same pixel rect instead of silently resetting to defaults.
+            // Falls through into the generic loop below unconditionally afterward: it's harmless
+            // for legacy JSON (won't find the new field names) and is still required to apply
+            // Enabled/Screen/Sort Order, which are unchanged either way.
+            if (typeName == "UI Rect" && valueJson.contains("Anchor") && !valueJson.contains("Anchor Min")) {
+                auto* rect = static_cast<UIRectComponent*>(component);
+                FieldValue anchorProto = UIAnchor::TopLeft;
+                UIAnchor legacyAnchor = std::get<UIAnchor>(JsonToFieldValue(valueJson["Anchor"], anchorProto));
+                glm::vec2 legacyOffset = rect->AnchoredPosition;
+                glm::vec2 legacySize = rect->SizeDelta;
+                if (valueJson.contains("Offset") && valueJson["Offset"].is_array() && valueJson["Offset"].size() >= 2)
+                    legacyOffset = { valueJson["Offset"][0].get<float>(), valueJson["Offset"][1].get<float>() };
+                if (valueJson.contains("Size") && valueJson["Size"].is_array() && valueJson["Size"].size() >= 2)
+                    legacySize = { valueJson["Size"][0].get<float>(), valueJson["Size"][1].get<float>() };
+                LegacyUIAnchorToRectTransform(legacyAnchor, legacyOffset, legacySize,
+                    rect->AnchorMin, rect->AnchorMax, rect->Pivot, rect->AnchoredPosition, rect->SizeDelta);
+            }
+
             for (auto& field : type->Fields) {
                 if (valueJson.contains(field.Name)) {
                     FieldValue current = field.Get(component);

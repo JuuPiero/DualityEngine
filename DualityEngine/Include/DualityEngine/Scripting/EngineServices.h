@@ -117,6 +117,26 @@ namespace Duality {
         void (*AudioSourceSetPaused)(void* scene, unsigned int entityHandle, bool paused);
         void (*AudioSourceSetVolume)(void* scene, unsigned int entityHandle, float volume);
         bool (*AudioSourceIsPlaying)(void* scene, unsigned int entityHandle);
+
+        // Per-callback context for ScriptContext (Bind/Clear/Scene/EntityHandle) -- lives HERE,
+        // as mutable fields on this one process-wide struct instance, deliberately NOT as
+        // ScriptContext's own `static`/`inline static` variables. A plain header-only static
+        // gets its own independent, always-default-initialized copy in EACH binary that
+        // includes the header on Windows/MinGW (no automatic cross-DLL deduplication for
+        // inline statics) -- confirmed as a real bug this way: Scene::OnRuntimeUpdate's
+        // ScriptContext::Bind() call, compiled into the host EXE/DualityEngine.lib, was
+        // silently writing to a COMPLETELY different memory location than
+        // ScriptInput::GetAxis()/ScriptPhysics2D::Raycast()/ScriptScene::FindEntityInScreen(),
+        // compiled into the separately-linked GameScripts.dll on desktop, was reading from --
+        // every one of them silently returned its "nothing bound" default on every desktop
+        // Play/DualityPlayerDesktop session, while working correctly on the 3DS build (where
+        // GameScripts links statically into the same binary, so there is only one copy of
+        // everything). A pointer DEREFERENCE through this same EngineServices* -- which every
+        // Behaviour already correctly receives via SetEngineServices, since passing a pointer
+        // VALUE through a function call is not subject to per-binary static duplication at all
+        // -- reads/writes the exact same memory regardless of which binary's code performs it.
+        mutable void* CurrentScene = nullptr;
+        mutable unsigned int CurrentEntityHandle = 0;
     };
 
 }

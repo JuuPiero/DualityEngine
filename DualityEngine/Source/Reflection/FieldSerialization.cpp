@@ -42,6 +42,9 @@ namespace Duality {
                 return names[static_cast<int>(v)];
             } else if constexpr (std::is_same_v<T, UILayoutType>) {
                 return v == UILayoutType::Horizontal ? "Horizontal" : "Vertical";
+            } else if constexpr (std::is_same_v<T, TextAlignment>) {
+                const char* names[] = { "Left", "Center", "Right" };
+                return names[static_cast<int>(v)];
             } else if constexpr (std::is_same_v<T, EnumFieldValue>) {
                 if (v.Value >= 0 && v.Value < static_cast<int>(v.Options.size()))
                     return v.Options[v.Value];
@@ -118,6 +121,11 @@ namespace Duality {
                 return CanvasRenderMode::ScreenSpaceOverlay;
             } else if constexpr (std::is_same_v<T, UILayoutType>) {
                 return j.get<std::string>() == "Horizontal" ? UILayoutType::Horizontal : UILayoutType::Vertical;
+            } else if constexpr (std::is_same_v<T, TextAlignment>) {
+                std::string name = j.get<std::string>();
+                if (name == "Center") return TextAlignment::Center;
+                if (name == "Right") return TextAlignment::Right;
+                return TextAlignment::Left;
             } else if constexpr (std::is_same_v<T, EnumFieldValue>) {
                 std::string name = j.get<std::string>();
                 for (int i = 0; i < static_cast<int>(proto.Options.size()); i++) {

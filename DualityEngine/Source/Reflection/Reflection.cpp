@@ -121,9 +121,11 @@ namespace Duality {
         TypeRegistry::Register<UIRectComponent>("UI Rect", false, {
             MakeField("Enabled", &UIRectComponent::Enabled),
             MakeField("Screen", &UIRectComponent::Screen),
-            MakeField("Anchor", &UIRectComponent::Anchor),
-            MakeField("Offset", &UIRectComponent::Offset),
-            MakeField("Size", &UIRectComponent::Size),
+            MakeField("Anchor Min", &UIRectComponent::AnchorMin),
+            MakeField("Anchor Max", &UIRectComponent::AnchorMax),
+            MakeField("Pivot", &UIRectComponent::Pivot),
+            MakeField("Anchored Position", &UIRectComponent::AnchoredPosition),
+            MakeField("Size Delta", &UIRectComponent::SizeDelta),
             MakeField("Sort Order", &UIRectComponent::SortOrder),
         });
 
@@ -163,6 +165,10 @@ namespace Duality {
         TypeRegistry::Register<UITextComponent>("UI Text", false, {
             MakeField("Enabled", &UITextComponent::Enabled),
             MakeField("Text", &UITextComponent::Text),
+            MakeField("Font", &UITextComponent::Font),
+            MakeField("Font Size", &UITextComponent::FontSize),
+            MakeField("Color", &UITextComponent::Color),
+            MakeField("Alignment", &UITextComponent::Alignment),
         });
 
         TypeRegistry::Register<UISliderComponent>("UI Slider", false, {

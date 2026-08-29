@@ -1,8 +1,10 @@
 #pragma once
 
 #include <unordered_map>
+#include <vector>
 
 #include "DualityEngine/Renderer/IRenderer2D.h"
+#include "DualityEngine/Renderer/OpenGL/GLFontLoader.h"
 
 namespace Duality {
 
@@ -30,8 +32,12 @@ namespace Duality {
         void EndScene() override;
 
         void DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees = 0.0f, uint32_t textureId = 0, const glm::vec4& uvRect = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)) override;
+        void DrawText(const std::string& text, const glm::vec2& position, float fontSize, const glm::vec4& color, uint32_t fontId = 0) override;
+        glm::vec2 MeasureText(const std::string& text, float fontSize, uint32_t fontId = 0) override;
+        uint32_t LoadFont(const std::string& path) override;
         uint32_t LoadTexture(const std::string& path) override;
         void UnloadAllTextures() override;
+        void UnloadAllFonts() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
         // Desktop-editor-only extra (not part of IRenderer2D -- there is no
@@ -54,6 +60,12 @@ namespace Duality {
         void DrawGrid(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, float cellSize);
 
     private:
+        // Index i (0-based) backs fontId i+1 -- 0 stays reserved for "default/system font",
+        // matching m_TextureCache/textureId's own convention below (and LoadFont("") resolves
+        // to the hardcoded default OS font path before ever reaching this cache).
+        std::vector<GLFont> m_Fonts;
+        std::unordered_map<std::string, uint32_t> m_FontCache;
+
         std::unordered_map<std::string, uint32_t> m_TextureCache;
         uint32_t m_DrawCallCount = 0;
     };

@@ -122,6 +122,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         Source/UIButtonClickBehaviour.cpp
         Source/GameSettingsData.cpp
         Source/PlayerController.cpp
+        Source/PatrolEnemyBehaviour.cpp
         Source/BallTest.cpp
         Source/FeatureShowcaseBehaviour.cpp
         Source/ScriptModuleExports.cpp
@@ -139,6 +140,7 @@ else()
         Source/UIButtonClickBehaviour.cpp
         Source/GameSettingsData.cpp
         Source/PlayerController.cpp
+        Source/PatrolEnemyBehaviour.cpp
         Source/BallTest.cpp
         Source/FeatureShowcaseBehaviour.cpp
         Source/ScriptModuleExports.cpp
