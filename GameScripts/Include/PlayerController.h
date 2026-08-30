@@ -28,8 +28,13 @@ public:
     void OnUpdate(float deltaTime) override;
     void OnTriggerEnter(Duality::Entity other) override;
 
-    DUALITY_PROPERTY() float MoveSpeed = 150.0f;
-    DUALITY_PROPERTY() float JumpSpeed = 320.0f;
+    // Tuned for a clearly-felt jump against this engine's global Box2D gravity (400 px/s^2,
+    // Scene.cpp's own DefaultGravityY -- shared by every physics body in the engine, so not
+    // something this one controller should touch): apex height = JumpSpeed^2 / (2*gravity), so
+    // 450 clears roughly 253px of rise, comfortably above the ~50-60px platform-to-platform
+    // gaps in Platformer.scene, with real margin for a satisfying, not-barely-making-it feel.
+    DUALITY_PROPERTY() float MoveSpeed = 200.0f;
+    DUALITY_PROPERTY() float JumpSpeed = 450.0f;
     // Names to look up in OnCreate (see the class comment above) -- change these if you rename
     // the corresponding entities in the scene. Empty CameraName disables camera-follow.
     DUALITY_PROPERTY() std::string CameraName = "MainCamera";

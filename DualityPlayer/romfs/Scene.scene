@@ -5,9 +5,1725 @@
         "Active": true
       },
       "Name": {
-        "Name": "TouchInstructionsLabel"
+        "Name": "-- Camera --"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Camera": {
+        "Background": [
+          0.07999999821186066,
+          0.07999999821186066,
+          0.11999999731779099,
+          1.0
+        ],
+        "Culling Mask": 4294967295,
+        "Enabled": true,
+        "Far Plane": 1000.0,
+        "Fov Degrees": 60.0,
+        "Near Plane": 0.10000000149011612,
+        "Primary": true,
+        "Projection": "Orthographic",
+        "Screen": "Top",
+        "Zoom": 1.0
+      },
+      "Name": {
+        "Name": "MainCamera"
+      },
+      "Parent": 0,
+      "Physics Raycaster 2D": {
+        "Enabled": true
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          200.0,
+          120.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "-- Player --"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          12.0,
+          16.0
+        ]
+      },
+      "Name": {
+        "Name": "Player"
+      },
+      "Parent": 2,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Dynamic",
+        "Enabled": true,
+        "Fixed Rotation": true,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Scripts": [
+        {
+          "ClassName": "PlayerController",
+          "Enabled": true,
+          "PropertyOverrides": null
+        }
+      ],
+      "Sprite Renderer": {
+        "Color": [
+          0.8999999761581421,
+          0.30000001192092896,
+          0.30000001192092896,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          24.0,
+          32.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Player"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          40.0,
+          150.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "-- Level --"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          100.0,
+          20.0
+        ]
+      },
+      "Name": {
+        "Name": "Ground1"
       },
       "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.3499999940395355,
+          0.550000011920929,
+          0.30000001192092896,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          200.0,
+          40.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          100.0,
+          210.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          75.0,
+          20.0
+        ]
+      },
+      "Name": {
+        "Name": "Ground2"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.3499999940395355,
+          0.550000011920929,
+          0.30000001192092896,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          150.0,
+          40.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          300.0,
+          210.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          60.0,
+          20.0
+        ]
+      },
+      "Name": {
+        "Name": "RaisedPlatform1"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.3499999940395355,
+          0.550000011920929,
+          0.30000001192092896,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          120.0,
+          40.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          470.0,
+          150.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          90.0,
+          20.0
+        ]
+      },
+      "Name": {
+        "Name": "Ground3"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.3499999940395355,
+          0.550000011920929,
+          0.30000001192092896,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          180.0,
+          40.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          650.0,
+          210.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          100.0,
+          20.0
+        ]
+      },
+      "Name": {
+        "Name": "Ground4"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.3499999940395355,
+          0.550000011920929,
+          0.30000001192092896,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          200.0,
+          40.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          820.0,
+          210.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          50.0,
+          20.0
+        ]
+      },
+      "Name": {
+        "Name": "RaisedPlatform2"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.3499999940395355,
+          0.550000011920929,
+          0.30000001192092896,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          100.0,
+          40.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          1040.0,
+          150.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": false,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          125.0,
+          20.0
+        ]
+      },
+      "Name": {
+        "Name": "GoalPlatform"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.3499999940395355,
+          0.550000011920929,
+          0.30000001192092896,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          250.0,
+          40.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          1250.0,
+          210.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Circle Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Radius": 7.0,
+        "Restitution": 0.0
+      },
+      "Name": {
+        "Name": "Coin"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          0.8500000238418579,
+          0.20000000298023224,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          14.0,
+          14.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Coin"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          100.0,
+          170.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Circle Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Radius": 7.0,
+        "Restitution": 0.0
+      },
+      "Name": {
+        "Name": "Coin"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          0.8500000238418579,
+          0.20000000298023224,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          14.0,
+          14.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Coin"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          300.0,
+          170.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Circle Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Radius": 7.0,
+        "Restitution": 0.0
+      },
+      "Name": {
+        "Name": "Coin"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          0.8500000238418579,
+          0.20000000298023224,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          14.0,
+          14.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Coin"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          470.0,
+          110.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Circle Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Radius": 7.0,
+        "Restitution": 0.0
+      },
+      "Name": {
+        "Name": "Coin"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          0.8500000238418579,
+          0.20000000298023224,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          14.0,
+          14.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Coin"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          650.0,
+          170.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Circle Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Radius": 7.0,
+        "Restitution": 0.0
+      },
+      "Name": {
+        "Name": "Coin"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          0.8500000238418579,
+          0.20000000298023224,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          14.0,
+          14.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Coin"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          820.0,
+          170.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Circle Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Radius": 7.0,
+        "Restitution": 0.0
+      },
+      "Name": {
+        "Name": "Coin"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          0.8500000238418579,
+          0.20000000298023224,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          14.0,
+          14.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Coin"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          1040.0,
+          110.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Circle Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Radius": 7.0,
+        "Restitution": 0.0
+      },
+      "Name": {
+        "Name": "Coin"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          0.8500000238418579,
+          0.20000000298023224,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          14.0,
+          14.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Coin"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          1250.0,
+          170.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          15.0,
+          5.0
+        ]
+      },
+      "Name": {
+        "Name": "Spikes"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.8500000238418579,
+          0.15000000596046448,
+          0.15000000596046448,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          30.0,
+          10.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Hazard"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          650.0,
+          185.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Circle Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Radius": 10.0,
+        "Restitution": 0.0
+      },
+      "Name": {
+        "Name": "PatrolEnemy"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Kinematic",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Scripts": [
+        {
+          "ClassName": "PatrolEnemyBehaviour",
+          "Enabled": true,
+          "PropertyOverrides": null
+        }
+      ],
+      "Sprite Renderer": {
+        "Color": [
+          0.6000000238418579,
+          0.20000000298023224,
+          0.699999988079071,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          20.0,
+          20.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Enemy"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          820.0,
+          180.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.5,
+        "Is Trigger": true,
+        "Offset": [
+          0.0,
+          0.0
+        ],
+        "Physics Material": "",
+        "Restitution": 0.0,
+        "Size": [
+          10.0,
+          20.0
+        ]
+      },
+      "Name": {
+        "Name": "Goal"
+      },
+      "Parent": 4,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05000000074505806,
+        "Body Type": "Static",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          0.949999988079071,
+          0.800000011920929,
+          0.10000000149011612,
+          1.0
+        ],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          20.0,
+          40.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": ""
+      },
+      "Tag": {
+        "Tag": "Goal"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          1330.0,
+          170.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "-- HUD --"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "ScoreLabel"
+      },
+      "Parent": 22,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "UI Rect": {
+        "Anchor Max": [
+          0.0,
+          0.0
+        ],
+        "Anchor Min": [
+          0.0,
+          0.0
+        ],
+        "Anchored Position": [
+          10.0,
+          10.0
+        ],
+        "Enabled": true,
+        "Pivot": [
+          0.0,
+          0.0
+        ],
+        "Screen": "Top",
+        "Size Delta": [
+          160.0,
+          24.0
+        ],
+        "Sort Order": 0
+      },
+      "UI Text": {
+        "Alignment": "Left",
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Enabled": true,
+        "Font": "",
+        "Font Size": 16.0,
+        "Text": "Coins: 0"
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "StatusLabel"
+      },
+      "Parent": 22,
       "Tag": {
         "Tag": "Untagged"
       },
@@ -31,30 +1747,97 @@
       "UI Rect": {
         "Anchor Max": [
           0.5,
-          0.0
+          0.5
         ],
         "Anchor Min": [
           0.5,
-          0.0
+          0.5
         ],
         "Anchored Position": [
           0.0,
-          10.0
-        ],
-        "Enabled": true,
-        "Pivot": [
-          0.5,
           0.0
         ],
-        "Screen": "Bottom",
+        "Enabled": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Screen": "Top",
         "Size Delta": [
-          280.0,
-          20.0
+          300.0,
+          40.0
         ],
         "Sort Order": 0
       },
       "UI Text": {
         "Alignment": "Center",
+        "Color": [
+          1.0,
+          0.8999999761581421,
+          0.30000001192092896,
+          1.0
+        ],
+        "Enabled": true,
+        "Font": "",
+        "Font Size": 22.0,
+        "Text": ""
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "InstructionsLabel"
+      },
+      "Parent": 22,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "UI Rect": {
+        "Anchor Max": [
+          1.0,
+          0.0
+        ],
+        "Anchor Min": [
+          1.0,
+          0.0
+        ],
+        "Anchored Position": [
+          -10.0,
+          10.0
+        ],
+        "Enabled": true,
+        "Pivot": [
+          1.0,
+          0.0
+        ],
+        "Screen": "Top",
+        "Size Delta": [
+          180.0,
+          20.0
+        ],
+        "Sort Order": 0
+      },
+      "UI Text": {
+        "Alignment": "Right",
         "Color": [
           1.0,
           1.0,
@@ -64,7 +1847,7 @@
         "Enabled": true,
         "Font": "",
         "Font Size": 12.0,
-        "Text": "Touch controls (or use A/D/Space)"
+        "Text": "A/D move, Space jump"
       }
     },
     {
@@ -72,9 +1855,38 @@
         "Active": true
       },
       "Name": {
-        "Name": "JumpButton"
+        "Name": "-- Touch Controls --"
       },
-      "Parent": 4,
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "LeftButton"
+      },
+      "Parent": 26,
       "Tag": {
         "Tag": "Untagged"
       },
@@ -98,29 +1910,29 @@
       "UI Button": {
         "Enabled": true,
         "Hover Color": [
-          1.034999966621399,
-          0.6899999976158142,
-          0.23000000417232513,
+          0.574999988079071,
+          0.574999988079071,
+          0.6324999928474426,
           1.149999976158142
         ],
         "Normal Color": [
-          0.8999999761581421,
-          0.6000000238418579,
-          0.20000000298023224,
+          0.5,
+          0.5,
+          0.550000011920929,
           1.0
         ],
         "Pressed Color": [
-          0.6299999952316284,
-          0.42000001668930054,
-          0.14000000059604645,
+          0.3499999940395355,
+          0.3499999940395355,
+          0.38499999046325684,
           0.699999988079071
         ]
       },
       "UI Image": {
         "Color": [
-          0.8999999761581421,
-          0.6000000238418579,
-          0.20000000298023224,
+          0.5,
+          0.5,
+          0.550000011920929,
           1.0
         ],
         "Enabled": true,
@@ -134,20 +1946,20 @@
       },
       "UI Rect": {
         "Anchor Max": [
-          1.0,
+          0.0,
           1.0
         ],
         "Anchor Min": [
-          1.0,
+          0.0,
           1.0
         ],
         "Anchored Position": [
-          -20.0,
+          20.0,
           -15.0
         ],
         "Enabled": true,
         "Pivot": [
-          1.0,
+          0.0,
           1.0
         ],
         "Screen": "Bottom",
@@ -165,7 +1977,7 @@
       "Name": {
         "Name": "RightButton"
       },
-      "Parent": 4,
+      "Parent": 26,
       "Tag": {
         "Tag": "Untagged"
       },
@@ -254,9 +2066,9 @@
         "Active": true
       },
       "Name": {
-        "Name": "LeftButton"
+        "Name": "JumpButton"
       },
-      "Parent": 4,
+      "Parent": 26,
       "Tag": {
         "Tag": "Untagged"
       },
@@ -280,29 +2092,29 @@
       "UI Button": {
         "Enabled": true,
         "Hover Color": [
-          0.574999988079071,
-          0.574999988079071,
-          0.6324999928474426,
+          1.034999966621399,
+          0.6899999976158142,
+          0.23000000417232513,
           1.149999976158142
         ],
         "Normal Color": [
-          0.5,
-          0.5,
-          0.550000011920929,
+          0.8999999761581421,
+          0.6000000238418579,
+          0.20000000298023224,
           1.0
         ],
         "Pressed Color": [
-          0.3499999940395355,
-          0.3499999940395355,
-          0.38499999046325684,
+          0.6299999952316284,
+          0.42000001668930054,
+          0.14000000059604645,
           0.699999988079071
         ]
       },
       "UI Image": {
         "Color": [
-          0.5,
-          0.5,
-          0.550000011920929,
+          0.8999999761581421,
+          0.6000000238418579,
+          0.20000000298023224,
           1.0
         ],
         "Enabled": true,
@@ -316,20 +2128,20 @@
       },
       "UI Rect": {
         "Anchor Max": [
-          0.0,
+          1.0,
           1.0
         ],
         "Anchor Min": [
-          0.0,
+          1.0,
           1.0
         ],
         "Anchored Position": [
-          20.0,
+          -20.0,
           -15.0
         ],
         "Enabled": true,
         "Pivot": [
-          0.0,
+          1.0,
           1.0
         ],
         "Screen": "Bottom",
@@ -345,38 +2157,9 @@
         "Active": true
       },
       "Name": {
-        "Name": "-- Touch Controls --"
+        "Name": "TouchInstructionsLabel"
       },
-      "Parent": -1,
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Name": {
-        "Name": "InstructionsLabel"
-      },
-      "Parent": 8,
+      "Parent": 26,
       "Tag": {
         "Tag": "Untagged"
       },
@@ -399,31 +2182,31 @@
       },
       "UI Rect": {
         "Anchor Max": [
-          1.0,
+          0.5,
           0.0
         ],
         "Anchor Min": [
-          1.0,
+          0.5,
           0.0
         ],
         "Anchored Position": [
-          -10.0,
+          0.0,
           10.0
         ],
         "Enabled": true,
         "Pivot": [
-          1.0,
+          0.5,
           0.0
         ],
-        "Screen": "Top",
+        "Screen": "Bottom",
         "Size Delta": [
-          180.0,
+          280.0,
           20.0
         ],
         "Sort Order": 0
       },
       "UI Text": {
-        "Alignment": "Right",
+        "Alignment": "Center",
         "Color": [
           1.0,
           1.0,
@@ -433,1790 +2216,7 @@
         "Enabled": true,
         "Font": "",
         "Font Size": 12.0,
-        "Text": "A/D move, Space jump"
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Name": {
-        "Name": "StatusLabel"
-      },
-      "Parent": 8,
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "UI Rect": {
-        "Anchor Max": [
-          0.5,
-          0.5
-        ],
-        "Anchor Min": [
-          0.5,
-          0.5
-        ],
-        "Anchored Position": [
-          0.0,
-          0.0
-        ],
-        "Enabled": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Screen": "Top",
-        "Size Delta": [
-          300.0,
-          40.0
-        ],
-        "Sort Order": 0
-      },
-      "UI Text": {
-        "Alignment": "Center",
-        "Color": [
-          1.0,
-          0.8999999761581421,
-          0.30000001192092896,
-          1.0
-        ],
-        "Enabled": true,
-        "Font": "",
-        "Font Size": 22.0,
-        "Text": ""
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Name": {
-        "Name": "ScoreLabel"
-      },
-      "Parent": 8,
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      },
-      "UI Rect": {
-        "Anchor Max": [
-          0.0,
-          0.0
-        ],
-        "Anchor Min": [
-          0.0,
-          0.0
-        ],
-        "Anchored Position": [
-          10.0,
-          10.0
-        ],
-        "Enabled": true,
-        "Pivot": [
-          0.0,
-          0.0
-        ],
-        "Screen": "Top",
-        "Size Delta": [
-          160.0,
-          24.0
-        ],
-        "Sort Order": 0
-      },
-      "UI Text": {
-        "Alignment": "Left",
-        "Color": [
-          1.0,
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Enabled": true,
-        "Font": "",
-        "Font Size": 16.0,
-        "Text": "Coins: 0"
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Name": {
-        "Name": "-- HUD --"
-      },
-      "Parent": -1,
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          10.0,
-          20.0
-        ]
-      },
-      "Name": {
-        "Name": "Goal"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          0.949999988079071,
-          0.800000011920929,
-          0.10000000149011612,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          20.0,
-          40.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Goal"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          1330.0,
-          170.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Circle Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Radius": 10.0,
-        "Restitution": 0.0
-      },
-      "Name": {
-        "Name": "PatrolEnemy"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Kinematic",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Scripts": [
-        {
-          "ClassName": "PatrolEnemyBehaviour",
-          "Enabled": true,
-          "PropertyOverrides": null
-        }
-      ],
-      "Sprite Renderer": {
-        "Color": [
-          0.6000000238418579,
-          0.20000000298023224,
-          0.699999988079071,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          20.0,
-          20.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Enemy"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          820.0,
-          180.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          15.0,
-          5.0
-        ]
-      },
-      "Name": {
-        "Name": "Spikes"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          0.8500000238418579,
-          0.15000000596046448,
-          0.15000000596046448,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          30.0,
-          10.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Hazard"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          650.0,
-          185.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Circle Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Radius": 7.0,
-        "Restitution": 0.0
-      },
-      "Name": {
-        "Name": "Coin"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          1.0,
-          0.8500000238418579,
-          0.20000000298023224,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          14.0,
-          14.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Coin"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          1250.0,
-          170.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Circle Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Radius": 7.0,
-        "Restitution": 0.0
-      },
-      "Name": {
-        "Name": "Coin"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          1.0,
-          0.8500000238418579,
-          0.20000000298023224,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          14.0,
-          14.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Coin"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          1040.0,
-          110.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Circle Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Radius": 7.0,
-        "Restitution": 0.0
-      },
-      "Name": {
-        "Name": "Coin"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          1.0,
-          0.8500000238418579,
-          0.20000000298023224,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          14.0,
-          14.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Coin"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          820.0,
-          170.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Circle Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Radius": 7.0,
-        "Restitution": 0.0
-      },
-      "Name": {
-        "Name": "Coin"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          1.0,
-          0.8500000238418579,
-          0.20000000298023224,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          14.0,
-          14.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Coin"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          650.0,
-          170.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Circle Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Radius": 7.0,
-        "Restitution": 0.0
-      },
-      "Name": {
-        "Name": "Coin"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          1.0,
-          0.8500000238418579,
-          0.20000000298023224,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          14.0,
-          14.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Coin"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          470.0,
-          110.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Circle Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Radius": 7.0,
-        "Restitution": 0.0
-      },
-      "Name": {
-        "Name": "Coin"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          1.0,
-          0.8500000238418579,
-          0.20000000298023224,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          14.0,
-          14.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Coin"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          300.0,
-          170.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Circle Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": true,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Radius": 7.0,
-        "Restitution": 0.0
-      },
-      "Name": {
-        "Name": "Coin"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          1.0,
-          0.8500000238418579,
-          0.20000000298023224,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          14.0,
-          14.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Coin"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          100.0,
-          170.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": false,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          125.0,
-          20.0
-        ]
-      },
-      "Name": {
-        "Name": "GoalPlatform"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          0.3499999940395355,
-          0.550000011920929,
-          0.30000001192092896,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          250.0,
-          40.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          1250.0,
-          210.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": false,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          50.0,
-          20.0
-        ]
-      },
-      "Name": {
-        "Name": "RaisedPlatform2"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          0.3499999940395355,
-          0.550000011920929,
-          0.30000001192092896,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          100.0,
-          40.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          1040.0,
-          150.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": false,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          100.0,
-          20.0
-        ]
-      },
-      "Name": {
-        "Name": "Ground4"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          0.3499999940395355,
-          0.550000011920929,
-          0.30000001192092896,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          200.0,
-          40.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          820.0,
-          210.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": false,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          90.0,
-          20.0
-        ]
-      },
-      "Name": {
-        "Name": "Ground3"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          0.3499999940395355,
-          0.550000011920929,
-          0.30000001192092896,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          180.0,
-          40.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          650.0,
-          210.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": false,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          60.0,
-          20.0
-        ]
-      },
-      "Name": {
-        "Name": "RaisedPlatform1"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          0.3499999940395355,
-          0.550000011920929,
-          0.30000001192092896,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          120.0,
-          40.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          470.0,
-          150.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": false,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          75.0,
-          20.0
-        ]
-      },
-      "Name": {
-        "Name": "Ground2"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          0.3499999940395355,
-          0.550000011920929,
-          0.30000001192092896,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          150.0,
-          40.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          300.0,
-          210.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": false,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          100.0,
-          20.0
-        ]
-      },
-      "Name": {
-        "Name": "Ground1"
-      },
-      "Parent": 26,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Static",
-        "Enabled": true,
-        "Fixed Rotation": false,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Sprite Renderer": {
-        "Color": [
-          0.3499999940395355,
-          0.550000011920929,
-          0.30000001192092896,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          200.0,
-          40.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          100.0,
-          210.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Name": {
-        "Name": "-- Level --"
-      },
-      "Parent": -1,
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Box Collider 2D": {
-        "Density": 1.0,
-        "Edit": false,
-        "Enabled": true,
-        "Friction": 0.5,
-        "Is Trigger": false,
-        "Offset": [
-          0.0,
-          0.0
-        ],
-        "Physics Material": "",
-        "Restitution": 0.0,
-        "Size": [
-          12.0,
-          16.0
-        ]
-      },
-      "Name": {
-        "Name": "Player"
-      },
-      "Parent": 28,
-      "Rigidbody 2D": {
-        "Angular Drag": 0.05000000074505806,
-        "Body Type": "Dynamic",
-        "Enabled": true,
-        "Fixed Rotation": true,
-        "Gravity Scale": 1.0,
-        "Linear Drag": 0.0,
-        "Mass": 0.0,
-        "Use Gravity": true
-      },
-      "Scripts": [
-        {
-          "ClassName": "PlayerController",
-          "Enabled": true,
-          "PropertyOverrides": null
-        }
-      ],
-      "Sprite Renderer": {
-        "Color": [
-          0.8999999761581421,
-          0.30000001192092896,
-          0.30000001192092896,
-          1.0
-        ],
-        "Enabled": true,
-        "Flip X": false,
-        "Flip Y": false,
-        "Pivot": [
-          0.5,
-          0.5
-        ],
-        "Size": [
-          24.0,
-          32.0
-        ],
-        "Slice Border": [
-          0.0,
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Sort Order": 0,
-        "Texture": ""
-      },
-      "Tag": {
-        "Tag": "Player"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          40.0,
-          150.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Name": {
-        "Name": "-- Player --"
-      },
-      "Parent": -1,
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          0.0,
-          0.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Camera": {
-        "Background": [
-          0.07999999821186066,
-          0.07999999821186066,
-          0.11999999731779099,
-          1.0
-        ],
-        "Culling Mask": 4294967295,
-        "Enabled": true,
-        "Far Plane": 1000.0,
-        "Fov Degrees": 60.0,
-        "Near Plane": 0.10000000149011612,
-        "Primary": true,
-        "Projection": "Orthographic",
-        "Screen": "Top",
-        "Zoom": 1.0
-      },
-      "Name": {
-        "Name": "MainCamera"
-      },
-      "Parent": 30,
-      "Physics Raycaster 2D": {
-        "Enabled": true
-      },
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          200.0,
-          120.0,
-          0.0
-        ]
-      }
-    },
-    {
-      "Active": {
-        "Active": true
-      },
-      "Name": {
-        "Name": "-- Camera --"
-      },
-      "Parent": -1,
-      "Tag": {
-        "Tag": "Untagged"
-      },
-      "Transform": {
-        "Rotation": [
-          0.0,
-          0.0,
-          0.0
-        ],
-        "Scale": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "Translation": [
-          0.0,
-          0.0,
-          0.0
-        ]
+        "Text": "Touch controls (or use A/D/Space)"
       }
     }
   ]

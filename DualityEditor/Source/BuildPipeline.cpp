@@ -322,12 +322,19 @@ namespace Duality {
         // reason -- ProjectSettingsPanel's file dialog already returns an absolute path, so this
         // is a safe no-op there; it only matters if IconPath is ever set some other way.
         std::string projectIconPath;
+        // ProductName (Project Settings) if set, else this project's own Name -- unlike
+        // IconPath, an unset ProductName should never fall back to the engine's own placeholder
+        // name, so the resolution happens here rather than in build-3ds.bat/CMakeLists.txt.
+        std::string productName;
         if (activeProject) {
             projectScriptsDir = std::filesystem::absolute(activeProject->GetScriptsDirectory()).generic_string();
             if (!activeProject->GetConfig().IconPath.empty())
                 projectIconPath = std::filesystem::absolute(activeProject->GetConfig().IconPath).generic_string();
+            productName = activeProject->GetConfig().ProductName.empty()
+                ? activeProject->GetConfig().Name
+                : activeProject->GetConfig().ProductName;
         }
-        std::string command = "\"" + repoRoot + "\\build-3ds.bat\" \"" + projectScriptsDir + "\" \"" + projectIconPath + "\"";
+        std::string command = "\"" + repoRoot + "\\build-3ds.bat\" \"" + projectScriptsDir + "\" \"" + projectIconPath + "\" \"" + productName + "\"";
         if (RunCommand(command) != 0) {
             Log::Error("BuildPipeline: 3DS build failed");
             return false;

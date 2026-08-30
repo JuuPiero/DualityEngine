@@ -1,6 +1,7 @@
 #include "DualityEditor/Panels/ProjectSettingsPanel.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 
 #include <imgui.h>
@@ -56,6 +57,25 @@ namespace Duality {
         if (ImGui::Button("Browse..."))
             ctx.RequestBrowseIcon = true;
         ImGui::EndGroup();
+
+        // Also editable here -- the name shown on the 3DS home menu / Citra's game list under
+        // the icon above (see ProjectConfig::ProductName's own comment). Empty (the default)
+        // falls back to this project's own Name at build time, shown as a placeholder so it's
+        // clear what "leave this blank" actually does rather than looking broken/unset.
+        ImGui::Separator();
+        ImGui::Text("Product Name (3DS)");
+        static char productNameBuffer[256];
+        static Project* lastBoundProject = nullptr;
+        if (lastBoundProject != project.get()) {
+            std::snprintf(productNameBuffer, sizeof(productNameBuffer), "%s", project->GetConfig().ProductName.c_str());
+            lastBoundProject = project.get();
+        }
+        ImGui::SetNextItemWidth(-1.0f);
+        if (ImGui::InputTextWithHint("##ProductName", project->GetConfig().Name.c_str(), productNameBuffer, sizeof(productNameBuffer))) {
+            project->GetConfig().ProductName = productNameBuffer;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            project->Save();
 
         ImGui::End();
     }

@@ -60,6 +60,20 @@ namespace Duality {
             GX_TRANSFER_SCALING(antiAliasingMode == 2 ? GX_TRANSFER_SCALE_XY : GX_TRANSFER_SCALE_X);
         C3D_RenderTargetSetOutput(m_TopTarget, GFX_TOP, GFX_LEFT, transferFlags);
         C3D_RenderTargetSetOutput(m_BottomTarget, GFX_BOTTOM, GFX_LEFT, transferFlags);
+
+        // target->linked also needs to be true here (read by C2D_SceneTarget as the `tilt`
+        // argument it forwards to C2D_SceneSize, see BeginScene's own comment for why that
+        // matters) -- C2D_CreateScreenTarget (the antiAliasingMode==0 path above) sets this
+        // internally, but a target built by hand via the raw C3D_RenderTargetCreate call above
+        // is not guaranteed to come back with linked=true just from C3D_RenderTargetSetOutput
+        // alone (unconfirmable from the shipped headers, only the compiled library -- forcing
+        // it true here is a safe no-op either way). BeginScene below no longer actually calls
+        // C2D_SceneTarget/C2D_SceneBegin (it hit a second, bigger bug there), but every 3DS
+        // homebrew reference around this field sets it as standard practice for a hand-built
+        // tilted target, and something could start relying on it again in the future.
+        m_TopTarget->linked = true;
+        m_BottomTarget->linked = true;
+
         m_OwnsScreenTargets = true;
     }
 
@@ -122,7 +136,28 @@ namespace Duality {
         // one of the two should actually clear.
         if (clear)
             C2D_TargetClear(target, ToC2DColor(clearColor));
-        C2D_SceneBegin(target);
+
+        // NOT C2D_SceneBegin(target) -- confirmed via the real installed devkitPro header
+        // (c2d/base.h): C2D_SceneBegin just calls C2D_SceneTarget(target), which in turn calls
+        // C2D_SceneSize(target->frameBuf.width, target->frameBuf.height, target->linked). That's
+        // correct at native resolution (frameBuf is exactly 240x400/240x320 there), but when
+        // AntiAliasing is on, Init() above renders into a LARGER supersampled buffer
+        // (240*scaleX x 400*scaleY/320*scaleY) that gets downsampled back to native size only
+        // later, during the GX display transfer -- so target->frameBuf.width/height are that
+        // much bigger too. C2D_SceneSize would then treat the 2D scene's own logical coordinate
+        // space as that same inflated size, while every DrawQuad/DrawText call in this engine
+        // still uses the fixed native 240x400/240x320 pixel space -- squeezing all 2D content
+        // into a fraction of the actual canvas before the whole oversized buffer gets scaled
+        // back down, i.e. everything drawn ends up both mispositioned and the wrong size. This
+        // is the real, confirmed root cause of "vi tri kich thuoc bi sai" persisting even with
+        // target->linked forced true above (that field only ever controlled tilt, never size).
+        // Fix: drive C2D_SceneSize with the fixed LOGICAL screen size ourselves instead of
+        // letting it read the physical (possibly-supersampled) render target dimensions --
+        // correct unconditionally, AntiAliasing on or off, since at AntiAliasing off
+        // frameBuf.width/height already equal these same constants anyway.
+        C2D_Flush();
+        C3D_FrameDrawOn(target);
+        C2D_SceneSize(240, screen == Screen::Top ? 400 : 320, true);
     }
 
     void Citro2DRenderer::EndScene() {

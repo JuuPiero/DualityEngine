@@ -904,6 +904,8 @@ namespace Duality {
     }
 
     void Scene::OnRuntimeStart() {
+        m_PhysicsAccumulator = 0.0f;
+
         Physics2DWorld* world2D = new Physics2DWorld();
         world2D->World = new b2World(b2Vec2(0.0f, DefaultGravityY));
         world2D->Listener = new Box2DContactListener();
@@ -1189,135 +1191,165 @@ namespace Duality {
         // steps -- see PhysicsContactEvent's own comment.
         std::vector<PhysicsContactEvent> contactEvents;
 
-        if (m_PhysicsWorld) {
-            Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);
-            world2D->Listener->Events = &contactEvents;
+        // Physics steps at a FIXED 1/60s timestep, accumulated from the real (variable) frame
+        // deltaTime, instead of a single Step(deltaTime, ...) call using whatever deltaTime this
+        // function happened to be called with. Box2D/Bullet's own semi-implicit Euler
+        // integration accumulates real, measurable error at larger timesteps -- confirmed as the
+        // actual cause of a real reported bug (a platformer's jump apex was noticeably LOWER on
+        // real 3DS hardware, which runs at a real framerate far below the Editor's desktop
+        // framerate, than in the Editor's own Play-in-Editor preview, for the exact same
+        // JumpSpeed impulse). A fixed timestep, substepped as many times as needed to consume
+        // however much real time actually elapsed, keeps physics behavior IDENTICAL regardless
+        // of the host's actual framerate, matching Unity's own FixedUpdate/Godot's physics
+        // tick/every other serious game engine's own established fix for this exact class of
+        // bug. Capped to MaxStepsPerFrame worth of accumulated time so a real hitch (e.g. asset
+        // loading, a debugger breakpoint) can't force a "spiral of death" of ever-more substeps
+        // each subsequent frame -- time beyond that cap is simply dropped, matching the standard
+        // accepted tradeoff (physics runs in slow motion during a severe hitch, rather than
+        // hanging entirely trying to catch up). Scripts still see exactly one OnUpdate(realDelta
+        // Time) call per real frame at the end of this function, unaffected -- only the physics
+        // sub-block above it runs 0-N times per call.
+        constexpr float FixedDeltaTime = 1.0f / 60.0f;
+        constexpr int MaxStepsPerFrame = 5;
+        m_PhysicsAccumulator = std::min(m_PhysicsAccumulator + deltaTime, FixedDeltaTime * MaxStepsPerFrame);
 
-            for (auto handle : m_Registry.view<Rigidbody2DComponent>()) {
-                auto& rb = m_Registry.get<Rigidbody2DComponent>(handle);
-                if (!rb.RuntimeBody)
-                    continue;
-                bool enabled = rb.Enabled && IsEffectivelyActive(Entity(handle, this));
-                static_cast<b2Body*>(rb.RuntimeBody)->SetEnabled(enabled);
-            }
+        while (m_PhysicsAccumulator >= FixedDeltaTime) {
+            m_PhysicsAccumulator -= FixedDeltaTime;
 
-            // Kinematic bodies are moved by script/animation, not by Box2D's own solver (mass
-            // 0, same as Static) -- so unlike Dynamic, the ENTITY's current TransformComponent
-            // is the source of truth each frame, pushed into the body right before it steps.
-            // The sync-back loop after Step() below then just reads this same value straight
-            // back for a Kinematic body (nothing moved it), a harmless no-op.
-            for (auto handle : m_Registry.view<Rigidbody2DComponent, TransformComponent>()) {
-                auto& rb = m_Registry.get<Rigidbody2DComponent>(handle);
-                if (rb.Type != BodyType::Kinematic || !rb.RuntimeBody)
-                    continue;
-                auto& transform = m_Registry.get<TransformComponent>(handle);
-                static_cast<b2Body*>(rb.RuntimeBody)->SetTransform(b2Vec2(transform.Translation.x, transform.Translation.y), glm::radians(transform.Rotation.z));
-            }
+            if (m_PhysicsWorld) {
+                Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);
+                world2D->Listener->Events = &contactEvents;
 
-            world2D->World->Step(deltaTime, VelocityIterations, PositionIterations);
+                for (auto handle : m_Registry.view<Rigidbody2DComponent>()) {
+                    auto& rb = m_Registry.get<Rigidbody2DComponent>(handle);
+                    if (!rb.RuntimeBody)
+                        continue;
+                    bool enabled = rb.Enabled && IsEffectivelyActive(Entity(handle, this));
+                    static_cast<b2Body*>(rb.RuntimeBody)->SetEnabled(enabled);
+                }
 
-            auto bodyView = m_Registry.view<Rigidbody2DComponent, TransformComponent>();
-            for (auto handle : bodyView) {
-                auto& rb = bodyView.get<Rigidbody2DComponent>(handle);
-                auto& transform = bodyView.get<TransformComponent>(handle);
-                if (!rb.RuntimeBody)
-                    continue;
-                b2Body* body = static_cast<b2Body*>(rb.RuntimeBody);
-                const b2Vec2& position = body->GetPosition();
-                // Box2D always simulates in world space and this writes straight into
-                // the entity's own (local) TransformComponent -- correct only if this
-                // entity has no parent, or its parent stays at identity. See the
-                // matching comment at body-creation time in OnRuntimeStart.
-                transform.Translation.x = position.x;
-                transform.Translation.y = position.y;
-                transform.Rotation.z = glm::degrees(body->GetAngle());
-            }
-        }
+                // Kinematic bodies are moved by script/animation, not by Box2D's own solver (mass
+                // 0, same as Static) -- so unlike Dynamic, the ENTITY's current TransformComponent
+                // is the source of truth each frame, pushed into the body right before it steps.
+                // The sync-back loop after Step() below then just reads this same value straight
+                // back for a Kinematic body (nothing moved it), a harmless no-op.
+                for (auto handle : m_Registry.view<Rigidbody2DComponent, TransformComponent>()) {
+                    auto& rb = m_Registry.get<Rigidbody2DComponent>(handle);
+                    if (rb.Type != BodyType::Kinematic || !rb.RuntimeBody)
+                        continue;
+                    auto& transform = m_Registry.get<TransformComponent>(handle);
+                    static_cast<b2Body*>(rb.RuntimeBody)->SetTransform(b2Vec2(transform.Translation.x, transform.Translation.y), glm::radians(transform.Rotation.z));
+                }
 
-        if (m_PhysicsWorld3D) {
-            Physics3DWorld* world3D = PhysicsWorld3D(m_PhysicsWorld3D);
+                world2D->World->Step(FixedDeltaTime, VelocityIterations, PositionIterations);
 
-            for (auto handle : m_Registry.view<Rigidbody3DComponent>()) {
-                auto& rb = m_Registry.get<Rigidbody3DComponent>(handle);
-                if (!rb.RuntimeBody)
-                    continue;
-                btRigidBody* body = static_cast<btRigidBody*>(rb.RuntimeBody);
-                bool enabled = rb.Enabled && IsEffectivelyActive(Entity(handle, this));
-                body->forceActivationState(enabled ? ACTIVE_TAG : DISABLE_SIMULATION);
-                if (!enabled) {
-                    body->setLinearVelocity(btVector3(0, 0, 0));
-                    body->setAngularVelocity(btVector3(0, 0, 0));
+                auto bodyView = m_Registry.view<Rigidbody2DComponent, TransformComponent>();
+                for (auto handle : bodyView) {
+                    auto& rb = bodyView.get<Rigidbody2DComponent>(handle);
+                    auto& transform = bodyView.get<TransformComponent>(handle);
+                    if (!rb.RuntimeBody)
+                        continue;
+                    b2Body* body = static_cast<b2Body*>(rb.RuntimeBody);
+                    const b2Vec2& position = body->GetPosition();
+                    // Box2D always simulates in world space and this writes straight into
+                    // the entity's own (local) TransformComponent -- correct only if this
+                    // entity has no parent, or its parent stays at identity. See the
+                    // matching comment at body-creation time in OnRuntimeStart.
+                    transform.Translation.x = position.x;
+                    transform.Translation.y = position.y;
+                    transform.Rotation.z = glm::degrees(body->GetAngle());
                 }
             }
 
-            // Same Kinematic push-before-step reasoning as the 2D world above -- Bullet's own
-            // documented recipe for a kinematic body is to set its new transform through the
-            // motion state (not the body directly), which is what the solver actually reads
-            // each step for a body with CF_KINEMATIC_OBJECT set.
-            for (auto handle : m_Registry.view<Rigidbody3DComponent, TransformComponent>()) {
-                auto& rb = m_Registry.get<Rigidbody3DComponent>(handle);
-                if (rb.Type != BodyType::Kinematic || !rb.RuntimeBody)
-                    continue;
-                auto& transform = m_Registry.get<TransformComponent>(handle);
-                btTransform kinematicTransform;
-                kinematicTransform.setIdentity();
-                kinematicTransform.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
-                kinematicTransform.setRotation(EulerDegreesToBtQuaternion(transform.Rotation));
-                static_cast<btRigidBody*>(rb.RuntimeBody)->getMotionState()->setWorldTransform(kinematicTransform);
-            }
+            if (m_PhysicsWorld3D) {
+                Physics3DWorld* world3D = PhysicsWorld3D(m_PhysicsWorld3D);
 
-            world3D->World->stepSimulation(deltaTime);
+                for (auto handle : m_Registry.view<Rigidbody3DComponent>()) {
+                    auto& rb = m_Registry.get<Rigidbody3DComponent>(handle);
+                    if (!rb.RuntimeBody)
+                        continue;
+                    btRigidBody* body = static_cast<btRigidBody*>(rb.RuntimeBody);
+                    bool enabled = rb.Enabled && IsEffectivelyActive(Entity(handle, this));
+                    body->forceActivationState(enabled ? ACTIVE_TAG : DISABLE_SIMULATION);
+                    if (!enabled) {
+                        body->setLinearVelocity(btVector3(0, 0, 0));
+                        body->setAngularVelocity(btVector3(0, 0, 0));
+                    }
+                }
 
-            auto body3DView = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
-            for (auto handle : body3DView) {
-                auto& rb = body3DView.get<Rigidbody3DComponent>(handle);
-                auto& transform = body3DView.get<TransformComponent>(handle);
-                if (!rb.RuntimeBody)
-                    continue;
-                btRigidBody* body = static_cast<btRigidBody*>(rb.RuntimeBody);
-                btTransform worldTransform;
-                body->getMotionState()->getWorldTransform(worldTransform);
-                const btVector3& position = worldTransform.getOrigin();
-                // Same identity-parent-only limitation as the 2D sync-back above.
-                transform.Translation.x = position.x();
-                transform.Translation.y = position.y();
-                transform.Translation.z = position.z();
-                transform.Rotation = BtQuaternionToEulerDegrees(worldTransform.getRotation());
-            }
+                // Same Kinematic push-before-step reasoning as the 2D world above -- Bullet's own
+                // documented recipe for a kinematic body is to set its new transform through the
+                // motion state (not the body directly), which is what the solver actually reads
+                // each step for a body with CF_KINEMATIC_OBJECT set.
+                for (auto handle : m_Registry.view<Rigidbody3DComponent, TransformComponent>()) {
+                    auto& rb = m_Registry.get<Rigidbody3DComponent>(handle);
+                    if (rb.Type != BodyType::Kinematic || !rb.RuntimeBody)
+                        continue;
+                    auto& transform = m_Registry.get<TransformComponent>(handle);
+                    btTransform kinematicTransform;
+                    kinematicTransform.setIdentity();
+                    kinematicTransform.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
+                    kinematicTransform.setRotation(EulerDegreesToBtQuaternion(transform.Rotation));
+                    static_cast<btRigidBody*>(rb.RuntimeBody)->getMotionState()->setWorldTransform(kinematicTransform);
+                }
 
-            // No BeginContact/EndContact listener exists for Bullet (unlike Box2D above) --
-            // "who is touching right now" is diffed against last frame's set instead, built
-            // fresh from the dispatcher's own contact manifolds every step.
-            std::set<std::pair<entt::entity, entt::entity>> currentPairs;
-            btDispatcher* dispatcher = world3D->World->getDispatcher();
-            int numManifolds = dispatcher->getNumManifolds();
-            for (int i = 0; i < numManifolds; i++) {
-                btPersistentManifold* manifold = dispatcher->getManifoldByIndexInternal(i);
-                if (manifold->getNumContacts() == 0)
-                    continue;
-                entt::entity a = static_cast<entt::entity>(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(manifold->getBody0()->getUserPointer())));
-                entt::entity b = static_cast<entt::entity>(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(manifold->getBody1()->getUserPointer())));
-                currentPairs.insert(a < b ? std::make_pair(a, b) : std::make_pair(b, a));
-            }
+                // maxSubSteps defaults to 1 and fixedTimeStep defaults to 1/60 -- since the
+                // timeStep passed in is now ALREADY exactly 1/60 (this loop's own FixedDeltaTime),
+                // this always resolves to exactly one internal Bullet step, matching the pre-fix
+                // call shape exactly, just fed a fixed instead of a real/variable timeStep.
+                world3D->World->stepSimulation(FixedDeltaTime);
 
-            auto is3DTrigger = [this](entt::entity handle) {
-                if (m_Registry.all_of<BoxCollider3DComponent>(handle))
-                    return m_Registry.get<BoxCollider3DComponent>(handle).IsTrigger;
-                if (m_Registry.all_of<SphereCollider3DComponent>(handle))
-                    return m_Registry.get<SphereCollider3DComponent>(handle).IsTrigger;
-                if (m_Registry.all_of<CapsuleCollider3DComponent>(handle))
-                    return m_Registry.get<CapsuleCollider3DComponent>(handle).IsTrigger;
-                return false;
-            };
-            for (auto& pair : currentPairs) {
-                if (world3D->TouchingPairs.find(pair) == world3D->TouchingPairs.end())
-                    contactEvents.push_back({ pair.first, pair.second, is3DTrigger(pair.first) || is3DTrigger(pair.second), true });
+                auto body3DView = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
+                for (auto handle : body3DView) {
+                    auto& rb = body3DView.get<Rigidbody3DComponent>(handle);
+                    auto& transform = body3DView.get<TransformComponent>(handle);
+                    if (!rb.RuntimeBody)
+                        continue;
+                    btRigidBody* body = static_cast<btRigidBody*>(rb.RuntimeBody);
+                    btTransform worldTransform;
+                    body->getMotionState()->getWorldTransform(worldTransform);
+                    const btVector3& position = worldTransform.getOrigin();
+                    // Same identity-parent-only limitation as the 2D sync-back above.
+                    transform.Translation.x = position.x();
+                    transform.Translation.y = position.y();
+                    transform.Translation.z = position.z();
+                    transform.Rotation = BtQuaternionToEulerDegrees(worldTransform.getRotation());
+                }
+
+                // No BeginContact/EndContact listener exists for Bullet (unlike Box2D above) --
+                // "who is touching right now" is diffed against last frame's set instead, built
+                // fresh from the dispatcher's own contact manifolds every step.
+                std::set<std::pair<entt::entity, entt::entity>> currentPairs;
+                btDispatcher* dispatcher = world3D->World->getDispatcher();
+                int numManifolds = dispatcher->getNumManifolds();
+                for (int i = 0; i < numManifolds; i++) {
+                    btPersistentManifold* manifold = dispatcher->getManifoldByIndexInternal(i);
+                    if (manifold->getNumContacts() == 0)
+                        continue;
+                    entt::entity a = static_cast<entt::entity>(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(manifold->getBody0()->getUserPointer())));
+                    entt::entity b = static_cast<entt::entity>(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(manifold->getBody1()->getUserPointer())));
+                    currentPairs.insert(a < b ? std::make_pair(a, b) : std::make_pair(b, a));
+                }
+
+                auto is3DTrigger = [this](entt::entity handle) {
+                    if (m_Registry.all_of<BoxCollider3DComponent>(handle))
+                        return m_Registry.get<BoxCollider3DComponent>(handle).IsTrigger;
+                    if (m_Registry.all_of<SphereCollider3DComponent>(handle))
+                        return m_Registry.get<SphereCollider3DComponent>(handle).IsTrigger;
+                    if (m_Registry.all_of<CapsuleCollider3DComponent>(handle))
+                        return m_Registry.get<CapsuleCollider3DComponent>(handle).IsTrigger;
+                    return false;
+                };
+                for (auto& pair : currentPairs) {
+                    if (world3D->TouchingPairs.find(pair) == world3D->TouchingPairs.end())
+                        contactEvents.push_back({ pair.first, pair.second, is3DTrigger(pair.first) || is3DTrigger(pair.second), true });
+                }
+                for (auto& pair : world3D->TouchingPairs) {
+                    if (currentPairs.find(pair) == currentPairs.end())
+                        contactEvents.push_back({ pair.first, pair.second, is3DTrigger(pair.first) || is3DTrigger(pair.second), false });
+                }
+                world3D->TouchingPairs = std::move(currentPairs);
             }
-            for (auto& pair : world3D->TouchingPairs) {
-                if (currentPairs.find(pair) == currentPairs.end())
-                    contactEvents.push_back({ pair.first, pair.second, is3DTrigger(pair.first) || is3DTrigger(pair.second), false });
-            }
-            world3D->TouchingPairs = std::move(currentPairs);
         }
 
         // Dispatch collision/trigger events to both sides of each pair (Unity's own

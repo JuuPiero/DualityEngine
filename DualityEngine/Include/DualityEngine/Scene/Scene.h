@@ -145,6 +145,10 @@ namespace Duality {
         // Bullet -- only non-null between OnRuntimeStart and OnRuntimeStop,
         // same lifetime convention as m_PhysicsWorld above.
         void* m_PhysicsWorld3D = nullptr;
+
+        // Fixed-timestep accumulator (see OnRuntimeUpdate's own comment on why physics steps at
+        // a constant 1/60s regardless of the real, variable frame deltaTime it's called with).
+        float m_PhysicsAccumulator = 0.0f;
     };
 
     // --- Entity template method definitions -------------------------------

@@ -83,8 +83,15 @@ REM unconverted way into DUALITY_PROJECT_ICON -- DualityPlayer/CMakeLists.txt de
 REM its own MSYS-notation copy internally for the EXISTS check, same reasoning/pattern
 REM as DUALITY_PROJECT_SCRIPTS_DIR above. Empty falls back to the placeholder
 REM Packaging/icon.png, a graceful no-op just like an empty scripts dir.
+REM
+REM %3, if given, is the name shown on the 3DS home menu / Citra's game list under that
+REM icon (ProjectConfig::ProductName if set, else the project's own Name -- resolved by
+REM BuildPipeline::BuildFor3DS itself, not here, since an empty ProductName should fall
+REM back to the PROJECT's name, never this engine's own placeholder). Forwarded into
+REM DUALITY_PROJECT_NAME; DualityPlayer/CMakeLists.txt falls back to its own placeholder
+REM only when this is empty (i.e. no active project -- a plain double-click run).
 echo Configuring for Nintendo 3DS (devkitARM)...
-cmake -S . -B "%BUILD_DIR%" -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="%DKP_MSYS%/cmake/3DS.cmake" -DCMAKE_BUILD_TYPE=Release -DDUALITY_PROJECT_SCRIPTS_DIR="%~1" -DDUALITY_PROJECT_ICON="%~2"
+cmake -S . -B "%BUILD_DIR%" -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="%DKP_MSYS%/cmake/3DS.cmake" -DCMAKE_BUILD_TYPE=Release -DDUALITY_PROJECT_SCRIPTS_DIR="%~1" -DDUALITY_PROJECT_ICON="%~2" -DDUALITY_PROJECT_NAME="%~3"
 if errorlevel 1 goto :error
 
 echo.

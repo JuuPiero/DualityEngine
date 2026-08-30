@@ -3,6 +3,7 @@
   "IconPath": "",
   "N3DSAntiAliasing": 2,
   "Name": "SampleProject",
+  "ProductName": "",
   "ScenesInBuild": [
     "Scenes/Platformer.scene"
   ],

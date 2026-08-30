@@ -38,6 +38,15 @@ namespace Duality {
         // placeholder Packaging/icon.png, not an error. Desktop .exe icons are a separate,
         // unrelated toolchain (.ico + a compiled-in .rc resource) and aren't covered by this.
         std::string IconPath;
+
+        // Project Settings: the name shown on the 3DS home menu / Citra's game list under the
+        // icon above (bannertool's SMDH short/long name + makerom's APP_TITLE), threaded through
+        // the exact same BuildPipeline::BuildFor3DS -> build-3ds.bat -> DualityPlayer/
+        // CMakeLists.txt path as IconPath. Empty means "not set" -- BuildPipeline falls back to
+        // this project's own Name field, not the engine's placeholder "DualityEngine Sample"
+        // (unlike IconPath, there's no reason a real project should ship under a name that isn't
+        // its own).
+        std::string ProductName;
     };
 
     // Root of a Duality project on disk: an Assets folder + a config file.

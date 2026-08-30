@@ -64,6 +64,22 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         # icon.png -- unset, or pointing at a file that doesn't (yet) exist, is a graceful
         # no-op, not an error.
         set(DUALITY_PROJECT_ICON "" CACHE STRING "Absolute path to the active project's custom .cia icon PNG, set by BuildPipeline::BuildFor3DS")
+
+        # Name shown on the 3DS home menu / Citra's game list under the icon above
+        # (ProjectConfig::ProductName if set, else the active project's own Name -- that
+        # fallback resolution happens in BuildPipeline::BuildFor3DS itself, not here, so an
+        # unset ProductName falls back to the PROJECT's name rather than this engine's own
+        # placeholder). CACHE STRING for the same MSYS-hosted-cmake reason as
+        # DUALITY_PROJECT_ICON above (not that this one is ever used as a path, but consistency
+        # avoids relearning the gotcha later). Empty (a plain double-click run, no active
+        # project) falls back to the engine's own placeholder name, same "graceful no-op"
+        # convention as DUALITY_PROJECT_ICON falling back to the placeholder icon.png.
+        set(DUALITY_PROJECT_NAME "" CACHE STRING "Name shown on the 3DS home menu, set by BuildPipeline::BuildFor3DS")
+        if(DUALITY_PROJECT_NAME)
+            set(DE_APP_NAME "${DUALITY_PROJECT_NAME}")
+        else()
+            set(DE_APP_NAME "DualityEngine Sample")
+        endif()
         set(DE_ICON_SOURCE ${DE_PKG_DIR}/icon.png)
         if(DUALITY_PROJECT_ICON AND CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
             # Same "F:/..." -> "/f/..." transform build-3ds.bat's own DKP_MSYS derivation
@@ -87,7 +103,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         add_custom_command(
             OUTPUT ${DE_ICON_SMDH}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${DE_CIA_TMP}
-            COMMAND ${DE_BANNERTOOL_EXE} makesmdh -s "DualityEngine" -l "DualityEngine Sample" -p "DualityEngine"
+            COMMAND ${DE_BANNERTOOL_EXE} makesmdh -s "${DE_APP_NAME}" -l "${DE_APP_NAME}" -p "DualityEngine"
                     -i ${DE_ICON_SOURCE} -o ${DE_ICON_SMDH}
             DEPENDS ${DE_ICON_SOURCE}
             COMMENT "Generating .cia icon (SMDH)"
@@ -111,7 +127,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
                     -rsf ${DE_PKG_DIR}/template.rsf -target t -exefslogo -desc app:4
                     -elf $<TARGET_FILE:DualityPlayer>
                     -icon ${DE_ICON_SMDH} -banner ${DE_BANNER_BNR}
-                    "-DAPP_TITLE=DualityEngine Sample" -DAPP_ROMFS=${CMAKE_CURRENT_SOURCE_DIR}/romfs -DAPP_UNIQUE_ID=0xff3ff
+                    "-DAPP_TITLE=${DE_APP_NAME}" -DAPP_ROMFS=${CMAKE_CURRENT_SOURCE_DIR}/romfs -DAPP_UNIQUE_ID=0xff3ff
                     -major 0 -minor 1 -micro 0
             DEPENDS DualityPlayer ${DE_ICON_SMDH} ${DE_BANNER_BNR} ${DE_PKG_DIR}/template.rsf
             COMMENT "Packaging .cia"

@@ -63,6 +63,7 @@ namespace Duality {
         project->m_Config.ScenesInBuild = root.value("ScenesInBuild", std::vector<std::string>{});
         project->m_Config.N3DSAntiAliasing = root.value("N3DSAntiAliasing", 0);
         project->m_Config.IconPath = root.value("IconPath", "");
+        project->m_Config.ProductName = root.value("ProductName", "");
 
         s_ActiveProject = project;
         Log::Info("Loaded project '" + project->m_Config.Name + "'");
@@ -78,6 +79,7 @@ namespace Duality {
         root["ScenesInBuild"] = m_Config.ScenesInBuild;
         root["N3DSAntiAliasing"] = m_Config.N3DSAntiAliasing;
         root["IconPath"] = m_Config.IconPath;
+        root["ProductName"] = m_Config.ProductName;
 
         std::ofstream file(m_ProjectFilePath);
         if (!file.is_open()) {
