@@ -9,6 +9,7 @@ add_library(DualityEngine STATIC
     Source/Asset/TextureImportSettings.cpp
     Source/Asset/AudioImportSettings.cpp
     Source/Input/Input.cpp
+    Source/Physics/PhysicsUnits.cpp
     Source/Reflection/TypeRegistry.cpp
     Source/Reflection/Reflection.cpp
     Source/Reflection/FieldSerialization.cpp

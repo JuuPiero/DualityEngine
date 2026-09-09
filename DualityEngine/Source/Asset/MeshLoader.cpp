@@ -64,18 +64,17 @@ namespace Duality {
             std::vector<glm::vec3> positions;
             std::vector<glm::vec2> texcoords;
 
-            // Vertex index (into data.Vertices) where the CURRENT material group started --
-            // closed out into a real SubMesh entry either when the next "usemtl" line is hit or
-            // at EOF (see below). "usemtl" is used purely as a submesh BOUNDARY marker here --
-            // the material name itself is never resolved/stored anywhere (this engine's own
-            // ".mat" asset pipeline has no ".mtl"-parsing concept), the user manually assigns a
-            // real Material asset to each resulting slot index in the Editor, matching how
-            // Unity's own index-matched Renderer.materials slots work.
+            // Vertex index (into data.Vertices) where the CURRENT part started -- closed out
+            // into a real SubMesh when the next "usemtl" / "o" / "g" line is hit, or at EOF.
+            // Those lines are BOUNDARY markers only. The name is never resolved (this engine
+            // has no ".mtl" pipeline); the user assigns a ".mat" to each slot in the Editor.
             uint32_t subMeshStart = 0;
 
             char line[512];
             while (std::fgets(line, sizeof(line), file)) {
-                if (std::strncmp(line, "usemtl", 6) == 0 && (line[6] == ' ' || line[6] == '\t')) {
+                const bool usemtl = std::strncmp(line, "usemtl", 6) == 0 && (line[6] == ' ' || line[6] == '\t');
+                const bool objectGroup = (line[0] == 'o' || line[0] == 'g') && (line[1] == ' ' || line[1] == '\t');
+                if (usemtl || objectGroup) {
                     // Only close out a range if it actually contains faces -- back-to-back
                     // "usemtl" lines with no faces between them (or one right at the top of the
                     // file, before any faces at all) must NOT emit an empty SubMesh entry.

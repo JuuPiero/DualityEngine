@@ -19,7 +19,7 @@ namespace Duality {
         // One contiguous (FirstVertex, VertexCount) range into Vertices above, non-indexed
         // (matching Vertices' own convention -- a submesh is just a slice of the same flat
         // triangle list, no separate index buffer). Always >= 1 entry once Vertices is
-        // non-empty, even for a file with no material groups at all -- that case just produces
+        // non-empty, even for a file with no usemtl/o/g groups at all -- that case just produces
         // one SubMesh spanning the whole range, expressing today's original single-material
         // behavior as the 1-submesh case of this same mechanism rather than a special case.
         struct SubMesh {

@@ -284,8 +284,7 @@ namespace Duality {
 
             uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
             for (uint32_t i = 0; i < subMeshCount; i++) {
-                const AssetRef& materialRef = mesh.Materials.empty()
-                    ? AssetRef{} : mesh.Materials[std::min<size_t>(i, mesh.Materials.size() - 1)];
+                const AssetRef& materialRef = MaterialForSubMesh(mesh.Materials, i);
                 Material material = ResolveMeshMaterial(materialRef);
                 uint32_t textureId = ResolveMeshTexture(renderer, material.Texture);
                 renderer.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);

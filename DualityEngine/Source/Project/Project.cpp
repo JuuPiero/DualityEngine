@@ -64,6 +64,8 @@ namespace Duality {
         project->m_Config.N3DSAntiAliasing = root.value("N3DSAntiAliasing", 0);
         project->m_Config.IconPath = root.value("IconPath", "");
         project->m_Config.ProductName = root.value("ProductName", "");
+        project->m_Config.PPU = root.value("PPU", root.value("PixelsPerMeter", 1.0f));
+        project->m_Config.Gravity = root.value("Gravity", 400.0f);
 
         s_ActiveProject = project;
         Log::Info("Loaded project '" + project->m_Config.Name + "'");
@@ -80,6 +82,8 @@ namespace Duality {
         root["N3DSAntiAliasing"] = m_Config.N3DSAntiAliasing;
         root["IconPath"] = m_Config.IconPath;
         root["ProductName"] = m_Config.ProductName;
+        root["PPU"] = m_Config.PPU;
+        root["Gravity"] = m_Config.Gravity;
 
         std::ofstream file(m_ProjectFilePath);
         if (!file.is_open()) {

@@ -47,6 +47,14 @@ namespace Duality {
         // (unlike IconPath, there's no reason a real project should ship under a name that isn't
         // its own).
         std::string ProductName;
+
+        // Physics (Project Settings). Transform/rendering stay in pixels. Box2D/Bullet
+        // divide linear quantities by PPU (pixels per unit). 1 unit is not a meter —
+        // any scale that keeps solver values in a comfortable range. 1 = identity.
+        // Gravity is scene pixels/s^2, +Y down (default 400). Physics gravity is
+        // Gravity / PPU.
+        float PPU = 1.0f;
+        float Gravity = 400.0f;
     };
 
     // Root of a Duality project on disk: an Assets folder + a config file.

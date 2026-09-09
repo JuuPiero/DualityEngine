@@ -77,6 +77,26 @@ namespace Duality {
         if (ImGui::IsItemDeactivatedAfterEdit())
             project->Save();
 
+        ImGui::Separator();
+        ImGui::Text("Physics");
+        ImGui::TextDisabled("Scene stays in pixels. Physics uses units = pixels / PPU. 1 unit is not a meter.");
+        float& ppu = project->GetConfig().PPU;
+        float& gravity = project->GetConfig().Gravity;
+        ImGui::SetNextItemWidth(160.0f);
+        if (ImGui::DragFloat("PPU", &ppu, 1.0f, 1.0f, 256.0f, "%.1f"))
+            ppu = ppu < 0.001f ? 0.001f : ppu;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Pixels Per Unit. Box2D is happiest around 0.1-10 units; 32 or 100 is a common 2D scale.");
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            project->Save();
+        ImGui::SetNextItemWidth(160.0f);
+        if (ImGui::DragFloat("Gravity", &gravity, 1.0f, -2000.0f, 2000.0f, "%.1f px/s^2"))
+            ;
+        if (ImGui::IsItemDeactivatedAfterEdit())
+            project->Save();
+        float scale = ppu < 0.001f ? 0.001f : ppu;
+        ImGui::TextDisabled("Physics gravity: %.2f units/s^2", gravity / scale);
+
         ImGui::End();
     }
 

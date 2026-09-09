@@ -20,6 +20,7 @@
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Physics/PhysicsUnits.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/N3DS/Citro2DRenderer.h"
 #include "DualityEngine/Renderer/N3DS/Citro3DRenderer.h"
@@ -50,6 +51,7 @@ namespace {
             nlohmann::json settings;
             file >> settings;
             int mode = settings.value("N3DSAntiAliasing", 0);
+            PhysicsUnits::SetRuntimeOverride(settings.value("PPU", settings.value("PixelsPerMeter", 1.0f)), settings.value("Gravity", 400.0f));
             return mode < 0 ? 0 : (mode > 2 ? 2 : mode);
         } catch (const nlohmann::json::parse_error&) {
             return 0;

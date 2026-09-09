@@ -101,6 +101,27 @@ TEST_CASE("MeshLoader splits submeshes at \"usemtl\" boundaries") {
     std::filesystem::remove(path);
 }
 
+TEST_CASE("MeshLoader splits submeshes at object-group boundaries even when usemtl name is shared") {
+    const char* obj =
+        "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\n"
+        "o Body\n"
+        "usemtl Same\n"
+        "f 1 2 3\n"
+        "o Armor\n"
+        "usemtl Same\n"
+        "f 2 4 3\n";
+    std::string path = WriteTempObj("duality_engine_test_object_split.obj", obj);
+
+    const MeshData& data = MeshLoader::Load(path);
+    CHECK_SOFT(data.SubMeshes.size() == 2, "object groups are material slots even when every usemtl name is the same");
+    if (data.SubMeshes.size() == 2) {
+        CHECK_SOFT(data.SubMeshes[0].VertexCount == 3, "first object is its own submesh");
+        CHECK_SOFT(data.SubMeshes[1].VertexCount == 3, "second object is its own submesh");
+    }
+
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("MeshLoader does not emit an empty SubMesh for back-to-back \"usemtl\" lines") {
     const char* obj = "v 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl A\nusemtl B\nf 1 2 3\n";
     std::string path = WriteTempObj("duality_engine_test_usemtl_backtoback.obj", obj);

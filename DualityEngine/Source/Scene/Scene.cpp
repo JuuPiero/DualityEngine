@@ -18,6 +18,7 @@
 #include "DualityEngine/Asset/AudioImportSettings.h"
 #include "DualityEngine/Asset/PhysicsMaterialLoader.h"
 #include "DualityEngine/Asset/ScriptableObjectLoader.h"
+#include "DualityEngine/Physics/PhysicsUnits.h"
 #include "DualityEngine/Scene/SceneRuntimeSystems.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Core/Log.h"
@@ -36,14 +37,9 @@
 
 namespace Duality {
 
-    // No pixels-per-meter conversion -- Transform units are fed to Box2D
-    // directly (matching how this project's reference prototype does it).
-    // Box2D's default tuning assumes roughly 0.1-10 unit sized objects, so
-    // gravity is scaled up from the usual 9.8 to stay visually reasonable
-    // against this project's ~16-80 unit sprite sizes. Positive, not
-    // negative: screen/world Y increases downward here (matches the
-    // renderer's pixel-space convention), so "falling" means increasing Y.
-    static constexpr float DefaultGravityY = 400.0f;
+    // Linear quantities are converted through PhysicsUnits (Project Settings:
+    // PPU / Gravity). Default 1 leaves this identical to feeding
+    // pixel Transform values straight into Box2D. +Y is down (screen space).
     static constexpr int32 VelocityIterations = 6;
     static constexpr int32 PositionIterations = 2;
 
@@ -122,14 +118,9 @@ namespace Duality {
     };
     static Physics2DWorld* PhysicsWorld2D(void* handle) { return static_cast<Physics2DWorld*>(handle); }
 
-    // Bullet-backed 3D physics. Same "no pixels-per-meter conversion, gravity
-    // scaled up to match this project's pixel-sized world units, +Y is down"
-    // convention as the 2D physics above -- a Rigidbody3D dropped in a 3D
-    // scene should fall the same visual direction as a Rigidbody2D would.
-    static constexpr float DefaultGravityY3D = 400.0f;
-
-    // Bullet, unlike Box2D, has no single "world" object -- it's a small
-    // bundle of a collision configuration/dispatcher/broadphase/solver that
+    // Bullet-backed 3D physics. Same PhysicsUnits conversion and +Y-down
+    // gravity as the 2D world above. Unlike Box2D, Bullet has no single
+    // "world" object -- it's a small bundle of a collision configuration/dispatcher/broadphase/solver that
     // all must outlive the btDiscreteDynamicsWorld built from them and be
     // torn down in reverse afterward. Heap-allocated as one unit so
     // Scene::m_PhysicsWorld3D can stay an opaque void* like m_PhysicsWorld.
@@ -376,8 +367,8 @@ namespace Duality {
         if (!runtimeBody)
             return false;
         const b2Vec2& v = static_cast<b2Body*>(runtimeBody)->GetLinearVelocity();
-        *outX = v.x;
-        *outY = v.y;
+        *outX = PhysicsUnits::ToWorld(v.x);
+        *outY = PhysicsUnits::ToWorld(v.y);
         return true;
     }
 
@@ -388,7 +379,7 @@ namespace Duality {
             return;
         void* runtimeBody = registry.get<Rigidbody2DComponent>(handle).RuntimeBody;
         if (runtimeBody)
-            static_cast<b2Body*>(runtimeBody)->SetLinearVelocity(b2Vec2(x, y));
+            static_cast<b2Body*>(runtimeBody)->SetLinearVelocity(b2Vec2(PhysicsUnits::ToPhysics(x), PhysicsUnits::ToPhysics(y)));
     }
 
     static void EngineServices_AddForce2D(void* scenePtr, unsigned int entityHandle, float x, float y) {
@@ -398,7 +389,7 @@ namespace Duality {
             return;
         void* runtimeBody = registry.get<Rigidbody2DComponent>(handle).RuntimeBody;
         if (runtimeBody)
-            static_cast<b2Body*>(runtimeBody)->ApplyForceToCenter(b2Vec2(x, y), true); // true = wake the body
+            static_cast<b2Body*>(runtimeBody)->ApplyForceToCenter(b2Vec2(PhysicsUnits::ToPhysics(x), PhysicsUnits::ToPhysics(y)), true); // true = wake the body
     }
 
     static bool EngineServices_GetVelocity3D(void* scenePtr, unsigned int entityHandle, float* outX, float* outY, float* outZ) {
@@ -410,9 +401,9 @@ namespace Duality {
         if (!runtimeBody)
             return false;
         const btVector3& v = static_cast<btRigidBody*>(runtimeBody)->getLinearVelocity();
-        *outX = v.x();
-        *outY = v.y();
-        *outZ = v.z();
+        *outX = PhysicsUnits::ToWorld(v.x());
+        *outY = PhysicsUnits::ToWorld(v.y());
+        *outZ = PhysicsUnits::ToWorld(v.z());
         return true;
     }
 
@@ -425,7 +416,7 @@ namespace Duality {
         if (runtimeBody) {
             auto* body = static_cast<btRigidBody*>(runtimeBody);
             body->activate(true); // a sleeping body would otherwise just ignore this
-            body->setLinearVelocity(btVector3(x, y, z));
+            body->setLinearVelocity(btVector3(PhysicsUnits::ToPhysics(x), PhysicsUnits::ToPhysics(y), PhysicsUnits::ToPhysics(z)));
         }
     }
 
@@ -438,7 +429,7 @@ namespace Duality {
         if (runtimeBody) {
             auto* body = static_cast<btRigidBody*>(runtimeBody);
             body->activate(true);
-            body->applyCentralForce(btVector3(x, y, z));
+            body->applyCentralForce(btVector3(PhysicsUnits::ToPhysics(x), PhysicsUnits::ToPhysics(y), PhysicsUnits::ToPhysics(z)));
         }
     }
 
@@ -779,10 +770,11 @@ namespace Duality {
             return result; // not Playing -- no b2World to query yet
 
         glm::vec2 dir = glm::normalize(direction);
-        glm::vec2 to = origin + dir * maxDistance;
+        glm::vec2 from = { PhysicsUnits::ToPhysics(origin.x), PhysicsUnits::ToPhysics(origin.y) };
+        glm::vec2 to = from + dir * PhysicsUnits::ToPhysics(maxDistance);
 
         ClosestRayCastCallback2D callback;
-        PhysicsWorld2D(m_PhysicsWorld)->World->RayCast(&callback, b2Vec2(origin.x, origin.y), b2Vec2(to.x, to.y));
+        PhysicsWorld2D(m_PhysicsWorld)->World->RayCast(&callback, b2Vec2(from.x, from.y), b2Vec2(to.x, to.y));
         if (!callback.Hit)
             return result;
 
@@ -793,9 +785,9 @@ namespace Duality {
             return result;
 
         result.HitEntity = Entity(handle, this);
-        result.Point = { callback.Point.x, callback.Point.y };
+        result.Point = { PhysicsUnits::ToWorld(callback.Point.x), PhysicsUnits::ToWorld(callback.Point.y) };
         result.Normal = { callback.Normal.x, callback.Normal.y };
-        result.Distance = glm::distance(origin, result.Point);
+        result.Distance = PhysicsUnits::ToWorld(glm::distance(from, glm::vec2(callback.Point.x, callback.Point.y)));
         return result;
     }
 
@@ -805,8 +797,9 @@ namespace Duality {
             return result; // not Playing -- no btDiscreteDynamicsWorld to query yet
 
         glm::vec3 dir = glm::normalize(direction);
-        glm::vec3 to = origin + dir * maxDistance;
-        btVector3 from(origin.x, origin.y, origin.z);
+        glm::vec3 fromWorld = origin / PhysicsUnits::PPU();
+        glm::vec3 to = fromWorld + dir * PhysicsUnits::ToPhysics(maxDistance);
+        btVector3 from(fromWorld.x, fromWorld.y, fromWorld.z);
         btVector3 toBt(to.x, to.y, to.z);
 
         btCollisionWorld::ClosestRayResultCallback callback(from, toBt);
@@ -822,9 +815,13 @@ namespace Duality {
             return result;
 
         result.HitEntity = Entity(handle, this);
-        result.Point = { callback.m_hitPointWorld.x(), callback.m_hitPointWorld.y(), callback.m_hitPointWorld.z() };
+        result.Point = {
+            PhysicsUnits::ToWorld(callback.m_hitPointWorld.x()),
+            PhysicsUnits::ToWorld(callback.m_hitPointWorld.y()),
+            PhysicsUnits::ToWorld(callback.m_hitPointWorld.z())
+        };
         result.Normal = { callback.m_hitNormalWorld.x(), callback.m_hitNormalWorld.y(), callback.m_hitNormalWorld.z() };
-        result.Distance = glm::distance(origin, result.Point);
+        result.Distance = PhysicsUnits::ToWorld(glm::distance(fromWorld, glm::vec3(callback.m_hitPointWorld.x(), callback.m_hitPointWorld.y(), callback.m_hitPointWorld.z())));
         return result;
     }
 
@@ -884,11 +881,12 @@ namespace Duality {
         if (!m_PhysicsWorld)
             return result;
 
+        glm::vec2 physicsPoint = { PhysicsUnits::ToPhysics(worldPoint.x), PhysicsUnits::ToPhysics(worldPoint.y) };
         ClosestPointQueryCallback2D callback;
-        callback.QueryPoint.Set(worldPoint.x, worldPoint.y);
+        callback.QueryPoint.Set(physicsPoint.x, physicsPoint.y);
         b2AABB aabb;
-        aabb.lowerBound.Set(worldPoint.x - 0.001f, worldPoint.y - 0.001f);
-        aabb.upperBound.Set(worldPoint.x + 0.001f, worldPoint.y + 0.001f);
+        aabb.lowerBound.Set(physicsPoint.x - 0.001f, physicsPoint.y - 0.001f);
+        aabb.upperBound.Set(physicsPoint.x + 0.001f, physicsPoint.y + 0.001f);
         PhysicsWorld2D(m_PhysicsWorld)->World->QueryAABB(&callback, aabb);
         if (!callback.ClosestFixture)
             return result;
@@ -907,12 +905,15 @@ namespace Duality {
         m_PhysicsAccumulator = 0.0f;
 
         Physics2DWorld* world2D = new Physics2DWorld();
-        world2D->World = new b2World(b2Vec2(0.0f, DefaultGravityY));
+        world2D->World = new b2World(b2Vec2(0.0f, PhysicsUnits::PhysicsGravity()));
         world2D->Listener = new Box2DContactListener();
         world2D->World->SetContactListener(world2D->Listener);
         m_PhysicsWorld = world2D;
         b2World* world = world2D->World; // local alias, keeps the body-creation loop below unchanged
 
+        // Fixture area shrinks by ppm^2 after ToPhysics. Scale density the same way so
+        // Box2D mass (and therefore AddForce visual acceleration) stays pixel-equivalent.
+        const float densityScale = PhysicsUnits::PPU() * PhysicsUnits::PPU();
         auto bodyView = m_Registry.view<Rigidbody2DComponent, TransformComponent>();
         for (auto handle : bodyView) {
             auto& rb = bodyView.get<Rigidbody2DComponent>(handle);
@@ -942,7 +943,7 @@ namespace Duality {
                 case BodyType::Kinematic: bodyDef.type = b2_kinematicBody; break;
                 case BodyType::Dynamic:   default: bodyDef.type = b2_dynamicBody; break;
             }
-            bodyDef.position.Set(worldTransform.Translation.x, worldTransform.Translation.y);
+            bodyDef.position.Set(PhysicsUnits::ToPhysics(worldTransform.Translation.x), PhysicsUnits::ToPhysics(worldTransform.Translation.y));
             // TransformComponent::Rotation is always in degrees (matching
             // Unity and the Properties panel's plain drag-float) -- Box2D's
             // own angle is radians, so the boundary conversion happens here.
@@ -964,10 +965,10 @@ namespace Duality {
                 if (box.Enabled) {
                 ApplyPhysicsMaterial(box.PhysicsMaterial, box.Friction, box.Restitution, box.Density);
                 b2PolygonShape shape;
-                shape.SetAsBox(box.Size.x, box.Size.y, b2Vec2(box.Offset.x, box.Offset.y), 0.0f);
+                shape.SetAsBox(PhysicsUnits::ToPhysics(box.Size.x), PhysicsUnits::ToPhysics(box.Size.y), b2Vec2(PhysicsUnits::ToPhysics(box.Offset.x), PhysicsUnits::ToPhysics(box.Offset.y)), 0.0f);
                 b2FixtureDef fixtureDef;
                 fixtureDef.shape = &shape;
-                fixtureDef.density = box.Density;
+                fixtureDef.density = box.Density * densityScale;
                 fixtureDef.friction = box.Friction;
                 fixtureDef.restitution = box.Restitution;
                 fixtureDef.isSensor = box.IsTrigger;
@@ -980,11 +981,11 @@ namespace Duality {
                 if (circle.Enabled) {
                 ApplyPhysicsMaterial(circle.PhysicsMaterial, circle.Friction, circle.Restitution, circle.Density);
                 b2CircleShape shape;
-                shape.m_p.Set(circle.Offset.x, circle.Offset.y);
-                shape.m_radius = circle.Radius;
+                shape.m_p.Set(PhysicsUnits::ToPhysics(circle.Offset.x), PhysicsUnits::ToPhysics(circle.Offset.y));
+                shape.m_radius = PhysicsUnits::ToPhysics(circle.Radius);
                 b2FixtureDef fixtureDef;
                 fixtureDef.shape = &shape;
-                fixtureDef.density = circle.Density;
+                fixtureDef.density = circle.Density * densityScale;
                 fixtureDef.friction = circle.Friction;
                 fixtureDef.restitution = circle.Restitution;
                 fixtureDef.isSensor = circle.IsTrigger;
@@ -996,10 +997,10 @@ namespace Duality {
                 auto& cap = m_Registry.get<CapsuleCollider2DComponent>(handle);
                 if (cap.Enabled) {
                 ApplyPhysicsMaterial(cap.PhysicsMaterial, cap.Friction, cap.Restitution, cap.Density);
-                b2PolygonShape shape = MakeCapsulePolygon2D(cap.Radius, cap.Height);
+                b2PolygonShape shape = MakeCapsulePolygon2D(PhysicsUnits::ToPhysics(cap.Radius), PhysicsUnits::ToPhysics(cap.Height));
                 b2FixtureDef fixtureDef;
                 fixtureDef.shape = &shape;
-                fixtureDef.density = cap.Density;
+                fixtureDef.density = cap.Density * densityScale;
                 fixtureDef.friction = cap.Friction;
                 fixtureDef.restitution = cap.Restitution;
                 fixtureDef.isSensor = cap.IsTrigger;
@@ -1015,13 +1016,13 @@ namespace Duality {
                 b2Vec2 verts[8];
                 for (int i = 0; i < count; i++) {
                     glm::vec2 v = GetPolygonVertex2D(poly, i) + poly.Offset;
-                    verts[i].Set(v.x, v.y);
+                    verts[i].Set(PhysicsUnits::ToPhysics(v.x), PhysicsUnits::ToPhysics(v.y));
                 }
                 b2PolygonShape shape;
                 shape.Set(verts, count);
                 b2FixtureDef fixtureDef;
                 fixtureDef.shape = &shape;
-                fixtureDef.density = poly.Density;
+                fixtureDef.density = poly.Density * densityScale;
                 fixtureDef.friction = poly.Friction;
                 fixtureDef.restitution = poly.Restitution;
                 fixtureDef.isSensor = poly.IsTrigger;
@@ -1036,7 +1037,7 @@ namespace Duality {
         world3D->Broadphase = new btDbvtBroadphase();
         world3D->Solver = new btSequentialImpulseConstraintSolver();
         world3D->World = new btDiscreteDynamicsWorld(world3D->Dispatcher, world3D->Broadphase, world3D->Solver, world3D->CollisionConfig);
-        world3D->World->setGravity(btVector3(0.0f, DefaultGravityY3D, 0.0f));
+        world3D->World->setGravity(btVector3(0.0f, PhysicsUnits::PhysicsGravity(), 0.0f));
         m_PhysicsWorld3D = world3D;
 
         auto body3DView = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
@@ -1061,24 +1062,24 @@ namespace Duality {
             if (m_Registry.all_of<BoxCollider3DComponent>(handle) && m_Registry.get<BoxCollider3DComponent>(handle).Enabled) {
                 auto& box = m_Registry.get<BoxCollider3DComponent>(handle);
                 ApplyPhysicsMaterial(box.PhysicsMaterial, box.Friction, box.Restitution, box.Density);
-                baseShape = new btBoxShape(btVector3(box.Size.x, box.Size.y, box.Size.z));
-                offset = box.Offset;
+                baseShape = new btBoxShape(btVector3(PhysicsUnits::ToPhysics(box.Size.x), PhysicsUnits::ToPhysics(box.Size.y), PhysicsUnits::ToPhysics(box.Size.z)));
+                offset = box.Offset / PhysicsUnits::PPU();
                 density = box.Density; friction = box.Friction; restitution = box.Restitution;
                 volume = (2.0f * box.Size.x) * (2.0f * box.Size.y) * (2.0f * box.Size.z);
                 isTrigger = box.IsTrigger;
             } else if (m_Registry.all_of<SphereCollider3DComponent>(handle) && m_Registry.get<SphereCollider3DComponent>(handle).Enabled) {
                 auto& sphere = m_Registry.get<SphereCollider3DComponent>(handle);
                 ApplyPhysicsMaterial(sphere.PhysicsMaterial, sphere.Friction, sphere.Restitution, sphere.Density);
-                baseShape = new btSphereShape(sphere.Radius);
-                offset = sphere.Offset;
+                baseShape = new btSphereShape(PhysicsUnits::ToPhysics(sphere.Radius));
+                offset = sphere.Offset / PhysicsUnits::PPU();
                 density = sphere.Density; friction = sphere.Friction; restitution = sphere.Restitution;
                 volume = (4.0f / 3.0f) * glm::pi<float>() * sphere.Radius * sphere.Radius * sphere.Radius;
                 isTrigger = sphere.IsTrigger;
             } else if (m_Registry.all_of<CapsuleCollider3DComponent>(handle) && m_Registry.get<CapsuleCollider3DComponent>(handle).Enabled) {
                 auto& cap = m_Registry.get<CapsuleCollider3DComponent>(handle);
                 ApplyPhysicsMaterial(cap.PhysicsMaterial, cap.Friction, cap.Restitution, cap.Density);
-                baseShape = new btCapsuleShape(cap.Radius, cap.Height);
-                offset = cap.Offset;
+                baseShape = new btCapsuleShape(PhysicsUnits::ToPhysics(cap.Radius), PhysicsUnits::ToPhysics(cap.Height));
+                offset = cap.Offset / PhysicsUnits::PPU();
                 density = cap.Density; friction = cap.Friction; restitution = cap.Restitution;
                 volume = glm::pi<float>() * cap.Radius * cap.Radius * cap.Height;
                 isTrigger = cap.IsTrigger;
@@ -1112,7 +1113,10 @@ namespace Duality {
 
             btTransform startTransform;
             startTransform.setIdentity();
-            startTransform.setOrigin(btVector3(worldTransform.Translation.x, worldTransform.Translation.y, worldTransform.Translation.z));
+            startTransform.setOrigin(btVector3(
+                PhysicsUnits::ToPhysics(worldTransform.Translation.x),
+                PhysicsUnits::ToPhysics(worldTransform.Translation.y),
+                PhysicsUnits::ToPhysics(worldTransform.Translation.z)));
             startTransform.setRotation(EulerDegreesToBtQuaternion(worldTransform.Rotation));
 
             btDefaultMotionState* motionState = new btDefaultMotionState(startTransform);
@@ -1238,7 +1242,9 @@ namespace Duality {
                     if (rb.Type != BodyType::Kinematic || !rb.RuntimeBody)
                         continue;
                     auto& transform = m_Registry.get<TransformComponent>(handle);
-                    static_cast<b2Body*>(rb.RuntimeBody)->SetTransform(b2Vec2(transform.Translation.x, transform.Translation.y), glm::radians(transform.Rotation.z));
+                    static_cast<b2Body*>(rb.RuntimeBody)->SetTransform(
+                        b2Vec2(PhysicsUnits::ToPhysics(transform.Translation.x), PhysicsUnits::ToPhysics(transform.Translation.y)),
+                        glm::radians(transform.Rotation.z));
                 }
 
                 world2D->World->Step(FixedDeltaTime, VelocityIterations, PositionIterations);
@@ -1255,8 +1261,8 @@ namespace Duality {
                     // the entity's own (local) TransformComponent -- correct only if this
                     // entity has no parent, or its parent stays at identity. See the
                     // matching comment at body-creation time in OnRuntimeStart.
-                    transform.Translation.x = position.x;
-                    transform.Translation.y = position.y;
+                    transform.Translation.x = PhysicsUnits::ToWorld(position.x);
+                    transform.Translation.y = PhysicsUnits::ToWorld(position.y);
                     transform.Rotation.z = glm::degrees(body->GetAngle());
                 }
             }
@@ -1288,7 +1294,10 @@ namespace Duality {
                     auto& transform = m_Registry.get<TransformComponent>(handle);
                     btTransform kinematicTransform;
                     kinematicTransform.setIdentity();
-                    kinematicTransform.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
+                    kinematicTransform.setOrigin(btVector3(
+                    PhysicsUnits::ToPhysics(transform.Translation.x),
+                    PhysicsUnits::ToPhysics(transform.Translation.y),
+                    PhysicsUnits::ToPhysics(transform.Translation.z)));
                     kinematicTransform.setRotation(EulerDegreesToBtQuaternion(transform.Rotation));
                     static_cast<btRigidBody*>(rb.RuntimeBody)->getMotionState()->setWorldTransform(kinematicTransform);
                 }
@@ -1310,9 +1319,9 @@ namespace Duality {
                     body->getMotionState()->getWorldTransform(worldTransform);
                     const btVector3& position = worldTransform.getOrigin();
                     // Same identity-parent-only limitation as the 2D sync-back above.
-                    transform.Translation.x = position.x();
-                    transform.Translation.y = position.y();
-                    transform.Translation.z = position.z();
+                    transform.Translation.x = PhysicsUnits::ToWorld(position.x());
+                    transform.Translation.y = PhysicsUnits::ToWorld(position.y());
+                    transform.Translation.z = PhysicsUnits::ToWorld(position.z());
                     transform.Rotation = BtQuaternionToEulerDegrees(worldTransform.getRotation());
                 }
 

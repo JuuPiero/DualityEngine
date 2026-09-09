@@ -833,8 +833,7 @@ namespace Duality {
                 // One draw call per submesh -- see SceneRenderer.cpp's RenderScreen3D, same loop.
                 uint32_t subMeshCount = renderer3D.GetSubMeshCount(meshHandle);
                 for (uint32_t i = 0; i < subMeshCount; i++) {
-                    const AssetRef& materialRef = mesh.Materials.empty()
-                        ? AssetRef{} : mesh.Materials[std::min<size_t>(i, mesh.Materials.size() - 1)];
+                    const AssetRef& materialRef = MaterialForSubMesh(mesh.Materials, i);
                     Material material = ResolveMeshMaterial(materialRef);
                     uint32_t textureId = ResolveMeshTexture(renderer3D, material.Texture);
                     renderer3D.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
@@ -1253,8 +1252,7 @@ namespace Duality {
                 uint32_t meshHandle = ResolveMeshGeometry(ctx.Renderer3D, mesh.Mesh);
                 uint32_t subMeshCount = ctx.Renderer3D.GetSubMeshCount(meshHandle);
                 for (uint32_t i = 0; i < subMeshCount; i++) {
-                    const AssetRef& materialRef = mesh.Materials.empty()
-                        ? AssetRef{} : mesh.Materials[std::min<size_t>(i, mesh.Materials.size() - 1)];
+                    const AssetRef& materialRef = MaterialForSubMesh(mesh.Materials, i);
                     Material material = ResolveMeshMaterial(materialRef);
                     uint32_t textureId = ResolveMeshTexture(ctx.Renderer3D, material.Texture);
                     ctx.Renderer3D.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);

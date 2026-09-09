@@ -83,19 +83,33 @@ namespace Duality {
         // Used only when Mesh (below) is empty/unresolved.
         MeshPrimitive Primitive = MeshPrimitive::Cube;
         // One ".mat" asset guid (see Asset/Material.h) per submesh, resolved via MaterialLoader
-        // at render time -- index-matched against Mesh's own material-group ranges (MeshLoader.h's
-        // MeshData::SubMesh, split on the imported ".obj"'s own "usemtl" boundaries), same
-        // slot convention as Unity's Renderer.materials. Fewer entries than the mesh has
-        // submeshes repeats the LAST entry for the remaining ones; an empty list (or an
-        // unresolved/empty guid in a slot) falls back to a default white material, matching
-        // every other AssetRef's own graceful-degradation convention. A procedural Primitive
-        // (Mesh empty/unresolved) has no submesh concept -- only index 0 is ever used.
+        // at render time -- index-matched against Mesh's own part ranges (MeshLoader.h's
+        // MeshData::SubMesh, split on the imported ".obj"'s "usemtl" / "o" / "g" boundaries).
+        // Slot i paints submesh i only. A single entry still covers the whole mesh (one look).
+        // Two or more entries do not repeat the last slot onto leftover parts -- those stay
+        // the default white material. An empty list (or an unresolved/empty guid in a slot)
+        // falls back to that same default. A procedural Primitive (Mesh empty/unresolved)
+        // has no submesh concept -- only index 0 is ever used.
         std::vector<AssetRef> Materials;
         // Guid of an imported ".obj" mesh (see Asset/MeshLoader.h) -- empty/unresolved falls
         // back to the procedural Primitive above, same convention as Materials/Texture.
         AssetRef Mesh;
         int SortOrder = 0;
     };
+
+    // Slot i paints submesh i. One assigned material still covers every part; extra parts
+    // beyond the list stay default instead of inheriting the last slot (that repeat made
+    // material 2, then 3, look like they overpainted the whole mesh).
+    inline const AssetRef& MaterialForSubMesh(const std::vector<AssetRef>& materials, uint32_t subMeshIndex) {
+        static const AssetRef none{};
+        if (materials.empty())
+            return none;
+        if (materials.size() == 1)
+            return materials[0];
+        if (subMeshIndex < materials.size())
+            return materials[subMeshIndex];
+        return none;
+    }
 
     // Flipbook-style 2D animation: an ordered, fixed-size list of frame
     // textures played back at a constant rate. A fixed 8 slots (not an
