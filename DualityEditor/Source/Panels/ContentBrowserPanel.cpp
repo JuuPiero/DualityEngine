@@ -89,37 +89,6 @@ namespace Duality {
         AssetDatabase::Register(guid, path.string());
     }
 
-    // Writes a small starter .uidoc (Unity UI Toolkit-style declarative UI -- see
-    // DualityEngine/UI/UIDocument.h) to "<directory>/NewUIDocument[ (N)].uidoc" -- same
-    // numbered-suffix/3-step-registration shape as the other Create entries. Ships with one
-    // Panel + one Button using a class-selector stylesheet, so a first-time author sees a real,
-    // working example of the markup/CSS split rather than an empty shell.
-    static void CreateUIDocumentAsset(const std::filesystem::path& directory) {
-        std::filesystem::path path = directory / "NewUIDocument.uidoc";
-        for (int suffix = 1; std::filesystem::exists(path); suffix++)
-            path = directory / ("NewUIDocument (" + std::to_string(suffix) + ").uidoc");
-
-        std::ofstream file(path);
-        if (!file.is_open()) {
-            Log::Error("ContentBrowserPanel: failed to create UIDocument at '" + path.string() + "'");
-            return;
-        }
-        file <<
-            "<ui>\n"
-            "  <style>\n"
-            "    .panel { background-color: #202836; }\n"
-            "    .primary-button { normal-color: #3a6fa8; hover-color: #5aa9ff; pressed-color: #2a4f78; }\n"
-            "  </style>\n"
-            "  <Panel class=\"panel\" screen=\"Bottom\" anchor=\"middle-center\" width=\"200\" height=\"120\">\n"
-            "    <Button id=\"actionButton\" class=\"primary-button\" anchor=\"bottom-center\" y=\"10\" width=\"100\" height=\"32\"/>\n"
-            "  </Panel>\n"
-            "</ui>\n";
-        file.close();
-
-        std::string guid = AssetMeta::EnsureMetaFile(path);
-        AssetDatabase::Register(guid, path.string());
-    }
-
     // Writes a brand-new Behaviour script (`.h` + `.cpp` pair) to "<directory>/<Name>.h"/".cpp"
     // -- lets a project own its own gameplay scripts (compiled into GameScripts alongside the
     // engine's shared/demo scripts, see GameScripts/CMakeLists.txt's
@@ -480,8 +449,6 @@ namespace Duality {
                     CreateFolder(m_CurrentDirectory);
                 if (ImGui::MenuItem("Scene"))
                     CreateSceneAsset(m_CurrentDirectory);
-                if (ImGui::MenuItem("UIDocument"))
-                    CreateUIDocumentAsset(m_CurrentDirectory);
                 if (ImGui::MenuItem("Script"))
                     CreateScriptAsset(m_CurrentDirectory);
                 ImGui::Separator();

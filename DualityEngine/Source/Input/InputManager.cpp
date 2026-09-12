@@ -1,4 +1,4 @@
-#include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Input/InputManager.h"
 
 #include <array>
 #include <unordered_map>
@@ -18,55 +18,55 @@ namespace Duality {
         Screen s_PointerScreen = Screen::Top;
     }
 
-    bool Input::GetKey(KeyCode key) {
+    bool InputManager::GetKey(KeyCode key) {
         return s_CurrentKeys[static_cast<size_t>(key)];
     }
 
-    bool Input::GetKeyDown(KeyCode key) {
+    bool InputManager::GetKeyDown(KeyCode key) {
         size_t index = static_cast<size_t>(key);
         return s_CurrentKeys[index] && !s_PreviousKeys[index];
     }
 
-    bool Input::GetKeyUp(KeyCode key) {
+    bool InputManager::GetKeyUp(KeyCode key) {
         size_t index = static_cast<size_t>(key);
         return !s_CurrentKeys[index] && s_PreviousKeys[index];
     }
 
-    float Input::GetAxis(const std::string& axisName) {
+    float InputManager::GetAxis(const std::string& axisName) {
         auto it = s_Axes.find(axisName);
         return it != s_Axes.end() ? it->second : 0.0f;
     }
 
-    bool Input::GetPointerDown() {
+    bool InputManager::GetPointerDown() {
         return s_PointerDown;
     }
 
-    bool Input::GetPointerUp() {
+    bool InputManager::GetPointerUp() {
         return !s_PointerDown && s_PreviousPointerDown;
     }
 
-    glm::vec2 Input::GetPointerPosition() {
+    glm::vec2 InputManager::GetPointerPosition() {
         return s_PointerPosition;
     }
 
-    Screen Input::GetPointerScreen() {
+    Screen InputManager::GetPointerScreen() {
         return s_PointerScreen;
     }
 
-    void Input::BeginFrame() {
+    void InputManager::BeginFrame() {
         s_PreviousKeys = s_CurrentKeys;
         s_PreviousPointerDown = s_PointerDown;
     }
 
-    void Input::SetKeyState(KeyCode key, bool isDown) {
+    void InputManager::SetKeyState(KeyCode key, bool isDown) {
         s_CurrentKeys[static_cast<size_t>(key)] = isDown;
     }
 
-    void Input::SetAxis(const std::string& axisName, float value) {
+    void InputManager::SetAxis(const std::string& axisName, float value) {
         s_Axes[axisName] = value;
     }
 
-    void Input::SetPointer(bool isDown, const glm::vec2& position, Screen screen) {
+    void InputManager::SetPointer(bool isDown, const glm::vec2& position, Screen screen) {
         s_PointerDown = isDown;
         s_PointerPosition = position;
         s_PointerScreen = screen;

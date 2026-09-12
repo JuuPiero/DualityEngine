@@ -33,15 +33,15 @@ namespace Duality {
     }
 
     float PhysicsUnits::PhysicsGravity() {
-        return Gravity() / PPU();
+        return Gravity();
     }
 
-    float PhysicsUnits::ToPhysics(float pixels) {
-        return pixels / PPU();
+    float PhysicsUnits::ToPhysics(float worldUnits) {
+        return worldUnits;
     }
 
-    float PhysicsUnits::ToWorld(float units) {
-        return units * PPU();
+    float PhysicsUnits::ToWorld(float physicsUnits) {
+        return physicsUnits;
     }
 
     void PhysicsUnits::SetRuntimeOverride(float ppu, float gravity) {

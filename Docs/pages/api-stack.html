@@ -75,7 +75,7 @@
                 <h2>Tầng 4 — Engine subsystems (runtime)</h2>
                 <table>
                     <tr><th>Subsystem</th><th>API chính</th><th>File</th></tr>
-                    <tr><td>Input</td><td><code>Input::GetKey*</code>, axes, pointer</td><td><code>Input/Input.h</code></td></tr>
+                    <tr><td>Input</td><td><code>InputManager::GetKey*</code>, axes, pointer</td><td><code>Input/InputManager.h</code></td></tr>
                     <tr><td>Audio</td><td><code>AudioEngine</code>, per-entity <code>AudioSourceComponent</code></td><td><code>Audio/AudioEngine.h</code></td></tr>
                     <tr><td>Physics</td><td>Box2D + Bullet trong <code>Scene::OnRuntimeStart/Update</code>; raycast</td><td><code>Scene.cpp</code>, <code>Physics/RaycastHit.h</code></td></tr>
                     <tr><td>Render</td><td><code>SceneRenderer</code>, <code>UIRenderer</code>, runtime systems</td><td><code>Renderer/SceneRenderer.cpp</code>, <code>SceneRuntimeSystems.cpp</code></td></tr>
@@ -89,7 +89,7 @@
                     <tr><th>API</th><th>Mô tả</th></tr>
                     <tr><td><code>EngineServices</code></td><td>Struct con trỏ hàm C-ABI — Input, Audio, Raycast, Log, Instantiate, …</td></tr>
                     <tr><td><code>Behaviour</code></td><td>Base class lifecycle + <code>GetComponent</code> + wrappers</td></tr>
-                    <tr><td><code>ScriptInput</code>, <code>ScriptPhysics2D/3D</code>, <code>ScriptDebug</code>, <code>ScriptScene</code></td><td>Static API Unity-style trên entity hiện tại</td></tr>
+                    <tr><td><code>Input</code>, <code>ScriptPhysics2D/3D</code>, <code>ScriptDebug</code>, <code>ScriptScene</code></td><td>Static API Unity-style trên entity hiện tại</td></tr>
                     <tr><td>Component wrappers</td><td><code>GetTransform()</code>, <code>GetRigidbody2D()</code>, <code>GetSpriteRenderer()</code>, <code>GetEntityLayer()</code>, <code>GetUIButton()</code>, …</td></tr>
                     <tr><td><code>ScriptRegistry</code></td><td>Factory + <code>GetFields</code> cho Inspector</td></tr>
                     <tr><td><code>DUALITY_PROPERTY()</code></td><td>Field Inspector-editable; enum → dropdown; nested struct → foldout</td></tr>

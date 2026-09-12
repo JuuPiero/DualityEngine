@@ -3,7 +3,7 @@
 #include "DualityEngine/Scene/Behaviour.h"
 
 // Demonstrates every scripting-facing API built so far in one place --
-// ScriptInput (keys/axes/pointer), Transform, SaveSystem, DateTime, and
+// Input (keys/axes/pointer), Transform, SaveSystem, DateTime, and
 // ScriptAudio -- living, runnable documentation rather than
 // a real gameplay script. See README.md's "Writing gameplay scripts"
 // section for what each call does and why.

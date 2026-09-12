@@ -19,7 +19,7 @@
 
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Audio/AudioEngine.h"
-#include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Input/InputManager.h"
 #include "DualityEngine/Physics/PhysicsUnits.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/N3DS/Citro2DRenderer.h"
@@ -51,7 +51,7 @@ namespace {
             nlohmann::json settings;
             file >> settings;
             int mode = settings.value("N3DSAntiAliasing", 0);
-            PhysicsUnits::SetRuntimeOverride(settings.value("PPU", settings.value("PixelsPerMeter", 1.0f)), settings.value("Gravity", 400.0f));
+            PhysicsUnits::SetRuntimeOverride(settings.value("PPU", settings.value("PixelsPerMeter", 100.0f)), settings.value("Gravity", 9.81f));
             return mode < 0 ? 0 : (mode > 2 ? 2 : mode);
         } catch (const nlohmann::json::parse_error&) {
             return 0;
@@ -114,19 +114,19 @@ int main(int argc, char* argv[]) {
         if (hidKeysDown() & KEY_START)
             break; // return to hbmenu
 
-        Input::BeginFrame();
-        Input::SetKeyState(KeyCode::GamepadA, heldKeys & KEY_A);
-        Input::SetKeyState(KeyCode::GamepadB, heldKeys & KEY_B);
-        Input::SetKeyState(KeyCode::GamepadX, heldKeys & KEY_X);
-        Input::SetKeyState(KeyCode::GamepadY, heldKeys & KEY_Y);
-        Input::SetKeyState(KeyCode::GamepadL, heldKeys & KEY_L);
-        Input::SetKeyState(KeyCode::GamepadR, heldKeys & KEY_R);
-        Input::SetKeyState(KeyCode::GamepadStart, heldKeys & KEY_START);
-        Input::SetKeyState(KeyCode::GamepadSelect, heldKeys & KEY_SELECT);
-        Input::SetKeyState(KeyCode::GamepadDPadUp, heldKeys & KEY_DUP);
-        Input::SetKeyState(KeyCode::GamepadDPadDown, heldKeys & KEY_DDOWN);
-        Input::SetKeyState(KeyCode::GamepadDPadLeft, heldKeys & KEY_DLEFT);
-        Input::SetKeyState(KeyCode::GamepadDPadRight, heldKeys & KEY_DRIGHT);
+        InputManager::BeginFrame();
+        InputManager::SetKeyState(KeyCode::GamepadA, heldKeys & KEY_A);
+        InputManager::SetKeyState(KeyCode::GamepadB, heldKeys & KEY_B);
+        InputManager::SetKeyState(KeyCode::GamepadX, heldKeys & KEY_X);
+        InputManager::SetKeyState(KeyCode::GamepadY, heldKeys & KEY_Y);
+        InputManager::SetKeyState(KeyCode::GamepadL, heldKeys & KEY_L);
+        InputManager::SetKeyState(KeyCode::GamepadR, heldKeys & KEY_R);
+        InputManager::SetKeyState(KeyCode::GamepadStart, heldKeys & KEY_START);
+        InputManager::SetKeyState(KeyCode::GamepadSelect, heldKeys & KEY_SELECT);
+        InputManager::SetKeyState(KeyCode::GamepadDPadUp, heldKeys & KEY_DUP);
+        InputManager::SetKeyState(KeyCode::GamepadDPadDown, heldKeys & KEY_DDOWN);
+        InputManager::SetKeyState(KeyCode::GamepadDPadLeft, heldKeys & KEY_DLEFT);
+        InputManager::SetKeyState(KeyCode::GamepadDPadRight, heldKeys & KEY_DRIGHT);
 
         // Real analog values here (vs. digital +-1 on desktop) -- same
         // script code, meaningfully different but sane behavior on each
@@ -137,15 +137,15 @@ int main(int argc, char* argv[]) {
             float axis = static_cast<float>(value) / 156.0f;
             return axis < -1.0f ? -1.0f : (axis > 1.0f ? 1.0f : axis);
         };
-        Input::SetAxis("Horizontal", normalizeAxis(circlePad.dx));
-        Input::SetAxis("Vertical", -normalizeAxis(circlePad.dy)); // dy is up-positive; Vertical follows this project's Y-down convention
+        InputManager::SetAxis("Horizontal", normalizeAxis(circlePad.dx));
+        InputManager::SetAxis("Vertical", -normalizeAxis(circlePad.dy)); // dy is up-positive; Vertical follows this project's Y-down convention
 
         touchPosition touch;
         hidTouchRead(&touch);
         // The touch panel is physically only the bottom screen -- hidTouchRead's own px/py are
         // already in that screen's native pixel range (0-320/0-240), top-left origin, Y-down,
         // matching this engine's convention with no conversion needed.
-        Input::SetPointer((heldKeys & KEY_TOUCH) != 0, { static_cast<float>(touch.px), static_cast<float>(touch.py) }, Screen::Bottom);
+        InputManager::SetPointer((heldKeys & KEY_TOUCH) != 0, { static_cast<float>(touch.px), static_cast<float>(touch.py) }, Screen::Bottom);
 
         AudioEngine::Update();
 

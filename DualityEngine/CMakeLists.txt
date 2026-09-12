@@ -8,7 +8,7 @@ add_library(DualityEngine STATIC
     Source/Asset/ScriptableObjectLoader.cpp
     Source/Asset/TextureImportSettings.cpp
     Source/Asset/AudioImportSettings.cpp
-    Source/Input/Input.cpp
+    Source/Input/InputManager.cpp
     Source/Physics/PhysicsUnits.cpp
     Source/Reflection/TypeRegistry.cpp
     Source/Reflection/Reflection.cpp
@@ -26,10 +26,6 @@ add_library(DualityEngine STATIC
     Source/Renderer/UIAnchor.cpp
     Source/Renderer/PrimitiveMeshes.cpp
     Source/Project/Project.cpp
-    Source/UI/UIMarkupParser.cpp
-    Source/UI/UIStylesheetParser.cpp
-    Source/UI/UIDocument.cpp
-    Source/UI/UIDocumentLoader.cpp
 )
 
 target_include_directories(DualityEngine PUBLIC Include)

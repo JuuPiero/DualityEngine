@@ -33,8 +33,8 @@ namespace Duality {
             return hit;
         }
 
-        // Converts a point in `screen`'s own local pixel space (e.g. ScriptInput::GetPointerPosition(),
-        // with `screen` = ScriptInput::GetPointerScreen()) into a world-space ray from that screen's
+        // Converts a point in `screen`'s own local pixel space (e.g. Input::GetPointerPosition(),
+        // with `screen` = Input::GetPointerScreen()) into a world-space ray from that screen's
         // primary camera -- feed the result straight into Raycast for click/touch-to-select gameplay.
         // Returns false (outOrigin/outDirection untouched) if that screen has no Perspective primary
         // camera, or Play isn't running yet.

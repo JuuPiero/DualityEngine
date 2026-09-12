@@ -4,7 +4,7 @@
 // in EACH binary that includes the header on Windows/MinGW (no automatic cross-DLL
 // deduplication). Scene::OnRuntimeUpdate's Bind() call, compiled into the host EXE/
 // DualityEngine.lib, was silently writing to a completely different memory location than
-// ScriptInput::GetAxis()/ScriptPhysics2D::Raycast()/ScriptScene::FindEntityInScreen(), compiled
+// Input::GetAxis()/ScriptPhysics2D::Raycast()/ScriptScene::FindEntityInScreen(), compiled
 // into the separately-linked GameScripts.dll on desktop -- every one of those calls silently
 // returned its "nothing bound" default in every desktop Play/DualityPlayerDesktop session, while
 // working correctly on the 3DS build (GameScripts links statically there, so there's only one
@@ -25,7 +25,7 @@
 #include <cmath>
 
 #include "DualityEngine/Core/Log.h"
-#include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Input/InputManager.h"
 #include "DualityEngine/Input/KeyCode.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Scene.h"
@@ -100,30 +100,30 @@ TEST_CASE("A real GameScripts.dll script reads Input/UIButton state across the D
     // Box2D force) move the player with zero simulated input? Confirms the body is really being
     // stepped before blaming ScriptContext for anything.
     for (int i = 0; i < 10; i++) {
-        Input::BeginFrame();
+        InputManager::BeginFrame();
         scene.OnRuntimeUpdate(1.0f / 60.0f);
     }
     CHECK_SOFT(player.GetComponent<TransformComponent>().Translation.y != startY, "Player fell under gravity alone with zero input");
 
-    // Simulate holding the Right key -- exercises ScriptInput::GetAxis, which routes through
+    // Simulate holding the Right key -- exercises Input::GetAxis, which routes through
     // ScriptContext::Services(), called from PlayerController::OnUpdate (GameScripts.dll code).
     for (int i = 0; i < 30; i++) {
-        Input::BeginFrame();
-        Input::SetAxis("Horizontal", 1.0f);
+        InputManager::BeginFrame();
+        InputManager::SetAxis("Horizontal", 1.0f);
         scene.OnRuntimeUpdate(1.0f / 60.0f);
     }
     CHECK_SOFT(player.GetComponent<TransformComponent>().Translation.x > startX + 5.0f,
-        "Player moved right in response to a simulated Horizontal axis (ScriptInput::GetAxis actually works across the DLL boundary)");
+        "Player moved right in response to a simulated Horizontal axis (Input::GetAxis actually works across the DLL boundary)");
 
     // Reset axis, simulate a RightButton UI click held for 30 frames -- exercises
     // ScriptScene::FindEntityInScreen (used in OnCreate to resolve RightButton by name) and the
     // UIButton wrapper, bypassing GamePanel's own pointer-to-screen mapping entirely.
-    Input::SetAxis("Horizontal", 0.0f);
+    InputManager::SetAxis("Horizontal", 0.0f);
     Entity rightButton = scene.FindEntityInScreen(Screen::Bottom, "RightButton");
     CHECK(static_cast<bool>(rightButton));
     float xBeforeButton = player.GetComponent<TransformComponent>().Translation.x;
     for (int i = 0; i < 30; i++) {
-        Input::BeginFrame();
+        InputManager::BeginFrame();
         rightButton.GetComponent<UIButtonComponent>().IsPressed = true;
         scene.OnRuntimeUpdate(1.0f / 60.0f);
     }
@@ -146,7 +146,7 @@ TEST_CASE("A grounded player actually jumps (IsGrounded's raycast + Space key wo
     // Let gravity settle the player onto Ground1 first -- IsGrounded's raycast only succeeds
     // once actually resting on a platform, same as any real play session.
     for (int i = 0; i < 60; i++) {
-        Input::BeginFrame();
+        InputManager::BeginFrame();
         scene.OnRuntimeUpdate(1.0f / 60.0f);
     }
     float restingY = player.GetComponent<TransformComponent>().Translation.y;
@@ -154,7 +154,7 @@ TEST_CASE("A grounded player actually jumps (IsGrounded's raycast + Space key wo
     // A few more settled frames -- Y should now be essentially stable (resting on Ground1), not
     // still falling, confirming the player actually landed before the jump itself is tested.
     for (int i = 0; i < 5; i++) {
-        Input::BeginFrame();
+        InputManager::BeginFrame();
         scene.OnRuntimeUpdate(1.0f / 60.0f);
     }
     float stableY = player.GetComponent<TransformComponent>().Translation.y;
@@ -177,17 +177,17 @@ TEST_CASE("A grounded player actually jumps (IsGrounded's raycast + Space key wo
 
     // GetKeyDown fires on the rising edge only -- BeginFrame must see Space as NOT down for at
     // least one prior frame, then down for exactly this one.
-    Input::BeginFrame();
-    Input::SetKeyState(KeyCode::Space, false);
+    InputManager::BeginFrame();
+    InputManager::SetKeyState(KeyCode::Space, false);
     scene.OnRuntimeUpdate(1.0f / 60.0f);
 
-    Input::BeginFrame();
-    Input::SetKeyState(KeyCode::Space, true);
+    InputManager::BeginFrame();
+    InputManager::SetKeyState(KeyCode::Space, true);
     scene.OnRuntimeUpdate(1.0f / 60.0f);
 
-    Input::SetKeyState(KeyCode::Space, false);
+    InputManager::SetKeyState(KeyCode::Space, false);
     for (int i = 0; i < 5; i++) {
-        Input::BeginFrame();
+        InputManager::BeginFrame();
         scene.OnRuntimeUpdate(1.0f / 60.0f);
     }
     float yAfterJump = player.GetComponent<TransformComponent>().Translation.y;

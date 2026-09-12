@@ -319,15 +319,15 @@ else
     transform.Rotation.z += 90.0f * deltaTime; // sprite: xoay quanh Z
 ```
 
-**Input** (`DualityEngine/Scripting/ScriptInput.h`):
+**Input** (`DualityEngine/Scripting/Input.h`):
 ```cpp
-#include "DualityEngine/Scripting/ScriptInput.h"
+#include "DualityEngine/Scripting/Input.h"
 
-if (Duality::ScriptInput::GetKeyDown(Duality::KeyCode::Space)) { /* một lần mỗi nhấn */ }
-float h = Duality::ScriptInput::GetAxis("Horizontal");
-if (Duality::ScriptInput::GetPointerDown()) {
-    glm::vec2 p = Duality::ScriptInput::GetPointerPosition();
-    Duality::Screen s = Duality::ScriptInput::GetPointerScreen(); // Bottom trên 3DS thật
+if (Duality::Input::GetKeyDown(Duality::KeyCode::Space)) { /* một lần mỗi nhấn */ }
+float h = Duality::Input::GetAxis("Horizontal");
+if (Duality::Input::GetPointerDown()) {
+    glm::vec2 p = Duality::Input::GetPointerPosition();
+    Duality::Screen s = Duality::Input::GetPointerScreen(); // Bottom trên 3DS thật
 }
 ```
 
@@ -338,7 +338,7 @@ if (Duality::ScriptInput::GetPointerDown()) {
 
 glm::vec3 origin, direction;
 if (Duality::ScriptPhysics3D::ScreenPointToRay(Duality::Screen::Bottom,
-        Duality::ScriptInput::GetPointerPosition(), origin, direction)) {
+        Duality::Input::GetPointerPosition(), origin, direction)) {
     Duality::RaycastHit3D hit = Duality::ScriptPhysics3D::Raycast(origin, direction, 2000.f);
     if (hit)
         Duality::ScriptDebug::LogInfo("Trung!");
@@ -404,7 +404,7 @@ trong Properties.
 Duality::ScriptAudio::PlaySound("<asset-guid>", false);
 
 // Hoặc sau khi thêm Audio Source component trong Editor:
-GetAudioSource().Play();
+Duality::AudioSource(GetEntity()).Play();
 ```
 Desktop: miniaudio; 3DS: `ndsp` (WAV PCM 16-bit, citro/libctru).
 

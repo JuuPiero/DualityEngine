@@ -29,7 +29,7 @@ public:
     void OnCreate() override;
     void OnUpdate(float deltaTime) override;
 
-    DUALITY_PROPERTY() float Amplitude = 40.0f;
+    DUALITY_PROPERTY() float Amplitude = 0.4f;
     DUALITY_PROPERTY() float Speed = 8.0f;
     DUALITY_PROPERTY() Duality::EntityRef Target;
     DUALITY_PROPERTY() BounceWobble Wobble;

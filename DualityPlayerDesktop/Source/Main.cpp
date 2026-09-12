@@ -21,7 +21,7 @@
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Core/Log.h"
-#include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Input/InputManager.h"
 #include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
@@ -93,7 +93,7 @@ namespace {
 
     // Maps a raw window-space (GLFW, pixels, Y-down from the window's own top-left) mouse
     // position into whichever screen's own logical pixel space it currently falls within --
-    // there's only one global Input pointer (see Input::SetPointer), so this picks whichever
+    // there's only one global Input pointer (see InputManager::SetPointer), so this picks whichever
     // screen the mouse is "over" this frame, letting either screen's UI/pointer-driven gameplay
     // respond, unlike the fixed touch-is-always-Bottom convention real 3DS hardware has.
     //
@@ -210,17 +210,17 @@ int main() {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             break;
 
-        Input::BeginFrame();
+        InputManager::BeginFrame();
         for (auto& [keyCode, glfwKey] : kDesktopKeyMap)
-            Input::SetKeyState(keyCode, glfwGetKey(window, glfwKey) == GLFW_PRESS);
+            InputManager::SetKeyState(keyCode, glfwGetKey(window, glfwKey) == GLFW_PRESS);
 
         float horizontal = 0.0f, vertical = 0.0f;
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) horizontal += 1.0f;
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) horizontal -= 1.0f;
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) vertical += 1.0f;
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) vertical -= 1.0f;
-        Input::SetAxis("Horizontal", horizontal);
-        Input::SetAxis("Vertical", vertical);
+        InputManager::SetAxis("Horizontal", horizontal);
+        InputManager::SetAxis("Vertical", vertical);
 
         double mouseX, mouseY;
         glfwGetCursorPos(window, &mouseX, &mouseY);
@@ -228,7 +228,7 @@ int main() {
         Screen hitScreen = Screen::Top;
         bool overAScreen = MapWindowPointToScreen(mouseX, mouseY, screenPoint, hitScreen);
         bool mouseDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-        Input::SetPointer(overAScreen && mouseDown, overAScreen ? screenPoint : glm::vec2{ 0.0f, 0.0f }, hitScreen);
+        InputManager::SetPointer(overAScreen && mouseDown, overAScreen ? screenPoint : glm::vec2{ 0.0f, 0.0f }, hitScreen);
 
         AudioEngine::Update();
 

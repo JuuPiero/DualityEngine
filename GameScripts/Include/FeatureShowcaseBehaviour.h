@@ -6,8 +6,8 @@
 
 // Live demo of recent engine/editor features in one Inspector-friendly script:
 // DUALITY_PROPERTY (scalars, bool, AssetRef, EntityRef, nested struct, script enum,
-// engine enum dropdowns), GetTransform()/GetRigidbody2D(), GetEntityLayer(), ScriptInput,
-// ScriptPhysics2D raycast, ScriptDebug logging, and AudioSource playback.
+// engine enum dropdowns), explicit Transform/Rigidbody2D/EntityLayer wrappers, Input,
+// ScriptPhysics2D raycast, ScriptDebug logging, and AudioSource-component playback.
 enum class ShowcaseMotion {
     Idle,
     Bounce,
@@ -27,7 +27,7 @@ public:
     void OnCreate() override;
     void OnUpdate(float deltaTime) override;
 
-    DUALITY_PROPERTY() float MoveSpeed = 60.0f;
+    DUALITY_PROPERTY() float MoveSpeed = 0.6f;
     DUALITY_PROPERTY() bool EnablePhysicsPush = true;
     DUALITY_PROPERTY() ShowcaseMotion Motion = ShowcaseMotion::Bounce;
     DUALITY_PROPERTY() Duality::Layer RenderLayer = Duality::Layer::Default;

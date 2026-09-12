@@ -15,7 +15,7 @@ namespace Duality {
         // ([-Wchanges-meaning]), even though desktop's compiler happens to accept it.
         Screen TargetScreen = Screen::Top;
         // Local pixel coordinates within `Screen` (top-left origin, Y-down) -- same space as
-        // Input::GetPointerPosition().
+        // InputManager::GetPointerPosition().
         glm::vec2 Position{ 0.0f };
         // World-space contact point. 2D orthographic hits use z = 0; 3D perspective hits use
         // the actual Raycast3D impact point.
@@ -27,11 +27,10 @@ namespace Duality {
         float Distance = 0.0f;
     };
 
-    // Unity EventSystem handler interfaces -- implement by overriding the matching virtual on
-    // Behaviour (Behaviour virtually inherits all of these with empty defaults, so a script only
-    // needs `class Foo : public Behaviour` and can still say it "implements IPointerDownHandler"
-    // by overriding OnPointerDown). Multiple inheritance `class Foo : public Behaviour, public
-    // IPointerClickHandler` also works when you want the intent spelled out explicitly.
+    // Unity EventSystem handler interfaces. Behaviour intentionally does NOT inherit these:
+    // scripts opt into only the callbacks they consume, for example
+    // `class Foo : public Behaviour, public IPointerClickHandler`. Physics raycasters dispatch
+    // only to scripts implementing the relevant interface.
     struct IPointerEnterHandler {
         virtual ~IPointerEnterHandler() = default;
         virtual void OnPointerEnter(PointerEventData& eventData) = 0;

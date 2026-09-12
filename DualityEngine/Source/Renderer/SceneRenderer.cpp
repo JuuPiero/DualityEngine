@@ -5,6 +5,7 @@
 
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
+#include "DualityEngine/Physics/PhysicsUnits.h"
 #include "DualityEngine/Renderer/DrawHelpers2D.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
@@ -133,6 +134,9 @@ namespace Duality {
             auto& cameraComponent = camera.GetComponent<CameraComponent>();
             float screenWidth, screenHeight;
             ScreenExtents(screen, screenWidth, screenHeight);
+            // Gameplay world coordinates are Unity-style units. PPU belongs only at the
+            // last 2D render boundary, where a world unit becomes physical screen pixels.
+            const float worldToPixels = cameraComponent.Zoom * PhysicsUnits::PPU();
 
             std::vector<SpriteDrawItem> sprites;
             auto view = scene.Registry().view<TransformComponent, SpriteRendererComponent>();
@@ -156,11 +160,11 @@ namespace Duality {
                 TransformComponent transform = scene.GetWorldTransform(Entity(item.Handle, &scene));
                 auto& sprite = scene.Registry().get<SpriteRendererComponent>(item.Handle);
 
-                glm::vec2 size = sprite.Size * cameraComponent.Zoom;
+                glm::vec2 size = sprite.Size * worldToPixels;
                 glm::vec2 pivotOffset{ size.x * sprite.Pivot.x, size.y * sprite.Pivot.y };
                 glm::vec2 screenCenter{
-                    (transform.Translation.x - cameraTransform.Translation.x) * cameraComponent.Zoom + screenWidth * 0.5f,
-                    (transform.Translation.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f
+                    (transform.Translation.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f,
+                    (transform.Translation.y - cameraTransform.Translation.y) * worldToPixels + screenHeight * 0.5f
                 };
                 glm::vec2 topLeft = screenCenter - pivotOffset;
 
@@ -201,10 +205,10 @@ namespace Duality {
                             transform.Translation.y + y * tilemap.CellSize.y
                         };
                         glm::vec2 screenCenter{
-                            (worldPos.x - cameraTransform.Translation.x) * cameraComponent.Zoom + screenWidth * 0.5f,
-                            (worldPos.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f
+                            (worldPos.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f,
+                            (worldPos.y - cameraTransform.Translation.y) * worldToPixels + screenHeight * 0.5f
                         };
-                        glm::vec2 size = tilemap.CellSize * cameraComponent.Zoom;
+                        glm::vec2 size = tilemap.CellSize * worldToPixels;
                         glm::vec2 topLeft = screenCenter - size * 0.5f;
                         renderer2D.DrawQuad(topLeft, size, { 1, 1, 1, 1 }, 0.0f, tileTex);
                     }
@@ -226,11 +230,11 @@ namespace Duality {
                 for (int i = 0; i < count; i++) {
                     glm::vec3 p = GetLinePoint(line, i) + transform.Translation;
                     points[i] = {
-                        (p.x - cameraTransform.Translation.x) * cameraComponent.Zoom + screenWidth * 0.5f,
-                        (p.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f
+                        (p.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f,
+                        (p.y - cameraTransform.Translation.y) * worldToPixels + screenHeight * 0.5f
                     };
                 }
-                DrawLineStrip2D(renderer2D, points, count, line.Width * cameraComponent.Zoom, line.Color, line.Loop);
+                DrawLineStrip2D(renderer2D, points, count, line.Width * worldToPixels, line.Color, line.Loop);
             }
 
             auto particleView = scene.Registry().view<ParticleSystemComponent>();
@@ -243,10 +247,10 @@ namespace Duality {
                 uint32_t tex = ResolveSpriteTexture(renderer2D, sys.Texture);
                 for (const Particle& p : GetParticlePool(handle)) {
                     glm::vec2 topLeft{
-                        (p.Position.x - cameraTransform.Translation.x) * cameraComponent.Zoom + screenWidth * 0.5f - p.Size * 0.5f,
-                        (p.Position.y - cameraTransform.Translation.y) * cameraComponent.Zoom + screenHeight * 0.5f - p.Size * 0.5f
+                        (p.Position.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f - p.Size * worldToPixels * 0.5f,
+                        (p.Position.y - cameraTransform.Translation.y) * worldToPixels + screenHeight * 0.5f - p.Size * worldToPixels * 0.5f
                     };
-                    renderer2D.DrawQuad(topLeft, { p.Size, p.Size }, p.Color, 0.0f, tex);
+                    renderer2D.DrawQuad(topLeft, { p.Size * worldToPixels, p.Size * worldToPixels }, p.Color, 0.0f, tex);
                 }
             }
         }

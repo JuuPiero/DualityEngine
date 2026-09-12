@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <vector>
 
@@ -92,6 +93,16 @@ namespace Duality {
                 return;
             std::string guid = AssetMeta::EnsureMetaFile(prefabPath);
             AssetDatabase::Register(guid, prefabPath.string());
+        }
+
+        Entity CreateCanvas(EditorContext& ctx, Screen screen, Entity parent = {}) {
+            Entity canvas = ctx.SceneRef.CreateEntity(screen == Screen::Top ? "Top Canvas" : "Bottom Canvas");
+            canvas.AddComponent<CanvasComponent>().Screen = screen;
+            if (parent)
+                ctx.SceneRef.SetParent(canvas, parent);
+            ctx.Selected = canvas;
+            MarkSceneDirty(ctx);
+            return canvas;
         }
 
         // Case-insensitive substring match, same small local-helper shape as the
@@ -207,6 +218,13 @@ namespace Duality {
                     ctx.SceneRef.SetParent(child, entity);
                     ctx.Selected = child;
                     MarkSceneDirty(ctx);
+                }
+                if (ImGui::BeginMenu("UI")) {
+                    if (ImGui::MenuItem("Canvas (Top Screen)"))
+                        CreateCanvas(ctx, Screen::Top, entity);
+                    if (ImGui::MenuItem("Canvas (Bottom Screen)"))
+                        CreateCanvas(ctx, Screen::Bottom, entity);
+                    ImGui::EndMenu();
                 }
                 if (ImGui::MenuItem("Remove", "Delete"))
                     pendingRemoval = entity;
@@ -347,6 +365,13 @@ namespace Duality {
                 ctx.Selected = ctx.SceneRef.CreateEntity("Entity");
                 MarkSceneDirty(ctx);
             }
+            if (ImGui::BeginMenu("UI")) {
+                if (ImGui::MenuItem("Canvas (Top Screen)"))
+                    CreateCanvas(ctx, Screen::Top);
+                if (ImGui::MenuItem("Canvas (Bottom Screen)"))
+                    CreateCanvas(ctx, Screen::Bottom);
+                ImGui::EndMenu();
+            }
             ImGui::EndPopup();
         }
         }
@@ -357,6 +382,39 @@ namespace Duality {
             !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete) &&
             ctx.Selected && ctx.SceneRef.Registry().valid(ctx.Selected.Handle())) {
             m_PendingRemoval = ctx.Selected;
+        }
+
+        // Unity-style quick rename. A modal avoids changing the tree row's ImGui ID/layout in
+        // the middle of traversal, and also works when the selection came from Scene or Game.
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2) &&
+            ctx.Selected && ctx.SceneRef.Registry().valid(ctx.Selected.Handle())) {
+            m_Renaming = ctx.Selected;
+            std::snprintf(m_RenameBuffer, sizeof(m_RenameBuffer), "%s",
+                m_Renaming.GetComponent<NameComponent>().Name.c_str());
+            ImGui::OpenPopup("Rename Entity");
+        }
+
+        if (m_Renaming && !ctx.SceneRef.Registry().valid(m_Renaming.Handle()))
+            m_Renaming = Entity{};
+        if (ImGui::BeginPopupModal("Rename Entity", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            if (ImGui::IsWindowAppearing())
+                ImGui::SetKeyboardFocusHere();
+            bool submitted = ImGui::InputText("Name", m_RenameBuffer, sizeof(m_RenameBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
+            if (submitted || ImGui::Button("Rename", ImVec2(100.0f, 0.0f))) {
+                if (m_Renaming && ctx.SceneRef.Registry().valid(m_Renaming.Handle())) {
+                    m_Renaming.GetComponent<NameComponent>().Name = m_RenameBuffer;
+                    MarkSceneDirty(ctx);
+                }
+                m_Renaming = Entity{};
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
+                m_Renaming = Entity{};
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
 
         if (m_PendingRemoval && ctx.SceneRef.Registry().valid(m_PendingRemoval.Handle())) {

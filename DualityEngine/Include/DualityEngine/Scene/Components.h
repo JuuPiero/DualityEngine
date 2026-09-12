@@ -51,7 +51,7 @@ namespace Duality {
         glm::vec3 Scale{ 1.0f, 1.0f, 1.0f };
     };
 
-    // A quad of Size pixels centered on the entity's
+    // A quad of Size world units centered on the entity's
     // TransformComponent::Translation. Texture is an AssetRef (empty Guid =
     // no texture assigned) -- when unresolved/absent, renders as a flat
     // Color-filled rect; when it resolves to an image, Color still
@@ -61,7 +61,7 @@ namespace Duality {
     struct SpriteRendererComponent {
         bool Enabled = true;
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
-        glm::vec2 Size{ 32.0f, 32.0f };
+        glm::vec2 Size{ 0.32f, 0.32f };
         AssetRef Texture;
         int SortOrder = 0;
         bool FlipX = false;
@@ -152,8 +152,8 @@ namespace Duality {
     // Screen is which physical 3DS screen this camera renders to -- the
     // concrete mechanism behind "dual-screen aware from the start". The
     // camera's own TransformComponent::Translation is the world point it's
-    // centered on; Zoom is a uniform world-to-pixel scale (1.0 = 1 world
-    // unit per pixel, matching every scene authored before Zoom existed).
+    // centered on; Zoom is a multiplier for the project's Pixels Per Unit
+    // (1.0 means one world unit occupies PPU screen pixels).
     // Projection (ProjectionType, Renderer/ProjectionType.h) picks which pipeline this
     // screen uses -- see that header's own comment.
     struct CameraComponent {
@@ -275,7 +275,7 @@ namespace Duality {
     struct BoxCollider2DComponent {
         bool Enabled = true;
         glm::vec2 Offset{ 0.0f, 0.0f };
-        glm::vec2 Size{ 16.0f, 16.0f }; // half-extents, in the same world units as Transform
+        glm::vec2 Size{ 0.16f, 0.16f }; // half-extents, in the same world units as Transform
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
@@ -292,7 +292,7 @@ namespace Duality {
     struct CircleCollider2DComponent {
         bool Enabled = true;
         glm::vec2 Offset{ 0.0f, 0.0f };
-        float Radius = 16.0f;
+        float Radius = 0.16f;
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
@@ -306,8 +306,8 @@ namespace Duality {
     struct CapsuleCollider2DComponent {
         bool Enabled = true;
         glm::vec2 Offset{ 0.0f, 0.0f };
-        float Radius = 8.0f;
-        float Height = 32.0f; // total height including hemispheres
+        float Radius = 0.08f;
+        float Height = 0.32f; // total height including hemispheres
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
@@ -322,10 +322,10 @@ namespace Duality {
         bool Enabled = true;
         glm::vec2 Offset{ 0.0f, 0.0f };
         int VertexCount = 4;
-        glm::vec2 Vertex0{ -8.0f, -8.0f };
-        glm::vec2 Vertex1{ 8.0f, -8.0f };
-        glm::vec2 Vertex2{ 8.0f, 8.0f };
-        glm::vec2 Vertex3{ -8.0f, 8.0f };
+        glm::vec2 Vertex0{ -0.08f, -0.08f };
+        glm::vec2 Vertex1{ 0.08f, -0.08f };
+        glm::vec2 Vertex2{ 0.08f, 0.08f };
+        glm::vec2 Vertex3{ -0.08f, 0.08f };
         glm::vec2 Vertex4{}, Vertex5{}, Vertex6{}, Vertex7{};
         float Density = 1.0f;
         float Friction = 0.5f;
@@ -356,7 +356,7 @@ namespace Duality {
     struct BoxCollider3DComponent {
         bool Enabled = true;
         glm::vec3 Offset{ 0.0f, 0.0f, 0.0f };
-        glm::vec3 Size{ 16.0f, 16.0f, 16.0f }; // half-extents, in the same world units as Transform
+        glm::vec3 Size{ 0.16f, 0.16f, 0.16f }; // half-extents, in the same world units as Transform
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
@@ -373,7 +373,7 @@ namespace Duality {
     struct SphereCollider3DComponent {
         bool Enabled = true;
         glm::vec3 Offset{ 0.0f, 0.0f, 0.0f };
-        float Radius = 16.0f;
+        float Radius = 0.16f;
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
@@ -385,8 +385,8 @@ namespace Duality {
     struct CapsuleCollider3DComponent {
         bool Enabled = true;
         glm::vec3 Offset{ 0.0f, 0.0f, 0.0f };
-        float Radius = 8.0f;
-        float Height = 32.0f;
+        float Radius = 0.08f;
+        float Height = 0.32f;
         float Density = 1.0f;
         float Friction = 0.5f;
         float Restitution = 0.0f;
@@ -449,6 +449,8 @@ namespace Duality {
     // for quick-setting AnchorMin/AnchorMax/Pivot -- it is not stored on the component itself.
     struct UIRectComponent {
         bool Enabled = true;
+        // Legacy load hint only. It is no longer reflected or saved; the owning Canvas chooses
+        // the screen for all new Canvas-first UI.
         Duality::Screen Screen = Duality::Screen::Top;
         glm::vec2 AnchorMin{ 0.5f, 0.5f };
         glm::vec2 AnchorMax{ 0.5f, 0.5f };
@@ -488,7 +490,7 @@ namespace Duality {
         bool WasClicked = false; // true for exactly one frame: pointer released while still over the button
     };
 
-    // A text label (pair with UIRectComponent for a <Text> widget, see UIDocument.h). Drawn by
+    // A text label (pair with UIRectComponent under a Canvas). Drawn by
     // UIRenderer.cpp via IRenderer2D::DrawText, horizontally positioned within the paired
     // UIRectComponent's resolved rect per Alignment -- vertical is always centered (a
     // deliberate v1 scope limit, no separate vertical-alignment enum). Font is an AssetRef to a
@@ -504,9 +506,11 @@ namespace Duality {
         TextAlignment Alignment = TextAlignment::Left;
     };
 
-    // Unity Canvas root -- children UI widgets inherit render mode / sort.
+    // Unity Canvas root. Every UI Rect belongs beneath one Canvas; it owns the physical 3DS
+    // screen, render mode and sort order instead of every child carrying those concerns.
     struct CanvasComponent {
         bool Enabled = true;
+        Duality::Screen Screen = Duality::Screen::Top;
         CanvasRenderMode RenderMode = CanvasRenderMode::ScreenSpaceOverlay;
         int SortOrder = 0;
         float ScaleFactor = 1.0f;
@@ -546,13 +550,6 @@ namespace Duality {
         bool IsHovered = false;
     };
 
-    struct UIDocumentReferenceComponent {
-        bool Enabled = true;
-        AssetRef Document;
-        bool InstantiateOnPlay = true;
-        bool Instantiated = false;
-    };
-
     // Atlas-based sprite animation (UV sub-rects) -- alternative to fixed-frame flipbook.
     struct SpriteSheetAnimatorComponent {
         bool Enabled = true;
@@ -571,7 +568,7 @@ namespace Duality {
         bool Enabled = true;
         int GridWidth = 16;
         int GridHeight = 16;
-        glm::vec2 CellSize{ 16.0f, 16.0f };
+        glm::vec2 CellSize{ 0.16f, 0.16f };
         AssetRef Tileset;
         AssetRef TileData;
         int SortOrder = 0;
@@ -580,11 +577,11 @@ namespace Duality {
     struct LineRendererComponent {
         bool Enabled = true;
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
-        float Width = 2.0f;
+        float Width = 0.02f;
         bool Loop = false;
         int PointCount = 2;
         glm::vec3 Point0{ 0.0f, 0.0f, 0.0f };
-        glm::vec3 Point1{ 16.0f, 0.0f, 0.0f };
+        glm::vec3 Point1{ 0.16f, 0.0f, 0.0f };
         glm::vec3 Point2{}, Point3{}, Point4{}, Point5{}, Point6{}, Point7{};
     };
 
@@ -611,12 +608,12 @@ namespace Duality {
         float EmissionRate = 20.0f;
         int MaxParticles = 64;
         float Lifetime = 1.5f;
-        float StartSpeed = 40.0f;
-        float StartSize = 8.0f;
+        float StartSpeed = 0.4f;
+        float StartSize = 0.08f;
         glm::vec4 StartColor{ 1.0f, 1.0f, 1.0f, 1.0f };
         glm::vec4 EndColor{ 1.0f, 1.0f, 1.0f, 0.0f };
-        glm::vec2 Gravity{ 0.0f, 60.0f };
-        glm::vec2 VelocitySpread{ 30.0f, 30.0f };
+        glm::vec2 Gravity{ 0.0f, 0.6f };
+        glm::vec2 VelocitySpread{ 0.3f, 0.3f };
         int SortOrder = 0;
 
         float EmissionAccumulator = 0.0f;

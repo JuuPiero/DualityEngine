@@ -6,8 +6,9 @@
 
 namespace Duality {
 
-    // Fire-and-forget audio playback for scripts (Unity's one-shot AudioSource.Play without
-    // a per-entity component yet -- see ROADMAP.md). `assetGuid` is an AssetRef's Guid.
+    // Fire-and-forget audio playback for scripts. This is independent of the per-entity
+    // AudioSourceComponent API in AudioSource.h; use it for Unity-style one-shots that do not
+    // need source state such as Pause, Loop, or IsPlaying. `assetGuid` is an AssetRef's Guid.
     class ScriptAudio {
     public:
         static void PlaySound(const std::string& assetGuid, bool loop = false) {

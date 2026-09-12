@@ -296,14 +296,16 @@ namespace Duality {
         projectScriptDemo.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "ProjectDemoBehaviour" });
         m_Scene.SetParent(projectScriptDemo, scriptingGroup);
 
-        // ---------------------------------------------------------------- UI (Legacy Widgets)
-        Entity uiWidgetsGroup = group("-- UI (Legacy Widgets) --");
+        // ---------------------------------------------------------------- UI (Canvas)
+        Entity uiWidgetsGroup = group("-- UI --");
+        Entity bottomCanvas = m_Scene.CreateEntity("Bottom Canvas");
+        bottomCanvas.AddComponent<CanvasComponent>().Screen = Screen::Bottom;
+        m_Scene.SetParent(bottomCanvas, uiWidgetsGroup);
 
         // First real use of Phase 1's font rendering -- Text was previously data-only and never
         // drawn by UIRenderer.cpp at all.
         Entity demoLabel = m_Scene.CreateEntity("DemoLabel");
         auto& demoLabelRect = demoLabel.AddComponent<UIRectComponent>();
-        demoLabelRect.Screen = Screen::Bottom;
         demoLabelRect.AnchorMin = demoLabelRect.AnchorMax = demoLabelRect.Pivot = { 0.5f, 0.0f };
         demoLabelRect.AnchoredPosition = { 0.0f, 8.0f };
         demoLabelRect.SizeDelta = { 220.0f, 20.0f };
@@ -311,69 +313,46 @@ namespace Duality {
         demoLabelText.Text = "Duality Engine Demo";
         demoLabelText.FontSize = 14.0f;
         demoLabelText.Alignment = TextAlignment::Center;
-        m_Scene.SetParent(demoLabel, uiWidgetsGroup);
+        m_Scene.SetParent(demoLabel, bottomCanvas);
 
         Entity demoSlider = m_Scene.CreateEntity("DemoSlider");
         auto& demoSliderRect = demoSlider.AddComponent<UIRectComponent>();
-        demoSliderRect.Screen = Screen::Bottom;
         demoSliderRect.AnchorMin = demoSliderRect.AnchorMax = demoSliderRect.Pivot = { 0.0f, 0.5f };
         demoSliderRect.AnchoredPosition = { 20.0f, -30.0f };
         demoSliderRect.SizeDelta = { 100.0f, 16.0f };
         demoSlider.AddComponent<UIImageComponent>();
         demoSlider.AddComponent<UISliderComponent>();
-        m_Scene.SetParent(demoSlider, uiWidgetsGroup);
+        m_Scene.SetParent(demoSlider, bottomCanvas);
 
         Entity demoToggle = m_Scene.CreateEntity("DemoToggle");
         auto& demoToggleRect = demoToggle.AddComponent<UIRectComponent>();
-        demoToggleRect.Screen = Screen::Bottom;
         demoToggleRect.AnchorMin = demoToggleRect.AnchorMax = demoToggleRect.Pivot = { 0.0f, 0.5f };
         demoToggleRect.AnchoredPosition = { 20.0f, 0.0f };
         demoToggleRect.SizeDelta = { 24.0f, 24.0f };
         demoToggle.AddComponent<UIImageComponent>();
         demoToggle.AddComponent<UIToggleComponent>();
-        m_Scene.SetParent(demoToggle, uiWidgetsGroup);
+        m_Scene.SetParent(demoToggle, bottomCanvas);
 
         Entity demoInputField = m_Scene.CreateEntity("DemoInputField");
         auto& demoInputRect = demoInputField.AddComponent<UIRectComponent>();
-        demoInputRect.Screen = Screen::Bottom;
         demoInputRect.AnchorMin = demoInputRect.AnchorMax = demoInputRect.Pivot = { 0.0f, 0.5f };
         demoInputRect.AnchoredPosition = { 20.0f, 30.0f };
         demoInputRect.SizeDelta = { 140.0f, 24.0f };
         demoInputField.AddComponent<UIImageComponent>();
         demoInputField.AddComponent<UIInputFieldComponent>();
-        m_Scene.SetParent(demoInputField, uiWidgetsGroup);
+        m_Scene.SetParent(demoInputField, bottomCanvas);
 
         // Demo Button in the Bottom screen's bottom-right corner -- its own Normal/Hover/
         // Pressed color already shows interaction feedback with no script needed; try
         // touching/clicking it.
         Entity testButton = m_Scene.CreateEntity("TestButton");
         auto& testButtonRect = testButton.AddComponent<UIRectComponent>();
-        testButtonRect.Screen = Screen::Bottom;
         LegacyUIAnchorToRectTransform(UIAnchor::BottomRight, { 10.0f, 10.0f }, { 80.0f, 32.0f },
             testButtonRect.AnchorMin, testButtonRect.AnchorMax, testButtonRect.Pivot,
             testButtonRect.AnchoredPosition, testButtonRect.SizeDelta);
         testButton.AddComponent<UIImageComponent>();
         testButton.AddComponent<UIButtonComponent>();
-        m_Scene.SetParent(testButton, uiWidgetsGroup);
-
-        // ---------------------------------------------------------------- UI (Document)
-        Entity uiDocumentGroup = group("-- UI (Document) --");
-
-        // UIDocument demo (Unity UI Toolkit-style declarative UI) -- spawns SampleProject's
-        // Assets/UI/DemoMenu.uidoc onto the Bottom screen at Play start (UIDocumentDemoBehaviour),
-        // a real markup+stylesheet document with two Buttons each wired to UIButtonClickBehaviour
-        // via the markup's own `behaviour="..."` attribute, plus two <Text> labels that now
-        // actually render (Phase 1). Same 3-step asset registration Material's own setup above
-        // uses, since a Behaviour field's AssetRef needs a real guid to point at, not a raw path.
-        std::filesystem::path uiDocPath = m_Project->GetAssetsDirectory() + "/UI/DemoMenu.uidoc";
-        std::string uiDocGuid = AssetMeta::EnsureMetaFile(uiDocPath);
-        AssetDatabase::Register(uiDocGuid, uiDocPath.string());
-
-        Entity uiMenuController = m_Scene.CreateEntity("UIMenuController");
-        ScriptInstance uiMenuScript{ "UIDocumentDemoBehaviour" };
-        uiMenuScript.PropertyOverrides["MenuDocument"] = FieldValue(AssetRef{ uiDocGuid });
-        uiMenuController.AddComponent<BehaviourComponent>().Scripts.push_back(uiMenuScript);
-        m_Scene.SetParent(uiMenuController, uiDocumentGroup);
+        m_Scene.SetParent(testButton, bottomCanvas);
 
         // ---------------------------------------------------------------- Gameplay Components
         Entity gameplayGroup = group("-- Gameplay Components --");
@@ -657,7 +636,7 @@ namespace Duality {
                 ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.28f, nullptr, &dockMain);
 
                 ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
-                ImGui::DockBuilderDockWindow("Properties", dockRight);
+                ImGui::DockBuilderDockWindow("Inspector", dockRight);
                 ImGui::DockBuilderDockWindow("Content Browser", dockBottom);
                 ImGui::DockBuilderDockWindow("Console", dockBottom);
                 // Scene and Game share the same center dock node, so they

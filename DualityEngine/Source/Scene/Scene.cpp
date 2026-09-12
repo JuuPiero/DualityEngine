@@ -22,7 +22,7 @@
 #include "DualityEngine/Scene/SceneRuntimeSystems.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Core/Log.h"
-#include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Input/InputManager.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Behaviour.h"
 #include "DualityEngine/Scene/Components.h"
@@ -33,13 +33,11 @@
 #include "DualityEngine/Scripting/EngineServices.h"
 #include "DualityEngine/Scripting/ScriptContext.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
-#include "DualityEngine/UI/UIDocumentLoader.h"
 
 namespace Duality {
 
-    // Linear quantities are converted through PhysicsUnits (Project Settings:
-    // PPU / Gravity). Default 1 leaves this identical to feeding
-    // pixel Transform values straight into Box2D. +Y is down (screen space).
+    // Physics operates directly in public world units. PPU is deliberately absent here:
+    // it is a 2D renderer scale only (SceneRenderer.cpp). +Y remains down for 2D.
     static constexpr int32 VelocityIterations = 6;
     static constexpr int32 PositionIterations = 2;
 
@@ -295,13 +293,13 @@ namespace Duality {
     // Behaviour instance right after it's created (see OnRuntimeStart
     // below) since a Behaviour may live inside a separately-compiled
     // GameScripts.dll on desktop that can't call Duality::Input directly.
-    static bool EngineServices_GetKey(int keyCode) { return Input::GetKey(static_cast<KeyCode>(keyCode)); }
-    static bool EngineServices_GetKeyDown(int keyCode) { return Input::GetKeyDown(static_cast<KeyCode>(keyCode)); }
-    static bool EngineServices_GetKeyUp(int keyCode) { return Input::GetKeyUp(static_cast<KeyCode>(keyCode)); }
-    static float EngineServices_GetAxis(const char* axisName) { return Input::GetAxis(axisName); }
-    static bool EngineServices_GetPointerDown() { return Input::GetPointerDown(); }
+    static bool EngineServices_GetKey(int keyCode) { return InputManager::GetKey(static_cast<KeyCode>(keyCode)); }
+    static bool EngineServices_GetKeyDown(int keyCode) { return InputManager::GetKeyDown(static_cast<KeyCode>(keyCode)); }
+    static bool EngineServices_GetKeyUp(int keyCode) { return InputManager::GetKeyUp(static_cast<KeyCode>(keyCode)); }
+    static float EngineServices_GetAxis(const char* axisName) { return InputManager::GetAxis(axisName); }
+    static bool EngineServices_GetPointerDown() { return InputManager::GetPointerDown(); }
     static void EngineServices_GetPointerPosition(float* outX, float* outY) {
-        glm::vec2 position = Input::GetPointerPosition();
+        glm::vec2 position = InputManager::GetPointerPosition();
         *outX = position.x;
         *outY = position.y;
     }
@@ -434,7 +432,7 @@ namespace Duality {
     }
 
     static int EngineServices_GetPointerScreen() {
-        return static_cast<int>(Input::GetPointerScreen());
+        return static_cast<int>(InputManager::GetPointerScreen());
     }
 
     static bool EngineServices_Raycast2D(void* scenePtr, float originX, float originY, float dirX, float dirY, float maxDistance,
@@ -470,20 +468,6 @@ namespace Duality {
             return false;
         *outOriginX = origin.x; *outOriginY = origin.y; *outOriginZ = origin.z;
         *outDirX = direction.x; *outDirY = direction.y; *outDirZ = direction.z;
-        return true;
-    }
-
-    static bool EngineServices_InstantiateUIDocument(void* scenePtr, const char* uiDocumentAssetGuid, int screen, unsigned int* outHandle) {
-        std::string path = AssetDatabase::ResolvePath(uiDocumentAssetGuid);
-        if (path.empty())
-            return false;
-        const UIDocument& doc = UIDocumentLoader::Load(path);
-        if (!doc.IsLoaded())
-            return false;
-        Entity result = doc.Instantiate(*static_cast<Scene*>(scenePtr), static_cast<Screen>(screen));
-        if (!result)
-            return false;
-        *outHandle = static_cast<unsigned int>(result.Handle());
         return true;
     }
 
@@ -568,7 +552,6 @@ namespace Duality {
         &EngineServices_Raycast2D,
         &EngineServices_Raycast3D,
         &EngineServices_ScreenPointToRay3D,
-        &EngineServices_InstantiateUIDocument,
         &EngineServices_AudioSourcePlay,
         &EngineServices_AudioSourceStop,
         &EngineServices_AudioSourceSetPaused,
@@ -797,7 +780,7 @@ namespace Duality {
             return result; // not Playing -- no btDiscreteDynamicsWorld to query yet
 
         glm::vec3 dir = glm::normalize(direction);
-        glm::vec3 fromWorld = origin / PhysicsUnits::PPU();
+        glm::vec3 fromWorld = origin;
         glm::vec3 to = fromWorld + dir * PhysicsUnits::ToPhysics(maxDistance);
         btVector3 from(fromWorld.x, fromWorld.y, fromWorld.z);
         btVector3 toBt(to.x, to.y, to.z);
@@ -871,8 +854,9 @@ namespace Duality {
         TransformComponent camTransform = GetWorldTransform(cameraEntity);
         float screenWidth, screenHeight;
         ScreenExtents(cameraComponent.Screen, screenWidth, screenHeight);
-        outWorld.x = (screenPoint.x - screenWidth * 0.5f) / cameraComponent.Zoom + camTransform.Translation.x;
-        outWorld.y = (screenPoint.y - screenHeight * 0.5f) / cameraComponent.Zoom + camTransform.Translation.y;
+        const float worldToPixels = cameraComponent.Zoom * PhysicsUnits::PPU();
+        outWorld.x = (screenPoint.x - screenWidth * 0.5f) / worldToPixels + camTransform.Translation.x;
+        outWorld.y = (screenPoint.y - screenHeight * 0.5f) / worldToPixels + camTransform.Translation.y;
         return true;
     }
 
@@ -911,9 +895,7 @@ namespace Duality {
         m_PhysicsWorld = world2D;
         b2World* world = world2D->World; // local alias, keeps the body-creation loop below unchanged
 
-        // Fixture area shrinks by ppm^2 after ToPhysics. Scale density the same way so
-        // Box2D mass (and therefore AddForce visual acceleration) stays pixel-equivalent.
-        const float densityScale = PhysicsUnits::PPU() * PhysicsUnits::PPU();
+        const float densityScale = 1.0f;
         auto bodyView = m_Registry.view<Rigidbody2DComponent, TransformComponent>();
         for (auto handle : bodyView) {
             auto& rb = bodyView.get<Rigidbody2DComponent>(handle);
@@ -1063,7 +1045,7 @@ namespace Duality {
                 auto& box = m_Registry.get<BoxCollider3DComponent>(handle);
                 ApplyPhysicsMaterial(box.PhysicsMaterial, box.Friction, box.Restitution, box.Density);
                 baseShape = new btBoxShape(btVector3(PhysicsUnits::ToPhysics(box.Size.x), PhysicsUnits::ToPhysics(box.Size.y), PhysicsUnits::ToPhysics(box.Size.z)));
-                offset = box.Offset / PhysicsUnits::PPU();
+                offset = box.Offset;
                 density = box.Density; friction = box.Friction; restitution = box.Restitution;
                 volume = (2.0f * box.Size.x) * (2.0f * box.Size.y) * (2.0f * box.Size.z);
                 isTrigger = box.IsTrigger;
@@ -1071,7 +1053,7 @@ namespace Duality {
                 auto& sphere = m_Registry.get<SphereCollider3DComponent>(handle);
                 ApplyPhysicsMaterial(sphere.PhysicsMaterial, sphere.Friction, sphere.Restitution, sphere.Density);
                 baseShape = new btSphereShape(PhysicsUnits::ToPhysics(sphere.Radius));
-                offset = sphere.Offset / PhysicsUnits::PPU();
+                offset = sphere.Offset;
                 density = sphere.Density; friction = sphere.Friction; restitution = sphere.Restitution;
                 volume = (4.0f / 3.0f) * glm::pi<float>() * sphere.Radius * sphere.Radius * sphere.Radius;
                 isTrigger = sphere.IsTrigger;
@@ -1079,7 +1061,7 @@ namespace Duality {
                 auto& cap = m_Registry.get<CapsuleCollider3DComponent>(handle);
                 ApplyPhysicsMaterial(cap.PhysicsMaterial, cap.Friction, cap.Restitution, cap.Density);
                 baseShape = new btCapsuleShape(PhysicsUnits::ToPhysics(cap.Radius), PhysicsUnits::ToPhysics(cap.Height));
-                offset = cap.Offset / PhysicsUnits::PPU();
+                offset = cap.Offset;
                 density = cap.Density; friction = cap.Friction; restitution = cap.Restitution;
                 volume = glm::pi<float>() * cap.Radius * cap.Radius * cap.Height;
                 isTrigger = cap.IsTrigger;
@@ -1545,7 +1527,13 @@ namespace Duality {
 
     namespace {
 
-        void DispatchPointerEvent(Scene& scene, entt::entity target, PointerEventData& eventData, void (Behaviour::*method)(PointerEventData&)) {
+        // Behaviour deliberately does not inherit pointer interfaces. A script opts into each
+        // event explicitly (`class MyScript : public Behaviour, public IPointerClickHandler`),
+        // matching Unity's EventSystem contract and avoiding five unused vtable interfaces on
+        // every behaviour. RTTI is available on both desktop and devkitARM builds.
+        template<typename THandler>
+        void DispatchPointerEvent(Scene& scene, entt::entity target, PointerEventData& eventData,
+                                  void (THandler::*method)(PointerEventData&)) {
             if (!scene.Registry().valid(target) || !scene.Registry().all_of<BehaviourComponent>(target))
                 return;
             if (!scene.IsEffectivelyActive(Entity(target, &scene)))
@@ -1554,8 +1542,11 @@ namespace Duality {
             for (auto& script : bc.Scripts) {
                 if (!script.Instance || !script.Enabled)
                     continue;
+                auto* handler = dynamic_cast<THandler*>(script.Instance);
+                if (!handler)
+                    continue;
                 ScriptContext::Bind(&s_EngineServices, &scene, static_cast<unsigned int>(target));
-                (script.Instance->*method)(eventData);
+                (handler->*method)(eventData);
                 ScriptContext::Clear();
             }
         }
@@ -1620,18 +1611,18 @@ namespace Duality {
             if (pointerOnThisScreen && hitHandle != state.HoveredEntity) {
                 if (state.HoveredEntity != entt::null) {
                     eventData.PointerCurrentRaycastTarget = Entity(state.HoveredEntity, &scene);
-                    DispatchPointerEvent(scene, state.HoveredEntity, eventData, &Behaviour::OnPointerExit);
+                    DispatchPointerEvent(scene, state.HoveredEntity, eventData, &IPointerExitHandler::OnPointerExit);
                 }
                 if (hitHandle != entt::null) {
                     eventData.PointerCurrentRaycastTarget = hitEntity;
-                    DispatchPointerEvent(scene, hitHandle, eventData, &Behaviour::OnPointerEnter);
+                    DispatchPointerEvent(scene, hitHandle, eventData, &IPointerEnterHandler::OnPointerEnter);
                 }
                 state.HoveredEntity = hitHandle;
             }
 
             if (!pointerOnThisScreen && state.HoveredEntity != entt::null) {
                 eventData.PointerCurrentRaycastTarget = Entity(state.HoveredEntity, &scene);
-                DispatchPointerEvent(scene, state.HoveredEntity, eventData, &Behaviour::OnPointerExit);
+                DispatchPointerEvent(scene, state.HoveredEntity, eventData, &IPointerExitHandler::OnPointerExit);
                 state.HoveredEntity = entt::null;
             }
 
@@ -1643,7 +1634,7 @@ namespace Duality {
                 state.PressedScreen = pointerScreen;
                 state.PressedPosition = pointer;
                 if (hitEntity)
-                    DispatchPointerEvent(scene, hitEntity.Handle(), eventData, &Behaviour::OnPointerDown);
+                    DispatchPointerEvent(scene, hitEntity.Handle(), eventData, &IPointerDownHandler::OnPointerDown);
             }
 
             if (pointerUpEdge && state.PressedEntity != entt::null && state.PressedScreen == cameraScreen) {
@@ -1654,9 +1645,9 @@ namespace Duality {
                 hitEntity = raycastFn(scene, cameraEntity, pointer, maxDistance, eventData.WorldPoint, eventData.Distance);
                 eventData.PointerCurrentRaycastTarget = hitEntity;
 
-                DispatchPointerEvent(scene, pressEntity.Handle(), eventData, &Behaviour::OnPointerUp);
+                DispatchPointerEvent(scene, pressEntity.Handle(), eventData, &IPointerUpHandler::OnPointerUp);
                 if (hitEntity && pressEntity.Handle() == hitEntity.Handle())
-                    DispatchPointerEvent(scene, hitEntity.Handle(), eventData, &Behaviour::OnPointerClick);
+                    DispatchPointerEvent(scene, hitEntity.Handle(), eventData, &IPointerClickHandler::OnPointerClick);
 
                 state.PressedEntity = entt::null;
             }
@@ -1665,13 +1656,13 @@ namespace Duality {
     }
 
     void UpdatePhysicsRaycasterInteractions(Scene& scene) {
-        glm::vec2 pointer = Input::GetPointerPosition();
-        Screen pointerScreen = Input::GetPointerScreen();
-        bool pointerDown = Input::GetPointerDown();
+        glm::vec2 pointer = InputManager::GetPointerPosition();
+        Screen pointerScreen = InputManager::GetPointerScreen();
+        bool pointerDown = InputManager::GetPointerDown();
 
         static bool s_WasPointerDown = false;
         bool pointerDownEdge = pointerDown && !s_WasPointerDown;
-        bool pointerUpEdge = Input::GetPointerUp();
+        bool pointerUpEdge = InputManager::GetPointerUp();
         s_WasPointerDown = pointerDown;
 
         auto raycaster2DView = scene.Registry().view<CameraComponent, PhysicsRaycaster2DComponent>();

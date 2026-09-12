@@ -8,7 +8,7 @@
 
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/ScriptEngine.h"
-#include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Input/InputManager.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
@@ -48,17 +48,22 @@ namespace Duality {
         }
 
         // Resolves a UIRectComponent entity's parent rect the same way ResolveUIRect's own
-        // internals do (root entities resolve against the raw physical screen) -- needed here
+        // internals do (root entities resolve against their owning Canvas screen) -- needed here
         // only to place the anchor marker, which ResolveUIRect itself has no reason to expose.
         void ResolveUIParentRect(Scene& scene, Entity entity, glm::vec2& outParentTopLeft, glm::vec2& outParentSize) {
-            auto& rect = entity.GetComponent<UIRectComponent>();
             Entity parent = entity.GetComponent<HierarchyComponent>().Parent;
             if (parent && parent.HasComponent<UIRectComponent>()) {
                 ResolveUIRect(scene, parent, outParentTopLeft, outParentSize);
             } else {
                 outParentTopLeft = { 0.0f, 0.0f };
-                outParentSize.x = (rect.Screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
-                outParentSize.y = (rect.Screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
+                Entity canvas = FindOwningCanvas(scene, entity);
+                if (!canvas) {
+                    outParentSize = { 0.0f, 0.0f };
+                    return;
+                }
+                Screen canvasScreen = canvas.GetComponent<CanvasComponent>().Screen;
+                outParentSize.x = (canvasScreen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
+                outParentSize.y = (canvasScreen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
             }
         }
 
@@ -68,13 +73,14 @@ namespace Duality {
         // coordinates -- the exact same conversion `drawScreen` already does for mouse input.
         void DrawUIRectGizmo(EditorContext& ctx, Screen screen, ImVec2 screenOrigin, float scale) {
             Scene& scene = ctx.SceneRef;
+            EnsureUIElementsHaveCanvas(scene);
 
             struct Item { Entity E; int Sort; };
             std::vector<Item> items;
             for (auto handle : scene.Registry().view<UIRectComponent>()) {
                 Entity e(handle, &scene);
                 auto& rect = e.GetComponent<UIRectComponent>();
-                if (rect.Screen != screen || !rect.Enabled)
+                if (!IsUIElementOnCanvas(scene, e, screen) || !rect.Enabled)
                     continue;
                 int sort = rect.SortOrder;
                 Entity current = e;
@@ -122,7 +128,7 @@ namespace Duality {
             if (!selected || !selected.HasComponent<UIRectComponent>())
                 return;
             auto& selectedRect = selected.GetComponent<UIRectComponent>();
-            if (selectedRect.Screen != screen || !selectedRect.Enabled)
+            if (!IsUIElementOnCanvas(scene, selected, screen) || !selectedRect.Enabled)
                 return;
 
             glm::vec2 topLeft, size;
@@ -266,11 +272,11 @@ namespace Duality {
                 ImVec2 mouse = ImGui::GetIO().MousePos;
                 glm::vec2 local{ (mouse.x - itemMin.x) / scale, (mouse.y - itemMin.y) / scale };
                 bool down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-                Input::SetPointer(down, local, screen);
+                InputManager::SetPointer(down, local, screen);
             }
 
             // Visual UI Transform gizmo -- Editor-only, gated on not Playing so it never
-            // intercepts real touch input Play needs (see Input::SetPointer above).
+            // intercepts real touch input Play needs (see InputManager::SetPointer above).
             if (!ctx.IsPlaying)
                 DrawUIRectGizmo(ctx, screen, itemMin, scale);
 
@@ -285,7 +291,7 @@ namespace Duality {
         // "still down over the last-hovered screen" state lingering (e.g. the user dragged the
         // mouse off the Game panel entirely mid-press).
         if (!anyScreenHovered)
-            Input::SetPointer(false, { 0.0f, 0.0f }, Screen::Top);
+            InputManager::SetPointer(false, { 0.0f, 0.0f }, Screen::Top);
 
         ImGui::End();
     }

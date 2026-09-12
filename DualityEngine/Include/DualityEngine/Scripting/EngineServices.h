@@ -104,13 +104,6 @@ namespace Duality {
                                     float* outOriginX, float* outOriginY, float* outOriginZ,
                                     float* outDirX, float* outDirY, float* outDirZ);
 
-        // Unity UI Toolkit-style declarative UI -- `uiDocumentAssetGuid` is an AssetRef's Guid
-        // pointing at a ".uidoc" markup asset (see UI/UIDocument.h). Same per-call-not-baked-in
-        // `scene` reasoning as Instantiate/FindEntityInScreen above. `screen` is a Duality::
-        // Screen cast to int. Returns true and fills *outHandle with the new root entity's raw
-        // handle on success.
-        bool (*InstantiateUIDocument)(void* scene, const char* uiDocumentAssetGuid, int screen, unsigned int* outHandle);
-
         // Unity's AudioSource -- per-entity clip playback on AudioSourceComponent.
         void (*AudioSourcePlay)(void* scene, unsigned int entityHandle);
         void (*AudioSourceStop)(void* scene, unsigned int entityHandle);
@@ -126,7 +119,7 @@ namespace Duality {
         // inline statics) -- confirmed as a real bug this way: Scene::OnRuntimeUpdate's
         // ScriptContext::Bind() call, compiled into the host EXE/DualityEngine.lib, was
         // silently writing to a COMPLETELY different memory location than
-        // ScriptInput::GetAxis()/ScriptPhysics2D::Raycast()/ScriptScene::FindEntityInScreen(),
+        // Input::GetAxis()/ScriptPhysics2D::Raycast()/ScriptScene::FindEntityInScreen(),
         // compiled into the separately-linked GameScripts.dll on desktop, was reading from --
         // every one of them silently returned its "nothing bound" default on every desktop
         // Play/DualityPlayerDesktop session, while working correctly on the 3DS build (where

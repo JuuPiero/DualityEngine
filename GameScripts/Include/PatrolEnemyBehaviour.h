@@ -12,8 +12,8 @@ public:
     void OnCreate() override;
     void OnUpdate(float deltaTime) override;
 
-    DUALITY_PROPERTY() float Speed = 40.0f;
-    DUALITY_PROPERTY() float Range = 60.0f;
+    DUALITY_PROPERTY() float Speed = 0.4f;
+    DUALITY_PROPERTY() float Range = 0.6f;
 
     DUALITY_PROPERTIES_AUTO()
 

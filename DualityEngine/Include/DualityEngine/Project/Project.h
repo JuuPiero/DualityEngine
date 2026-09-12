@@ -8,6 +8,10 @@ namespace Duality {
 
     struct ProjectConfig {
         std::string Name = "Untitled";
+        // Unity-style player metadata. These do not change an asset path, so unlike the
+        // directory fields below they are safe to edit while a project is open.
+        std::string CompanyName;
+        std::string Version = "0.1.0";
         std::string AssetsDirectory = "Assets";
         // Relative to AssetsDirectory, matching Unity's own Assets/Scripts/ convention -- where
         // this project's own gameplay scripts live (compiled into GameScripts alongside the
@@ -48,13 +52,11 @@ namespace Duality {
         // its own).
         std::string ProductName;
 
-        // Physics (Project Settings). Transform/rendering stay in pixels. Box2D/Bullet
-        // divide linear quantities by PPU (pixels per unit). 1 unit is not a meter —
-        // any scale that keeps solver values in a comfortable range. 1 = identity.
-        // Gravity is scene pixels/s^2, +Y down (default 400). Physics gravity is
-        // Gravity / PPU.
-        float PPU = 1.0f;
-        float Gravity = 400.0f;
+        // Unity-style 2D pixels-per-unit render scale. Transform and physics values are
+        // world units; PPU only maps one world unit to this many screen pixels.
+        // Gravity is world units/s^2, +Y down.
+        float PPU = 100.0f;
+        float Gravity = 9.81f;
     };
 
     // Root of a Duality project on disk: an Assets folder + a config file.

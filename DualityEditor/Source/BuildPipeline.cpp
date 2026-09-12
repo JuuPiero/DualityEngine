@@ -287,8 +287,8 @@ namespace Duality {
         // before it creates its render targets.
         json runtimeBuildSettings;
         runtimeBuildSettings["N3DSAntiAliasing"] = activeProject ? activeProject->GetConfig().N3DSAntiAliasing : 0;
-        runtimeBuildSettings["PPU"] = activeProject ? activeProject->GetConfig().PPU : 1.0f;
-        runtimeBuildSettings["Gravity"] = activeProject ? activeProject->GetConfig().Gravity : 400.0f;
+        runtimeBuildSettings["PPU"] = activeProject ? activeProject->GetConfig().PPU : 100.0f;
+        runtimeBuildSettings["Gravity"] = activeProject ? activeProject->GetConfig().Gravity : 9.81f;
         std::ofstream runtimeSettingsFile(std::filesystem::path(repoRoot) / "DualityPlayer" / "romfs" / "BuildSettings.json");
         if (!runtimeSettingsFile.is_open()) {
             Log::Error("BuildPipeline: could not write 3DS runtime build settings");

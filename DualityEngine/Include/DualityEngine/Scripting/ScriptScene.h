@@ -44,21 +44,6 @@ namespace Duality {
             return Entity(static_cast<entt::entity>(handle), static_cast<Scene*>(scene));
         }
 
-        // Unity UI Toolkit-style declarative UI -- `uiDocumentAssetGuid` points at a ".uidoc"
-        // markup asset, instantiated onto `screen` as a new root entity.
-        static Entity InstantiateUIDocument(const std::string& uiDocumentAssetGuid, Screen screen) {
-            const EngineServices* services = ScriptContext::Services();
-            void* scene = ScriptContext::Scene();
-            if (!services || !scene)
-                return Entity{};
-
-            unsigned int handle = 0;
-            if (!services->InstantiateUIDocument(scene, uiDocumentAssetGuid.c_str(), static_cast<int>(screen), &handle))
-                return Entity{};
-
-            return Entity(static_cast<entt::entity>(handle), static_cast<Scene*>(scene));
-        }
-
         // Unity's ScriptableObject data-asset lookup -- caller supplies concrete type T since
         // the engine side only hands back an opaque void* across the DLL boundary.
         template<typename T>

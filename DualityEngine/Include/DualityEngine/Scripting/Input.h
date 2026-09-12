@@ -10,10 +10,11 @@
 
 namespace Duality {
 
-    // Unity's Input class -- static queries routed through EngineServices (GameScripts
-    // can't call Duality::Input directly across the DLL boundary on desktop). Requires
+    // Unity's Input class -- static queries routed through EngineServices. This is the public
+    // gameplay API; GameScripts cannot call InputManager directly across the DLL boundary on
+    // desktop. Requires
     // ScriptContext to be bound (Scene does this before every Behaviour callback).
-    class ScriptInput {
+    class Input {
     public:
         static bool GetKey(KeyCode key) {
             const EngineServices* services = ScriptContext::Services();

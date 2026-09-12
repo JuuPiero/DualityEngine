@@ -8,8 +8,8 @@
 #include "DualityEngine/IO/SaveSystem.h"
 #include "DualityEngine/Input/KeyCode.h"
 #include "DualityEngine/Scene/Components.h"
-#include "DualityEngine/Scripting/ScriptAudio.h"
-#include "DualityEngine/Scripting/ScriptInput.h"
+#include "DualityEngine/Scripting/AudioSource.h"
+#include "DualityEngine/Scripting/Input.h"
 #include "ScriptRegistration.h"
 
 namespace {
@@ -20,8 +20,8 @@ namespace {
     // "find asset by path" API, only AssetRef-by-guid (Reflection/Field.h).
     constexpr const char* BeepSoundGuid = "8a4d16acd221a915c511d03ab1e78b16";
 
-    constexpr float MoveSpeed = 80.0f;
-    constexpr float PointerFollowSpeed = 120.0f;
+    constexpr float MoveSpeed = 0.8f;
+    constexpr float PointerFollowSpeed = 1.2f;
 }
 
 void ApiShowcaseBehaviour::OnCreate() {
@@ -54,8 +54,8 @@ void ApiShowcaseBehaviour::OnUpdate(float deltaTime) {
     // Circle Pad on 3DS -- same script code either way. A 3D mesh entity moves in the ground
     // plane (X/Z, this engine's 3D convention -- see IRenderer3D.h/ScenePanel.cpp's orbit
     // camera) instead of 2D's screen-space X/Y.
-    float horizontal = Duality::ScriptInput::GetAxis("Horizontal");
-    float vertical = Duality::ScriptInput::GetAxis("Vertical");
+    float horizontal = Duality::Input::GetAxis("Horizontal");
+    float vertical = Duality::Input::GetAxis("Vertical");
     transform.Translation.x += horizontal * MoveSpeed * deltaTime;
     if (is3D)
         transform.Translation.z += vertical * MoveSpeed * deltaTime;
@@ -68,8 +68,8 @@ void ApiShowcaseBehaviour::OnUpdate(float deltaTime) {
     // approximate even in 2D; there's no script-facing screen-to-3D-world-ray API yet to make
     // an equivalent meaningful for a mesh entity (see ScenePanel.cpp's own Editor-only pick
     // ray for what that would need).
-    if (!is3D && Duality::ScriptInput::GetPointerDown()) {
-        glm::vec2 pointer = Duality::ScriptInput::GetPointerPosition();
+    if (!is3D && Duality::Input::GetPointerDown()) {
+        glm::vec2 pointer = Duality::Input::GetPointerPosition();
         glm::vec2 toPointer = pointer - glm::vec2(transform.Translation.x, transform.Translation.y);
         float distance = glm::length(toPointer);
         if (distance > 1.0f) {
@@ -79,15 +79,15 @@ void ApiShowcaseBehaviour::OnUpdate(float deltaTime) {
         }
     }
 
-    // Input (keys) -> Audio: a short beep on Space (desktop) or A (3DS) via AudioSource.
-    if (Duality::ScriptInput::GetKeyDown(Duality::KeyCode::Space) || Duality::ScriptInput::GetKeyDown(Duality::KeyCode::GamepadA)) {
+    // Input (keys) -> AudioSource component: a short beep on Space (desktop) or A (3DS).
+    if (Duality::Input::GetKeyDown(Duality::KeyCode::Space) || Duality::Input::GetKeyDown(Duality::KeyCode::GamepadA)) {
         if (!GetEntity().HasComponent<Duality::AudioSourceComponent>()) {
             auto& audio = GetEntity().AddComponent<Duality::AudioSourceComponent>();
             audio.Clip.Guid = BeepSoundGuid;
         } else if (GetComponent<Duality::AudioSourceComponent>().Clip.Guid.empty()) {
             GetComponent<Duality::AudioSourceComponent>().Clip.Guid = BeepSoundGuid;
         }
-        GetAudioSource().Play();
+        Duality::AudioSource(GetEntity()).Play();
     }
 
     // DateTime: real-world clock drives rotation continuously, visible proof it's live even

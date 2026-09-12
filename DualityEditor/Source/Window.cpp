@@ -11,7 +11,7 @@
 #include <imgui_impl_opengl3.h>
 
 #include "DualityEngine/Core/Log.h"
-#include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Input/InputManager.h"
 
 namespace Duality {
 
@@ -120,10 +120,10 @@ namespace Duality {
         // the exact moment focus enters/leaves an ImGui widget. Not worth
         // reordering NewFrame() earlier just to close that gap.
         ImGuiIO& io = ImGui::GetIO();
-        Input::BeginFrame();
+        InputManager::BeginFrame();
         for (auto& [keyCode, glfwKey] : kDesktopKeyMap) {
             bool pressed = !io.WantCaptureKeyboard && glfwGetKey(m_Handle, glfwKey) == GLFW_PRESS;
-            Input::SetKeyState(keyCode, pressed);
+            InputManager::SetKeyState(keyCode, pressed);
         }
         float horizontal = 0.0f, vertical = 0.0f;
         if (!io.WantCaptureKeyboard) {
@@ -132,13 +132,13 @@ namespace Duality {
             if (glfwGetKey(m_Handle, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(m_Handle, GLFW_KEY_DOWN) == GLFW_PRESS) vertical += 1.0f;
             if (glfwGetKey(m_Handle, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(m_Handle, GLFW_KEY_UP) == GLFW_PRESS) vertical -= 1.0f;
         }
-        Input::SetAxis("Horizontal", horizontal);
-        Input::SetAxis("Vertical", vertical);
+        InputManager::SetAxis("Horizontal", horizontal);
+        InputManager::SetAxis("Vertical", vertical);
 
         // Pointer state is NOT set here -- unlike keys/axes, resolving "which screen" (Top or
         // Bottom) a raw window-space mouse position falls over needs GamePanel's own knowledge
         // of where each screen's image is actually drawn this frame, which this class doesn't
-        // have. GamePanel::OnImGuiRender calls Input::SetPointer itself once it draws the two
+        // have. GamePanel::OnImGuiRender calls InputManager::SetPointer itself once it draws the two
         // screen images, later in this same frame (Application::Run() renders it after
         // Window::BeginFrame) -- see its own comment.
         ImGui_ImplOpenGL3_NewFrame();

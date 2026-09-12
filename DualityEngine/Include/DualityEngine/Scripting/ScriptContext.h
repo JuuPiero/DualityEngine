@@ -5,7 +5,7 @@
 namespace Duality {
 
     // Per-callback execution context for Unity-style static scripting APIs
-    // (ScriptInput, ScriptPhysics2D/3D, ScriptDebug, ScriptAudio, ScriptScene).
+    // (Input, ScriptPhysics2D/3D, ScriptDebug, ScriptAudio, ScriptScene).
     // Scene binds this right before every Behaviour lifecycle/collision callback
     // and clears it afterward -- scripts never call Bind/Clear themselves.
     //

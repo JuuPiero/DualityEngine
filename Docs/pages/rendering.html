@@ -118,7 +118,7 @@
                             tương tác (đè lên <code>UIImageComponent::Color</code>), không cần script.
                             Chỉ phản ứng với pointer đang ở <strong>đúng màn</strong> của chính nó
                             (<code>UIRectComponent::Screen</code>) — Top/Bottom có vùng toạ độ local
-                            trùng nhau nên việc này cần <code>Input::GetPointerScreen()</code> để phân
+                            trùng nhau nên việc này cần <code>InputManager::GetPointerScreen()</code> để phân
                             biệt.
                         </p>
                         <pre><code><span class="tok-kw">if</span> (button.WasClicked) { <span class="tok-com">/* xử lý click, đọc trực tiếp component (không qua Behaviour wrapper riêng) */</span> }</code></pre>

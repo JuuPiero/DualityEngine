@@ -120,7 +120,6 @@ namespace Duality {
 
         TypeRegistry::Register<UIRectComponent>("UI Rect", false, {
             MakeField("Enabled", &UIRectComponent::Enabled),
-            MakeField("Screen", &UIRectComponent::Screen),
             MakeField("Anchor Min", &UIRectComponent::AnchorMin),
             MakeField("Anchor Max", &UIRectComponent::AnchorMax),
             MakeField("Pivot", &UIRectComponent::Pivot),
@@ -131,6 +130,7 @@ namespace Duality {
 
         TypeRegistry::Register<CanvasComponent>("Canvas", false, {
             MakeField("Enabled", &CanvasComponent::Enabled),
+            MakeField("Screen", &CanvasComponent::Screen),
             MakeField("Render Mode", &CanvasComponent::RenderMode),
             MakeField("Sort Order", &CanvasComponent::SortOrder),
             MakeField("Scale Factor", &CanvasComponent::ScaleFactor),
@@ -187,12 +187,6 @@ namespace Duality {
             MakeField("Enabled", &UIInputFieldComponent::Enabled),
             MakeField("Text", &UIInputFieldComponent::Text),
             MakeField("Placeholder", &UIInputFieldComponent::Placeholder),
-        });
-
-        TypeRegistry::Register<UIDocumentReferenceComponent>("UI Document Reference", false, {
-            MakeField("Enabled", &UIDocumentReferenceComponent::Enabled),
-            MakeField("Document", &UIDocumentReferenceComponent::Document),
-            MakeField("Instantiate On Play", &UIDocumentReferenceComponent::InstantiateOnPlay),
         });
 
         TypeRegistry::Register<SpriteSheetAnimatorComponent>("Sprite Sheet Animator", false, {

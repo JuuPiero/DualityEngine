@@ -9,22 +9,17 @@
 
 namespace Duality {
 
-    // Unity-old-Input-Manager-style input, backed by real per-frame polling
+    // Engine-side input state manager, backed by real per-frame polling
     // done by whichever platform host owns the actual window/hardware
     // (DualityEditor's Window.cpp on desktop via GLFW, DualityPlayer's
     // Main.cpp on device via libctru's hid* functions) -- this class only
     // holds the resulting state and answers queries, it never polls
     // anything itself.
     //
-    // GameScripts (where Behaviour subclasses live) can't call this
-    // directly on desktop -- it doesn't link DualityEngine's compiled lib,
-    // the same reason a Debug.Log-equivalent doesn't reach it either (see
-    // ROADMAP.md). Scripts should call the convenience methods inherited
-    // from Behaviour instead (Scene wires those up via EngineServices,
-    // see Scripting/EngineServices.h) -- this class is for
-    // DualityEditor/DualityPlayer's own use, and as what those Behaviour
-    // methods forward to internally.
-    class Input {
+    // GameScripts use the Unity-facing `Duality::Input` in Scripting/Input.h;
+    // that API reaches this manager through EngineServices. InputManager is
+    // exclusively for platform hosts (Editor/Player) and engine runtime code.
+    class InputManager {
     public:
         static bool GetKey(KeyCode key);
         static bool GetKeyDown(KeyCode key);

@@ -27,7 +27,7 @@ namespace Duality {
     // the anchor names) + Size into the equivalent AnchorMin/AnchorMax/Pivot/AnchoredPosition/
     // SizeDelta that resolves to the exact same pixel rect under the new RectTransform-style
     // ResolveUIRect. Used both to load pre-RectTransform scene files without resetting UI
-    // positions, and by UIDocument's own anchor=/x=/y=/width=/height= attribute vocabulary,
+    // positions. It remains useful for Canvas UI anchor-preset buttons in the Inspector,
     // which has always meant this same "offset is a margin from the anchored edge" semantics.
     void LegacyUIAnchorToRectTransform(UIAnchor preset, glm::vec2 offset, glm::vec2 size,
         glm::vec2& outAnchorMin, glm::vec2& outAnchorMax, glm::vec2& outPivot,

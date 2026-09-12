@@ -1,12 +1,15 @@
 {
   "AssetsDirectory": "Assets",
-  "Gravity": 400.0,
+  "CompanyName": "",
+  "Gravity": 9.8100004196167,
   "IconPath": "",
   "N3DSAntiAliasing": 0,
   "Name": "SampleProject",
-  "PPU": 1.0,
+  "PPU": 100.0,
   "ProductName": "",
   "ScenesInBuild": [],
   "ScriptsDirectory": "Scripts",
-  "StartScene": ""
+  "StartScene": "",
+  "Version": "0.1.0",
+  "WorldUnitsVersion": 2
 }

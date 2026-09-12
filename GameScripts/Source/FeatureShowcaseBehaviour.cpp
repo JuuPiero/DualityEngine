@@ -7,9 +7,14 @@
 
 #include "DualityEngine/Input/KeyCode.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scripting/AudioSource.h"
+#include "DualityEngine/Scripting/EntityLayer.h"
+#include "DualityEngine/Scripting/Rigidbody2D.h"
 #include "DualityEngine/Scripting/ScriptDebug.h"
-#include "DualityEngine/Scripting/ScriptInput.h"
+#include "DualityEngine/Scripting/Input.h"
 #include "DualityEngine/Scripting/ScriptPhysics2D.h"
+#include "DualityEngine/Scripting/SpriteRenderer.h"
+#include "DualityEngine/Scripting/Transform.h"
 #include "ScriptRegistration.h"
 
 namespace {
@@ -17,10 +22,10 @@ namespace {
 }
 
 void FeatureShowcaseBehaviour::OnCreate() {
-    m_BaseY = GetTransform().GetLocalPosition().y;
+    m_BaseY = Duality::Transform(GetEntity()).GetLocalPosition().y;
 
     if (RenderLayer != Duality::Layer::Default)
-        GetEntityLayer().SetComponentLayer(RenderLayer);
+        Duality::EntityLayer(GetEntity()).SetComponentLayer(RenderLayer);
 
     if (Tuning.VerboseLog && !m_LoggedCreate) {
         Duality::ScriptDebug::LogInfo("[FeatureShowcase] OnCreate -- Motion="
@@ -31,11 +36,11 @@ void FeatureShowcaseBehaviour::OnCreate() {
 
 void FeatureShowcaseBehaviour::OnUpdate(float deltaTime) {
     m_Time += deltaTime;
-    auto transform = GetTransform();
+    Duality::Transform transform(GetEntity());
     glm::vec3 position = transform.GetLocalPosition();
 
-    float horizontal = Duality::ScriptInput::GetAxis("Horizontal");
-    float vertical = Duality::ScriptInput::GetAxis("Vertical");
+    float horizontal = Duality::Input::GetAxis("Horizontal");
+    float vertical = Duality::Input::GetAxis("Vertical");
     position.x += horizontal * MoveSpeed * Tuning.Intensity * deltaTime;
     position.y += vertical * MoveSpeed * Tuning.Intensity * deltaTime;
 
@@ -43,7 +48,7 @@ void FeatureShowcaseBehaviour::OnUpdate(float deltaTime) {
         case ShowcaseMotion::Idle:
             break;
         case ShowcaseMotion::Bounce:
-            position.y = m_BaseY + std::sin(m_Time * 4.0f * Tuning.Intensity) * 24.0f;
+            position.y = m_BaseY + std::sin(m_Time * 4.0f * Tuning.Intensity) * 0.24f;
             break;
         case ShowcaseMotion::Spin:
             transform.SetLocalRotation({ 0.0f, 0.0f, m_Time * 90.0f * Tuning.Intensity });
@@ -68,31 +73,32 @@ void FeatureShowcaseBehaviour::OnUpdate(float deltaTime) {
         transform.SetLocalPosition(position);
 
     if (EnablePhysicsPush && GetEntity().HasComponent<Duality::Rigidbody2DComponent>()) {
-        auto rb = GetRigidbody2D();
+        Duality::Rigidbody2D rb(GetEntity());
         if (PreferredBody == Duality::BodyType::Dynamic)
             rb.AddForce({ horizontal * 120.0f * Tuning.Intensity, vertical * 120.0f * Tuning.Intensity });
     }
 
-    if (GetSpriteRenderer()) {
+    Duality::SpriteRenderer spriteRenderer(GetEntity());
+    if (spriteRenderer) {
         float hue = static_cast<float>(static_cast<int>(Motion)) / 4.0f;
-        GetSpriteRenderer().SetColor({ hue, 0.7f, 1.0f - hue, 1.0f });
+        spriteRenderer.SetColor({ hue, 0.7f, 1.0f - hue, 1.0f });
     }
 
-    if (Duality::ScriptInput::GetPointerDown()) {
-        glm::vec2 pointer = Duality::ScriptInput::GetPointerPosition();
+    if (Duality::Input::GetPointerDown()) {
+        glm::vec2 pointer = Duality::Input::GetPointerPosition();
         glm::vec2 origin = { position.x, position.y };
         glm::vec2 dir = pointer - origin;
         float len = glm::length(dir);
-        if (len > 1.0f) {
+        if (len > 0.01f) {
             dir /= len;
-            auto hit = Duality::ScriptPhysics2D::Raycast(origin, dir, 512.0f);
+            auto hit = Duality::ScriptPhysics2D::Raycast(origin, dir, 5.12f);
             if (hit && Tuning.VerboseLog)
                 Duality::ScriptDebug::LogInfo("[FeatureShowcase] Raycast hit entity");
         }
     }
 
-    if (Duality::ScriptInput::GetKeyDown(Duality::KeyCode::Space) || Duality::ScriptInput::GetKeyDown(Duality::KeyCode::GamepadA)) {
-        auto audio = GetAudioSource();
+    if (Duality::Input::GetKeyDown(Duality::KeyCode::Space) || Duality::Input::GetKeyDown(Duality::KeyCode::GamepadA)) {
+        Duality::AudioSource audio(GetEntity());
         if (!GetEntity().HasComponent<Duality::AudioSourceComponent>()) {
             auto& source = GetEntity().AddComponent<Duality::AudioSourceComponent>();
             source.Clip.Guid = SfxClip.Guid.empty() ? BeepSoundGuid : SfxClip.Guid;

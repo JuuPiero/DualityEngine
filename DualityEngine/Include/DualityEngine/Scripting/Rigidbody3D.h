@@ -4,35 +4,36 @@
 
 #include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Scene/Components.h"
-#include "DualityEngine/Scripting/EngineServices.h"
+#include "DualityEngine/Scripting/ScriptContext.h"
 
 namespace Duality {
 
     // Unity's Rigidbody component API -- velocity/AddForce on an entity's own
-    // Rigidbody3DComponent (btRigidBody isn't header-only, so calls route through EngineServices).
-    // Obtain from Behaviour::GetRigidbody3D(), not GetComponent.
+    // Rigidbody3DComponent (btRigidBody isn't header-only, so calls route through
+    // ScriptContext's EngineServices bridge). Create explicitly with `Rigidbody3D(entity)`.
     class Rigidbody3D {
     public:
-        Rigidbody3D(Entity entity, const EngineServices* services) : m_Entity(entity), m_Services(services) {}
+        explicit Rigidbody3D(Entity entity) : m_Entity(entity) {}
 
         operator bool() const { return m_Entity && m_Entity.HasComponent<Rigidbody3DComponent>(); }
 
         glm::vec3 GetVelocity() const {
-            if (!m_Services || !m_Entity)
+            const EngineServices* services = ScriptContext::Services();
+            if (!services || !m_Entity)
                 return { 0.0f, 0.0f, 0.0f };
             float x = 0.0f, y = 0.0f, z = 0.0f;
-            m_Services->GetVelocity3D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), &x, &y, &z);
+            services->GetVelocity3D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), &x, &y, &z);
             return { x, y, z };
         }
 
         void SetVelocity(const glm::vec3& velocity) {
-            if (m_Services && m_Entity)
-                m_Services->SetVelocity3D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), velocity.x, velocity.y, velocity.z);
+            if (const EngineServices* services = ScriptContext::Services(); services && m_Entity)
+                services->SetVelocity3D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), velocity.x, velocity.y, velocity.z);
         }
 
         void AddForce(const glm::vec3& force) {
-            if (m_Services && m_Entity)
-                m_Services->AddForce3D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), force.x, force.y, force.z);
+            if (const EngineServices* services = ScriptContext::Services(); services && m_Entity)
+                services->AddForce3D(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()), force.x, force.y, force.z);
         }
 
         BodyType GetBodyType() const {
@@ -45,7 +46,6 @@ namespace Duality {
 
     private:
         Entity m_Entity;
-        const EngineServices* m_Services = nullptr;
     };
 
 }

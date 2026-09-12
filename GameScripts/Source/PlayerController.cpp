@@ -4,13 +4,16 @@
 #include <string>
 
 #include "DualityEngine/Input/KeyCode.h"
-#include "DualityEngine/Scripting/ScriptInput.h"
+#include "DualityEngine/Scripting/Rigidbody2D.h"
+#include "DualityEngine/Scripting/Input.h"
 #include "DualityEngine/Scripting/ScriptPhysics2D.h"
 #include "DualityEngine/Scripting/ScriptScene.h"
+#include "DualityEngine/Scripting/Transform.h"
+#include "DualityEngine/Scripting/UIWidgets.h"
 #include "ScriptRegistration.h"
 
 void PlayerController::OnCreate() {
-    m_SpawnPosition = GetTransform().GetLocalPosition();
+    m_SpawnPosition = Duality::Transform(GetEntity()).GetLocalPosition();
 
     if (!CameraName.empty())
         m_Camera = Duality::ScriptScene::FindEntityInTopScreen(CameraName);
@@ -43,9 +46,9 @@ bool PlayerController::IsGrounded() {
     // cause of jump silently never working: a real Scene::Raycast2D probe from a resting
     // position found nothing at all. Casting from the center avoids both failure modes at once.
     auto& collider = GetEntity().GetComponent<Duality::BoxCollider2DComponent>();
-    glm::vec3 position = GetTransform().GetLocalPosition();
+    glm::vec3 position = Duality::Transform(GetEntity()).GetLocalPosition();
     glm::vec2 origin{ position.x, position.y };
-    Duality::RaycastHit2D hit = Duality::ScriptPhysics2D::Raycast(origin, { 0.0f, 1.0f }, collider.Size.y + 4.0f);
+    Duality::RaycastHit2D hit = Duality::ScriptPhysics2D::Raycast(origin, { 0.0f, 1.0f }, collider.Size.y + 0.04f);
     return static_cast<bool>(hit) && hit.HitEntity != GetEntity();
 }
 
@@ -57,7 +60,7 @@ void PlayerController::OnUpdate(float deltaTime) {
 
     // Touch buttons are ADDITIVE with keyboard/gamepad -- holding LeftButton/RightButton (mouse
     // click on desktop, touch on 3DS) works exactly like holding A/D.
-    float horizontal = Duality::ScriptInput::GetAxis("Horizontal");
+    float horizontal = Duality::Input::GetAxis("Horizontal");
     Duality::UIButton leftButton(m_LeftButton);
     Duality::UIButton rightButton(m_RightButton);
     if (leftButton && leftButton.IsPressed())
@@ -66,14 +69,15 @@ void PlayerController::OnUpdate(float deltaTime) {
         horizontal += 1.0f;
     horizontal = std::clamp(horizontal, -1.0f, 1.0f);
 
-    glm::vec2 velocity = GetRigidbody2D().GetVelocity();
+    Duality::Rigidbody2D rigidbody(GetEntity());
+    glm::vec2 velocity = rigidbody.GetVelocity();
     velocity.x = horizontal * MoveSpeed;
 
     bool grounded = IsGrounded();
-    bool jumpKeyPressed = Duality::ScriptInput::GetKeyDown(Duality::KeyCode::Space)
-        || Duality::ScriptInput::GetKeyDown(Duality::KeyCode::Up)
-        || Duality::ScriptInput::GetKeyDown(Duality::KeyCode::GamepadA)
-        || Duality::ScriptInput::GetKeyDown(Duality::KeyCode::GamepadB);
+    bool jumpKeyPressed = Duality::Input::GetKeyDown(Duality::KeyCode::Space)
+        || Duality::Input::GetKeyDown(Duality::KeyCode::Up)
+        || Duality::Input::GetKeyDown(Duality::KeyCode::GamepadA)
+        || Duality::Input::GetKeyDown(Duality::KeyCode::GamepadB);
     // JumpButton only exposes a level (IsPressed), not an edge like GetKeyDown -- track the
     // transition ourselves so holding it down doesn't repeatedly re-trigger the jump velocity
     // every single frame.
@@ -85,14 +89,14 @@ void PlayerController::OnUpdate(float deltaTime) {
     if (grounded && jumpPressed)
         velocity.y = -JumpSpeed; // world +Y is down in this engine, so "up" is negative Y
 
-    GetRigidbody2D().SetVelocity(velocity);
+    rigidbody.SetVelocity(velocity);
 
     if (horizontal != 0.0f && GetEntity().HasComponent<Duality::SpriteRendererComponent>())
         GetEntity().GetComponent<Duality::SpriteRendererComponent>().FlipX = horizontal < 0.0f;
 
     // Falling off the bottom of the level respawns at the start, same outcome as touching a
     // Hazard trigger.
-    if (GetTransform().GetLocalPosition().y > 400.0f)
+    if (Duality::Transform(GetEntity()).GetLocalPosition().y > 4.0f)
         Respawn();
 }
 
@@ -100,7 +104,7 @@ void PlayerController::UpdateCamera(float deltaTime) {
     if (!m_Camera || !m_Camera.HasComponent<Duality::TransformComponent>())
         return;
     auto& cameraTransform = m_Camera.GetComponent<Duality::TransformComponent>();
-    float targetX = GetTransform().GetLocalPosition().x;
+    float targetX = Duality::Transform(GetEntity()).GetLocalPosition().x;
     if (CameraFollowSpeed <= 0.0f) {
         cameraTransform.Translation.x = targetX;
     } else {
@@ -122,14 +126,14 @@ void PlayerController::OnTriggerEnter(Duality::Entity other) {
         Respawn();
     } else if (tag == "Goal") {
         m_Finished = true;
-        GetRigidbody2D().SetVelocity({ 0.0f, 0.0f });
+        Duality::Rigidbody2D(GetEntity()).SetVelocity({ 0.0f, 0.0f });
         ShowStatus("You Win!  Coins: " + std::to_string(m_Coins));
     }
 }
 
 void PlayerController::Respawn() {
-    GetTransform().SetLocalPosition(m_SpawnPosition);
-    GetRigidbody2D().SetVelocity({ 0.0f, 0.0f });
+    Duality::Transform(GetEntity()).SetLocalPosition(m_SpawnPosition);
+    Duality::Rigidbody2D(GetEntity()).SetVelocity({ 0.0f, 0.0f });
 }
 
 void PlayerController::UpdateScoreLabel() {

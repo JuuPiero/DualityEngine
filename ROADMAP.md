@@ -267,7 +267,7 @@ this file whenever something below actually gets built, or a new deferred item c
         exactly one global pointer `(x,y)` with NO screen tag at all -- Top (400x240) and
         Bottom (320x240) screen-local pixel ranges overlap, so nothing could tell "was this
         touch/click actually on the screen a raycast/UI button cares about". Fixed by adding
-        `Input::SetPointer(down, position, screen)`/`GetPointerScreen()` (`Behaviour::
+        `InputManager::SetPointer(down, position, screen)`/`GetPointerScreen()` (`Behaviour::
         GetPointerScreen()` on the scripting side) and updating every platform host that
         resolves pointer state to pass the real screen: 3DS's touch hardware is always Bottom
         (a hardware fact, not resolved code); `DualityPlayerDesktop`'s `MapWindowPointToScreen`
@@ -279,7 +279,7 @@ this file whenever something below actually gets built, or a new deferred item c
         Image()` rect (the same job `MapWindowPointToScreen` does on
         `DualityPlayerDesktop`), so Play-in-Editor clicking now works correctly too, not just
         the standalone/on-device builds. `UpdateUIInteractions` (`UIRenderer.cpp`) also gained
-        an `if (rect.Screen != Input::GetPointerScreen()) continue;` guard, fixing a real latent
+        an `if (rect.Screen != InputManager::GetPointerScreen()) continue;` guard, fixing a real latent
         ambiguity bug this same gap caused: a Top-screen button and a Bottom-screen button at
         the same local position could BOTH register hover/click from a single pointer event.
       - **Real, independent bug found and fixed in `DualityPlayerDesktop`'s own
@@ -320,7 +320,7 @@ this file whenever something below actually gets built, or a new deferred item c
       (needs real font rendering, not built -- see the 3D renderer entry's own "next" list for
       the general shape of what's still open elsewhere), no 9-slice/border scaling. Still a
       single global `Input` pointer (matches real hardware -- only one touch point/mouse
-      cursor at a time), but it's screen-tagged now (`Input::GetPointerScreen()`, see the
+      cursor at a time), but it's screen-tagged now (`InputManager::GetPointerScreen()`, see the
       Physics section's Raycast API entry) so a button correctly only reacts to a pointer
       actually over its own screen -- fixed alongside the Raycast work above, since both needed
       the same "which screen was this pointer event for" fact.

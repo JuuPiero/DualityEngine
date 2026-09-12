@@ -21,7 +21,6 @@ add_executable(DualityEngineTests
     DualityPropertyTests.cpp
     SceneManagementTests.cpp
     RaycastTests.cpp
-    UIDocumentTests.cpp
     UIRectComponentTests.cpp
     MultiScriptTests.cpp
     ScriptContextDllBoundaryTests.cpp

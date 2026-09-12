@@ -19,6 +19,10 @@ namespace Duality {
         void OnImGuiRender(EditorContext& ctx);
 
     private:
+        // Unity-style Inspector filters. The first narrows components already attached to the
+        // selected entity; the second turns Add Component into a searchable command palette.
+        char m_ComponentFilter[128] = "";
+        char m_AddComponentFilter[128] = "";
         // Unity-Inspector-style "Lock" toggle -- while true, this panel keeps showing whatever
         // was selected at the moment it was locked (m_LockedEntity/m_LockedAssetPath) instead of
         // following ctx.Selected/ctx.SelectedAssetPath live. Needed because ContentBrowserPanel's

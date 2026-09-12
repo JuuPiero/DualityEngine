@@ -45,9 +45,9 @@ namespace Duality {
         //
         // `projection` picks Perspective (uses fovDegrees) or Orthographic (uses
         // orthoHalfHeight, in world units -- the caller computes this from the camera's own
-        // Zoom the exact same way IRenderer2D::DrawQuad's own pixel-space math does,
-        // `screenHeightPixels * 0.5f / zoom`, so a mesh and a sprite at the same world X/Y
-        // land on the same screen pixel when Zoom == 1). `clear` is false when IRenderer2D's
+        // Zoom as `screenHeightPixels * 0.5f / zoom`. 2D sprites additionally use the
+        // project's PPU render scale, so calibrate an orthographic 3D camera separately
+        // when intentionally compositing meshes with sprites. `clear` is false when IRenderer2D's
         // BeginScene for this same screen this frame already cleared it (RenderScreen always
         // clears exactly once per screen, whichever pass runs first) -- true when nothing else
         // will clear (e.g. no camera at all for this screen).

@@ -57,6 +57,8 @@ namespace Duality {
         project->m_ProjectFilePath = projectFilePath;
         project->m_Directory = DirectoryOf(projectFilePath);
         project->m_Config.Name = root.value("Name", "Untitled");
+        project->m_Config.CompanyName = root.value("CompanyName", "");
+        project->m_Config.Version = root.value("Version", "0.1.0");
         project->m_Config.AssetsDirectory = root.value("AssetsDirectory", "Assets");
         project->m_Config.ScriptsDirectory = root.value("ScriptsDirectory", "Scripts");
         project->m_Config.StartScene = root.value("StartScene", "");
@@ -64,8 +66,14 @@ namespace Duality {
         project->m_Config.N3DSAntiAliasing = root.value("N3DSAntiAliasing", 0);
         project->m_Config.IconPath = root.value("IconPath", "");
         project->m_Config.ProductName = root.value("ProductName", "");
-        project->m_Config.PPU = root.value("PPU", root.value("PixelsPerMeter", 1.0f));
-        project->m_Config.Gravity = root.value("Gravity", 400.0f);
+        // Project files before WorldUnitsVersion stored pixel-space scene data and used PPU
+        // only as an internal physics conversion. Upgrade their defaults alongside
+        // SceneSerializer's one-time pixel-to-world-unit scene migration.
+        const bool legacyPixelProject = root.value("WorldUnitsVersion", 0) < 2;
+        project->m_Config.PPU = legacyPixelProject
+            ? 100.0f
+            : root.value("PPU", root.value("PixelsPerMeter", 100.0f));
+        project->m_Config.Gravity = legacyPixelProject ? 9.81f : root.value("Gravity", 9.81f);
 
         s_ActiveProject = project;
         Log::Info("Loaded project '" + project->m_Config.Name + "'");
@@ -75,6 +83,8 @@ namespace Duality {
     bool Project::Save() {
         json root;
         root["Name"] = m_Config.Name;
+        root["CompanyName"] = m_Config.CompanyName;
+        root["Version"] = m_Config.Version;
         root["AssetsDirectory"] = m_Config.AssetsDirectory;
         root["ScriptsDirectory"] = m_Config.ScriptsDirectory;
         root["StartScene"] = m_Config.StartScene;
@@ -84,6 +94,7 @@ namespace Duality {
         root["ProductName"] = m_Config.ProductName;
         root["PPU"] = m_Config.PPU;
         root["Gravity"] = m_Config.Gravity;
+        root["WorldUnitsVersion"] = 2;
 
         std::ofstream file(m_ProjectFilePath);
         if (!file.is_open()) {

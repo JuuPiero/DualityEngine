@@ -14,8 +14,150 @@ using json = nlohmann::json;
 
 namespace Duality {
 
+    namespace {
+        // Version 1 stored all gameplay values in screen pixels. Version 2 follows Unity's
+        // convention: scenes store world units and PPU is applied only by the 2D renderer.
+        // This migration happens in-memory so opening an old project keeps its appearance; the
+        // next ordinary Save Scene writes the compact, unit-based version permanently.
+        constexpr int WorldUnitsVersion = 2;
+        constexpr float LegacyPixelsPerUnit = 100.0f;
+        constexpr int CanvasUIVersion = 1;
+
+        void ScaleNumber(json& value) {
+            if (value.is_number())
+                value = value.get<float>() / LegacyPixelsPerUnit;
+        }
+
+        void ScaleVector(json& value) {
+            if (!value.is_array())
+                return;
+            for (json& element : value)
+                ScaleNumber(element);
+        }
+
+        void ScaleFields(json& component, std::initializer_list<const char*> names) {
+            for (const char* name : names) {
+                if (component.contains(name))
+                    ScaleVector(component[name]);
+            }
+        }
+
+        void ScaleScalarFields(json& component, std::initializer_list<const char*> names) {
+            for (const char* name : names) {
+                if (component.contains(name))
+                    ScaleNumber(component[name]);
+            }
+        }
+
+        void MigrateScriptOverrides(json& scripts) {
+            if (!scripts.is_array())
+                return;
+            for (json& script : scripts) {
+                if (!script.contains("PropertyOverrides") || script["PropertyOverrides"].is_null())
+                    continue;
+                json& overrides = script["PropertyOverrides"];
+                const std::string className = script.value("ClassName", std::string());
+                if (className == "PlayerController")
+                    ScaleScalarFields(overrides, { "MoveSpeed", "JumpSpeed" });
+                else if (className == "PatrolEnemyBehaviour")
+                    ScaleScalarFields(overrides, { "Speed", "Range" });
+                else if (className == "FeatureShowcaseBehaviour")
+                    ScaleScalarFields(overrides, { "MoveSpeed" });
+                else if (className == "BounceBehaviour")
+                    ScaleScalarFields(overrides, { "Amplitude" });
+            }
+        }
+
+        void MigrateLegacyPixelScene(json& root) {
+            if (root.value("WorldUnitsVersion", 1) >= WorldUnitsVersion || !root.contains("Entities"))
+                return;
+
+            for (json& entity : root["Entities"]) {
+                if (entity.contains("Transform"))
+                    ScaleFields(entity["Transform"], { "Translation" });
+                if (entity.contains("Sprite Renderer"))
+                    ScaleFields(entity["Sprite Renderer"], { "Size" });
+                if (entity.contains("Box Collider 2D"))
+                    ScaleFields(entity["Box Collider 2D"], { "Offset", "Size" });
+                if (entity.contains("Circle Collider 2D")) {
+                    ScaleFields(entity["Circle Collider 2D"], { "Offset" });
+                    ScaleScalarFields(entity["Circle Collider 2D"], { "Radius" });
+                }
+                if (entity.contains("Capsule Collider 2D")) {
+                    ScaleFields(entity["Capsule Collider 2D"], { "Offset" });
+                    ScaleScalarFields(entity["Capsule Collider 2D"], { "Radius", "Height" });
+                }
+                if (entity.contains("Polygon Collider 2D"))
+                    ScaleFields(entity["Polygon Collider 2D"], { "Offset", "Vertex 0", "Vertex 1", "Vertex 2", "Vertex 3", "Vertex 4", "Vertex 5", "Vertex 6", "Vertex 7" });
+                if (entity.contains("Box Collider 3D"))
+                    ScaleFields(entity["Box Collider 3D"], { "Offset", "Size" });
+                if (entity.contains("Sphere Collider 3D")) {
+                    ScaleFields(entity["Sphere Collider 3D"], { "Offset" });
+                    ScaleScalarFields(entity["Sphere Collider 3D"], { "Radius" });
+                }
+                if (entity.contains("Capsule Collider 3D")) {
+                    ScaleFields(entity["Capsule Collider 3D"], { "Offset" });
+                    ScaleScalarFields(entity["Capsule Collider 3D"], { "Radius", "Height" });
+                }
+                if (entity.contains("Tilemap"))
+                    ScaleFields(entity["Tilemap"], { "Cell Size" });
+                if (entity.contains("Line Renderer")) {
+                    ScaleScalarFields(entity["Line Renderer"], { "Width" });
+                    ScaleFields(entity["Line Renderer"], { "Point 0", "Point 1", "Point 2", "Point 3", "Point 4", "Point 5", "Point 6", "Point 7" });
+                }
+                if (entity.contains("Follow Target"))
+                    ScaleFields(entity["Follow Target"], { "Offset" });
+                if (entity.contains("Particle System")) {
+                    ScaleScalarFields(entity["Particle System"], { "Start Speed", "Start Size" });
+                    ScaleFields(entity["Particle System"], { "Gravity", "Velocity Spread" });
+                }
+                if (entity.contains("Audio Source"))
+                    ScaleScalarFields(entity["Audio Source"], { "Min Distance", "Max Distance" });
+                if (entity.contains("Scripts"))
+                    MigrateScriptOverrides(entity["Scripts"]);
+            }
+            root["WorldUnitsVersion"] = WorldUnitsVersion;
+        }
+
+        void MigrateSceneToCanvasUI(json& root) {
+            if (root.value("CanvasUIVersion", 0) >= CanvasUIVersion || !root.contains("Entities"))
+                return;
+
+            json& entities = root["Entities"];
+            for (size_t i = 0; i < entities.size(); ++i) {
+                json& uiEntity = entities[i];
+                if (!uiEntity.contains("UI Rect"))
+                    continue;
+
+                const std::string legacyScreen = uiEntity["UI Rect"].value("Screen", std::string("Top"));
+                size_t canvasOwner = i;
+                int parentIndex = uiEntity.value("Parent", -1);
+                while (parentIndex >= 0 && parentIndex < static_cast<int>(entities.size()) && entities[parentIndex].contains("UI Rect")) {
+                    canvasOwner = static_cast<size_t>(parentIndex);
+                    parentIndex = entities[parentIndex].value("Parent", -1);
+                }
+                if (parentIndex >= 0 && parentIndex < static_cast<int>(entities.size()))
+                    canvasOwner = static_cast<size_t>(parentIndex);
+
+                json& canvasEntity = entities[canvasOwner];
+                if (!canvasEntity.contains("Canvas")) {
+                    canvasEntity["Canvas"] = {
+                        { "Enabled", true },
+                        { "Screen", legacyScreen },
+                        { "Render Mode", "ScreenSpaceOverlay" },
+                        { "Sort Order", 0 },
+                        { "Scale Factor", 1.0f }
+                    };
+                }
+            }
+            root["CanvasUIVersion"] = CanvasUIVersion;
+        }
+    }
+
     json SceneSerializer::SerializeToJson() {
         json root;
+        root["WorldUnitsVersion"] = WorldUnitsVersion;
+        root["CanvasUIVersion"] = CanvasUIVersion;
         json entities = json::array();
 
         // entt::entity handles don't survive save/load (Deserialize below creates
@@ -48,7 +190,11 @@ namespace Duality {
     }
 
     bool SceneSerializer::DeserializeFromJson(const json& root) {
-        if (!root.contains("Entities"))
+        json normalizedRoot = root;
+        const bool wasLegacyPixelScene = normalizedRoot.value("WorldUnitsVersion", 1) < WorldUnitsVersion;
+        MigrateLegacyPixelScene(normalizedRoot);
+        MigrateSceneToCanvasUI(normalizedRoot);
+        if (!normalizedRoot.contains("Entities"))
             return false;
 
         // First pass: create every entity and hydrate its registered components, in
@@ -58,7 +204,7 @@ namespace Duality {
         // be known ahead of time; this is exactly why Serialize wrote indices
         // instead of handles).
         std::vector<Entity> orderedEntities;
-        for (auto& entityJson : root["Entities"]) {
+        for (auto& entityJson : normalizedRoot["Entities"]) {
             Entity entity = m_Scene.CreateEntity();
             DeserializeEntityComponents(entity, entityJson);
             orderedEntities.push_back(entity);
@@ -70,11 +216,13 @@ namespace Duality {
         // interactive drag-drop reparenting, where re-deriving local from a captured
         // world transform is exactly what's wanted.
         for (size_t i = 0; i < orderedEntities.size(); i++) {
-            int parentIndex = root["Entities"][i].value("Parent", -1);
+            int parentIndex = normalizedRoot["Entities"][i].value("Parent", -1);
             if (parentIndex >= 0 && parentIndex < static_cast<int>(orderedEntities.size()))
                 m_Scene.SetParent(orderedEntities[i], orderedEntities[parentIndex], {}, /*preserveWorldPosition=*/false);
         }
 
+        if (wasLegacyPixelScene)
+            Log::Info("SceneSerializer: migrated legacy pixel scene to Unity-style world units (save to persist)");
         return true;
     }
 

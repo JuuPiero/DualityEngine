@@ -24,6 +24,15 @@ namespace Duality {
             return ext;
         }
 
+        bool ContainsCaseInsensitive(const std::string& haystack, const char* needle) {
+            if (!needle || needle[0] == '\0')
+                return true;
+            const std::string query(needle);
+            auto it = std::search(haystack.begin(), haystack.end(), query.begin(), query.end(),
+                [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
+            return it != haystack.end();
+        }
+
         // Dispatches by extension through AssetInspectorRegistry (see AssetInspectors.cpp)
         // instead of hand-checking each asset type here -- adding a new asset type never needs
         // changes to this function. `path` is whatever PropertiesPanel resolved to show (either
@@ -162,7 +171,7 @@ namespace Duality {
     }
 
     void PropertiesPanel::OnImGuiRender(EditorContext& ctx) {
-        ImGui::Begin("Properties");
+        ImGui::Begin("Inspector");
 
         // Lock toggle first, before resolving what to show -- so turning it on this same frame
         // immediately freezes the CURRENT selection instead of lagging one frame behind.
@@ -202,11 +211,33 @@ namespace Duality {
             return;
         }
 
+        // Keep the filter directly below the selected-object header, like Unity's Inspector:
+        // it is especially useful on entities carrying Canvas + UI + physics + scripts, where
+        // scanning every expanded component card is slow on a compact editor layout.
+        const std::string& entityName = selected.GetComponent<NameComponent>().Name;
+        ImGui::TextUnformatted(entityName.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%zu components)", std::count_if(TypeRegistry::All().begin(), TypeRegistry::All().end(),
+            [&selected](const ComponentTypeInfo& type) { return type.Has(selected); }));
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##InspectorComponentFilter", "Filter components...", m_ComponentFilter, sizeof(m_ComponentFilter));
+        if (m_ComponentFilter[0] != '\0') {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear"))
+                m_ComponentFilter[0] = '\0';
+        }
+        ImGui::Separator();
+
         // Fully generic: adding a new component (or a new field to an
         // existing one) to TypeRegistry never needs changes here.
+        int visibleComponentCount = 0;
         for (auto& type : TypeRegistry::All()) {
             if (!type.Has(selected))
                 continue;
+            if (!ContainsCaseInsensitive(type.DisplayName, m_ComponentFilter))
+                continue;
+
+            visibleComponentCount++;
 
             ImGui::PushID(type.DisplayName.c_str());
 
@@ -277,39 +308,53 @@ namespace Duality {
             }
         }
 
+        if (visibleComponentCount == 0)
+            ImGui::TextDisabled("No attached component matches \"%s\".", m_ComponentFilter);
+
         ImGui::Separator();
-        if (ImGui::Button("+ Add Component", ImVec2(-1, 0)))
+        if (ImGui::Button("+ Add Component", ImVec2(-1, 0))) {
+            m_AddComponentFilter[0] = '\0';
             ImGui::OpenPopup("AddComponentPopup");
+        }
         if (ImGui::BeginPopup("AddComponentPopup")) {
+            if (ImGui::IsWindowAppearing())
+                ImGui::SetKeyboardFocusHere();
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputTextWithHint("##AddComponentFilter", "Search components or scripts...", m_AddComponentFilter, sizeof(m_AddComponentFilter));
+            ImGui::Separator();
+
+            bool hasComponentMatch = false;
             for (auto& type : TypeRegistry::All()) {
-                // "Scripts" isn't a single addable thing -- the "Add Script" submenu below picks
-                // which script class to attach instead (an entity can carry several at once).
-                if (type.DisplayName == "Scripts")
+                // Scripts are choices below; every other registered component is a direct action.
+                if (type.DisplayName == "Scripts" || type.Has(selected) || !ContainsCaseInsensitive(type.DisplayName, m_AddComponentFilter))
                     continue;
-                if (!type.Has(selected) && ImGui::MenuItem(type.DisplayName.c_str())) {
+                hasComponentMatch = true;
+                if (ImGui::MenuItem(type.DisplayName.c_str())) {
                     type.AddDefault(selected);
                     MarkSceneDirty(ctx);
+                    ImGui::CloseCurrentPopup();
                 }
             }
 
-            ImGui::Separator();
-            if (ImGui::BeginMenu("Add Script")) {
-                std::vector<std::string> classNames = ScriptRegistry::GetAllClassNames();
-                std::sort(classNames.begin(), classNames.end()); // stable order -- the registry's own map has none
-                if (classNames.empty())
-                    ImGui::TextDisabled("<no scripts registered>");
-                for (auto& className : classNames) {
-                    if (ImGui::MenuItem(className.c_str())) {
-                        BehaviourComponent& behaviour = selected.HasComponent<BehaviourComponent>()
-                            ? selected.GetComponent<BehaviourComponent>()
-                            : selected.AddComponent<BehaviourComponent>();
-                        behaviour.Scripts.push_back(ScriptInstance{ className });
-                        MarkSceneDirty(ctx);
-                        ImGui::CloseCurrentPopup();
-                    }
+            std::vector<std::string> classNames = ScriptRegistry::GetAllClassNames();
+            std::sort(classNames.begin(), classNames.end());
+            bool hasScriptMatch = false;
+            for (const std::string& className : classNames) {
+                if (!ContainsCaseInsensitive(className, m_AddComponentFilter))
+                    continue;
+                hasScriptMatch = true;
+                if (ImGui::MenuItem(className.c_str())) {
+                    BehaviourComponent& behaviour = selected.HasComponent<BehaviourComponent>()
+                        ? selected.GetComponent<BehaviourComponent>()
+                        : selected.AddComponent<BehaviourComponent>();
+                    behaviour.Scripts.push_back(ScriptInstance{ className });
+                    MarkSceneDirty(ctx);
+                    ImGui::CloseCurrentPopup();
                 }
-                ImGui::EndMenu();
             }
+
+            if (!hasComponentMatch && !hasScriptMatch)
+                ImGui::TextDisabled("No component or script matches \"%s\".", m_AddComponentFilter);
             ImGui::EndPopup();
         }
 

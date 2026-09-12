@@ -325,7 +325,7 @@ là Unity-style static classes trong `DualityEngine/Scripting/` (Scene bind
 
 | Unity | Duality |
 |-------|---------|
-| `Input` | `Duality::ScriptInput` |
+| `Input` | `Duality::Input` |
 | `Debug.Log` | `Duality::ScriptDebug` |
 | `Physics2D` / `Physics` | `Duality::ScriptPhysics2D` / `ScriptPhysics3D` |
 | `SceneManager.LoadScene` | `Duality::SceneManager::RequestLoadScene` |
@@ -338,7 +338,7 @@ là Unity-style static classes trong `DualityEngine/Scripting/` (Scene bind
 - **Raycast**: `ScriptPhysics3D::Raycast(origin, dir, maxDist)` và
   `ScriptPhysics3D::ScreenPointToRay(screen, point, outOrigin, outDir)` --
   chỉ hoạt động khi Play đang chạy.
-- **Input**: `ScriptInput::GetKeyDown(KeyCode::Space)`, `GetAxis("Horizontal")`,
+- **Input**: `Input::GetKeyDown(KeyCode::Space)`, `GetAxis("Horizontal")`,
   `GetPointerDown()`, `GetPointerPosition()`, `GetPointerScreen()`.
 - **Audio (one-shot)**: `ScriptAudio::PlaySound(assetGuid, loop)` /
   `StopAllSounds()`.

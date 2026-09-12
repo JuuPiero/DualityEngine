@@ -4,11 +4,58 @@
 #include <vector>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
-#include "DualityEngine/Input/Input.h"
+#include "DualityEngine/Input/InputManager.h"
 #include "DualityEngine/Renderer/DrawHelpers2D.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 
 namespace Duality {
+
+    Entity FindOwningCanvas(Scene& scene, Entity entity) {
+        Entity current = entity;
+        while (current) {
+            if (current.HasComponent<CanvasComponent>())
+                return current;
+            current = current.GetComponent<HierarchyComponent>().Parent;
+        }
+        return Entity{};
+    }
+
+    void EnsureUIElementsHaveCanvas(Scene& scene) {
+        // Compatibility upgrade for authored scenes from before Canvas was mandatory. We attach
+        // a Canvas to the first non-Rect parent (or the Rect root itself), preserving the old
+        // UIRect::Screen as a one-time screen hint. The legacy field is no longer serialized,
+        // so saving the scene makes the Canvas the single source of truth.
+        std::vector<Entity> needsCanvas;
+        for (auto handle : scene.Registry().view<UIRectComponent>()) {
+            Entity element(handle, &scene);
+            if (!FindOwningCanvas(scene, element))
+                needsCanvas.push_back(element);
+        }
+
+        for (Entity element : needsCanvas) {
+            if (!element || FindOwningCanvas(scene, element))
+                continue;
+            const Screen legacyScreen = element.GetComponent<UIRectComponent>().Screen;
+            Entity canvasRoot = element;
+            Entity parent = element.GetComponent<HierarchyComponent>().Parent;
+            while (parent && parent.HasComponent<UIRectComponent>()) {
+                canvasRoot = parent;
+                parent = parent.GetComponent<HierarchyComponent>().Parent;
+            }
+            if (parent)
+                canvasRoot = parent;
+            auto& canvas = canvasRoot.HasComponent<CanvasComponent>()
+                ? canvasRoot.GetComponent<CanvasComponent>()
+                : canvasRoot.AddComponent<CanvasComponent>();
+            canvas.Screen = legacyScreen;
+        }
+    }
+
+    bool IsUIElementOnCanvas(Scene& scene, Entity entity, Screen screen) {
+        Entity canvas = FindOwningCanvas(scene, entity);
+        return canvas && scene.IsEffectivelyActive(canvas) && canvas.GetComponent<CanvasComponent>().Enabled &&
+            canvas.GetComponent<CanvasComponent>().Screen == screen;
+    }
 
     void ResolveUIRect(Scene& scene, Entity entity, glm::vec2& outTopLeft, glm::vec2& outSize) {
         auto& rect = entity.GetComponent<UIRectComponent>();
@@ -19,8 +66,15 @@ namespace Duality {
         if (parent && parent.HasComponent<UIRectComponent>()) {
             ResolveUIRect(scene, parent, parentTopLeft, parentSize);
         } else {
-            parentSize.x = (rect.Screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
-            parentSize.y = (rect.Screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
+            Entity canvas = FindOwningCanvas(scene, entity);
+            if (!canvas) {
+                outTopLeft = { 0.0f, 0.0f };
+                outSize = { 0.0f, 0.0f };
+                return;
+            }
+            const CanvasComponent& canvasComponent = canvas.GetComponent<CanvasComponent>();
+            parentSize.x = (canvasComponent.Screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
+            parentSize.y = (canvasComponent.Screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
         }
 
         // RectTransform-style resolution, per axis independently. AnchorMin==AnchorMax on an
@@ -41,8 +95,7 @@ namespace Duality {
     }
 
     static bool PointerInsideRect(Scene& scene, Entity entity, glm::vec2 pointer, Screen pointerScreen) {
-        auto& rect = entity.GetComponent<UIRectComponent>();
-        if (rect.Screen != pointerScreen)
+        if (!IsUIElementOnCanvas(scene, entity, pointerScreen))
             return false;
         glm::vec2 topLeft, size;
         ResolveUIRect(scene, entity, topLeft, size);
@@ -51,19 +104,20 @@ namespace Duality {
     }
 
     void UpdateUIInteractions(Scene& scene) {
-        glm::vec2 pointer = Input::GetPointerPosition();
-        bool pointerDown = Input::GetPointerDown();
-        Screen pointerScreen = Input::GetPointerScreen();
+        EnsureUIElementsHaveCanvas(scene);
+        glm::vec2 pointer = InputManager::GetPointerPosition();
+        bool pointerDown = InputManager::GetPointerDown();
+        Screen pointerScreen = InputManager::GetPointerScreen();
 
         auto view = scene.Registry().view<UIRectComponent, UIButtonComponent>();
         for (auto handle : view) {
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
             auto& button = view.get<UIButtonComponent>(handle);
-            if (!button.Enabled || !view.get<UIRectComponent>(handle).Enabled)
+            if (!button.Enabled || !view.get<UIRectComponent>(handle).Enabled || !FindOwningCanvas(scene, Entity(handle, &scene)))
                 continue;
             bool inside = PointerInsideRect(scene, Entity(handle, &scene), pointer, pointerScreen);
-            if (!inside && view.get<UIRectComponent>(handle).Screen != pointerScreen) {
+            if (!inside && !IsUIElementOnCanvas(scene, Entity(handle, &scene), pointerScreen)) {
                 button.IsHovered = false;
                 button.IsPressed = false;
                 button.WasClicked = false;
@@ -80,7 +134,7 @@ namespace Duality {
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
             auto& slider = sliderView.get<UISliderComponent>(handle);
-            if (!slider.Enabled || !sliderView.get<UIRectComponent>(handle).Enabled)
+            if (!slider.Enabled || !sliderView.get<UIRectComponent>(handle).Enabled || !FindOwningCanvas(scene, Entity(handle, &scene)))
                 continue;
             bool inside = PointerInsideRect(scene, Entity(handle, &scene), pointer, pointerScreen);
             slider.IsHovered = inside;
@@ -101,12 +155,12 @@ namespace Duality {
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
             auto& toggle = toggleView.get<UIToggleComponent>(handle);
-            if (!toggle.Enabled || !toggleView.get<UIRectComponent>(handle).Enabled)
+            if (!toggle.Enabled || !toggleView.get<UIRectComponent>(handle).Enabled || !FindOwningCanvas(scene, Entity(handle, &scene)))
                 continue;
             bool inside = PointerInsideRect(scene, Entity(handle, &scene), pointer, pointerScreen);
             toggle.IsHovered = inside;
             toggle.WasToggled = false;
-            if (inside && Input::GetPointerUp()) {
+            if (inside && InputManager::GetPointerUp()) {
                 toggle.IsOn = !toggle.IsOn;
                 toggle.WasToggled = true;
             }
@@ -117,13 +171,13 @@ namespace Duality {
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
             auto& field = inputView.get<UIInputFieldComponent>(handle);
-            if (!field.Enabled || !inputView.get<UIRectComponent>(handle).Enabled)
+            if (!field.Enabled || !inputView.get<UIRectComponent>(handle).Enabled || !FindOwningCanvas(scene, Entity(handle, &scene)))
                 continue;
             bool inside = PointerInsideRect(scene, Entity(handle, &scene), pointer, pointerScreen);
             field.IsHovered = inside;
-            if (inside && Input::GetPointerUp())
+            if (inside && InputManager::GetPointerUp())
                 field.IsFocused = true;
-            else if (Input::GetPointerUp())
+            else if (InputManager::GetPointerUp())
                 field.IsFocused = false;
         }
     }
@@ -142,8 +196,9 @@ namespace Duality {
     }
 
     void RenderScreenUI(IRenderer2D& renderer, Scene& scene, Screen screen) {
+        EnsureUIElementsHaveCanvas(scene);
         // Kind-tagged, not just UIImageComponent-shaped: a UIRectComponent+UITextComponent
-        // entity (no Image at all -- exactly what UIDocument's <Text> tag produces) has to
+        // entity (no Image at all) has to
         // share this same sorted draw list so Text and Image widgets interleave correctly under
         // a shared CanvasComponent, but the per-item draw step below can no longer assume every
         // item carries a UIImageComponent.
@@ -165,7 +220,7 @@ namespace Duality {
         auto imageView = scene.Registry().view<UIRectComponent, UIImageComponent>();
         for (auto handle : imageView) {
             auto& rect = imageView.get<UIRectComponent>(handle);
-            if (rect.Screen != screen || !rect.Enabled || !imageView.get<UIImageComponent>(handle).Enabled)
+            if (!IsUIElementOnCanvas(scene, Entity(handle, &scene), screen) || !rect.Enabled || !imageView.get<UIImageComponent>(handle).Enabled)
                 continue;
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
@@ -175,7 +230,7 @@ namespace Duality {
         auto textView = scene.Registry().view<UIRectComponent, UITextComponent>();
         for (auto handle : textView) {
             auto& rect = textView.get<UIRectComponent>(handle);
-            if (rect.Screen != screen || !rect.Enabled || !textView.get<UITextComponent>(handle).Enabled)
+            if (!IsUIElementOnCanvas(scene, Entity(handle, &scene), screen) || !rect.Enabled || !textView.get<UITextComponent>(handle).Enabled)
                 continue;
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;

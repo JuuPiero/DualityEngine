@@ -10,8 +10,6 @@
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Scene.h"
-#include "DualityEngine/UI/UIDocument.h"
-#include "DualityEngine/UI/UIDocumentLoader.h"
 
 namespace Duality {
 
@@ -107,19 +105,7 @@ namespace Duality {
     }
 
     void UpdateSceneRuntimeSystems(Scene& scene, float deltaTime) {
-        for (auto handle : scene.Registry().view<UIDocumentReferenceComponent>()) {
-            auto& docRef = scene.Registry().get<UIDocumentReferenceComponent>(handle);
-            if (!docRef.Enabled || !docRef.InstantiateOnPlay || docRef.Instantiated || docRef.Document.Guid.empty())
-                continue;
-            std::string path = AssetDatabase::ResolvePath(docRef.Document.Guid);
-            if (path.empty())
-                continue;
-            const UIDocument& doc = UIDocumentLoader::Load(path);
-            if (doc.IsLoaded()) {
-                doc.Instantiate(scene, Screen::Bottom);
-                docRef.Instantiated = true;
-            }
-        }
+        EnsureUIElementsHaveCanvas(scene);
 
         for (auto handle : scene.Registry().view<UILayoutGroupComponent, UIRectComponent, HierarchyComponent>()) {
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))

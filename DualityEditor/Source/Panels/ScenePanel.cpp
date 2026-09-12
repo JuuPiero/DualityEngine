@@ -15,6 +15,7 @@
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MeshLoader.h"
+#include "DualityEngine/Physics/PhysicsUnits.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Scene/Components.h"
 
@@ -22,22 +23,21 @@ namespace Duality {
 
     namespace {
         // Dragging the Scale gizmo's axis handles moves the mouse by tens
-        // to hundreds of world units (same units as Translation, i.e.
-        // sprite sizes of ~16-360), but Scale is a unitless multiplier
+        // a fraction of a world unit, but Scale is a unitless multiplier
         // starting at 1.0 -- this converts one to the other so a drag
         // feels proportionate instead of scale exploding after a few
         // pixels of movement.
-        constexpr float ScaleDragSensitivity = 0.01f;
+        constexpr float ScaleDragSensitivity = 1.0f;
 
         // A handful of "nice" round grid-cell sizes stepped by zoom level, rather than one
         // fixed size (which would look absurdly dense zoomed out or absurdly sparse zoomed in
         // across the 0.1x-5x zoom range) or fully continuous/smoothly-blended LOD (real Unity
         // behavior, but more machinery than this first pass needs).
-        float GridCellSize2D(float zoom) {
-            if (zoom > 2.5f) return 20.0f;
-            if (zoom > 1.0f) return 50.0f;
-            if (zoom > 0.4f) return 100.0f;
-            return 250.0f;
+        float GridCellSize2D(float pixelsPerUnit) {
+            if (pixelsPerUnit > 250.0f) return 0.2f;
+            if (pixelsPerUnit > 100.0f) return 0.5f;
+            if (pixelsPerUnit > 40.0f) return 1.0f;
+            return 2.5f;
         }
         float GridCellSize3D(float cameraDistance) {
             if (cameraDistance < 50.0f) return 10.0f;
@@ -1209,7 +1209,7 @@ namespace Duality {
                 } else {
                     float defaultWidth = (screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
                     float defaultHeight = (screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
-                    camera.Position = { defaultWidth * 0.5f, defaultHeight * 0.5f };
+                    camera.Position = { defaultWidth * 0.5f / PhysicsUnits::PPU(), defaultHeight * 0.5f / PhysicsUnits::PPU() };
                     camera.Zoom = 1.0f;
                 }
                 camera.Seeded = true;
@@ -1222,13 +1222,14 @@ namespace Duality {
             framebuffer.Resize(static_cast<uint32_t>(viewportW), static_cast<uint32_t>(viewportH));
 
             // BeginCustomView's projection is already centered on camera.Position/
-            // camera.Zoom, so DrawQuad calls below use plain world coordinates --
+            // worldToPixels, so DrawQuad calls below use plain world coordinates --
             // manually re-applying the camera offset/zoom on top of that would
             // double-transform every position, drifting away from the gizmo/
             // selection math below (which already computes a single correct
             // transform) the more the camera pans or zooms from its default.
             framebuffer.Bind();
             glm::vec4 clearColor = (screen == Screen::Top) ? glm::vec4{ 0.15f, 0.15f, 0.18f, 1.0f } : glm::vec4{ 0.18f, 0.15f, 0.15f, 1.0f };
+            const float worldToPixels = camera.Zoom * PhysicsUnits::PPU();
 
             // 3D mesh content always visible here too now, drawn first (and clearing the
             // screen) via an Orthographic projection built from this SAME 2D camera's own
@@ -1260,12 +1261,12 @@ namespace Duality {
             }
             ctx.Renderer3D.EndScene();
 
-            ctx.Renderer.BeginCustomView(camera.Position, camera.Zoom, static_cast<float>(viewportW), static_cast<float>(viewportH), clearColor, false);
+            ctx.Renderer.BeginCustomView(camera.Position, worldToPixels, static_cast<float>(viewportW), static_cast<float>(viewportH), clearColor, false);
             // Unity/Cocos-style Scene view grid -- drawn via real GL calls (not a screen-space
             // ImDrawList overlay) specifically so it renders BEHIND sprites rather than on top
             // of them; an overlay drawn after ImGui::Image() below would sit on top of the
             // whole already-composited framebuffer, including every opaque sprite.
-            ctx.Renderer.DrawGrid(camera.Position, camera.Zoom, static_cast<float>(viewportW), static_cast<float>(viewportH), GridCellSize2D(camera.Zoom));
+            ctx.Renderer.DrawGrid(camera.Position, worldToPixels, static_cast<float>(viewportW), static_cast<float>(viewportH), GridCellSize2D(worldToPixels));
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
                 if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                     continue;
@@ -1293,7 +1294,7 @@ namespace Duality {
                 auto& cameraComponent = ctx.SceneRef.Registry().get<CameraComponent>(handle);
                 if (!cameraComponent.Enabled)
                     continue;
-                float markerSize = 14.0f / camera.Zoom;
+                float markerSize = 14.0f / worldToPixels;
                 glm::vec4 markerColor = (cameraComponent.Screen == Screen::Top) ? glm::vec4{ 0.3f, 0.9f, 0.9f, 1.0f } : glm::vec4{ 0.95f, 0.6f, 0.2f, 1.0f };
                 ctx.Renderer.DrawQuad({ transform.Translation.x - markerSize * 0.5f, transform.Translation.y - markerSize * 0.5f }, { markerSize, markerSize }, markerColor);
             }
@@ -1307,8 +1308,8 @@ namespace Duality {
 
             auto worldToPaneScreen = [&](const glm::vec2& worldPos) {
                 return ImVec2(
-                    imagePos.x + (worldPos.x - camera.Position.x) * camera.Zoom + viewportW * 0.5f,
-                    imagePos.y + (worldPos.y - camera.Position.y) * camera.Zoom + viewportH * 0.5f);
+                    imagePos.x + (worldPos.x - camera.Position.x) * worldToPixels + viewportW * 0.5f,
+                    imagePos.y + (worldPos.y - camera.Position.y) * worldToPixels + viewportH * 0.5f);
             };
 
             // Collider gizmo -- green wireframe for the selected entity only. Handles are always
@@ -1334,12 +1335,12 @@ namespace Duality {
                 colliderDrawList->AddRectFilled(ImVec2(yHandle.x - Collider2DHandleHalfSize, yHandle.y - Collider2DHandleHalfSize),
                     ImVec2(yHandle.x + Collider2DHandleHalfSize, yHandle.y + Collider2DHandleHalfSize), colliderColor);
 
-                float newX = DragCollider2DHandle("##Collider2DResizeX", centerScreen, xHandle, camera.Zoom, collider.Size.x);
+                float newX = DragCollider2DHandle("##Collider2DResizeX", centerScreen, xHandle, worldToPixels, collider.Size.x);
                 if (newX != collider.Size.x) {
                     collider.Size.x = newX;
                     MarkSceneDirty(ctx);
                 }
-                float newY = DragCollider2DHandle("##Collider2DResizeY", centerScreen, yHandle, camera.Zoom, collider.Size.y);
+                float newY = DragCollider2DHandle("##Collider2DResizeY", centerScreen, yHandle, worldToPixels, collider.Size.y);
                 if (newY != collider.Size.y) {
                     collider.Size.y = newY;
                     MarkSceneDirty(ctx);
@@ -1350,13 +1351,13 @@ namespace Duality {
                 auto& collider = ctx.Selected.GetComponent<CircleCollider2DComponent>();
                 glm::vec2 center{ transform.Translation.x + collider.Offset.x, transform.Translation.y + collider.Offset.y };
                 ImVec2 screenCenter = worldToPaneScreen(center);
-                colliderDrawList->AddCircle(screenCenter, collider.Radius * camera.Zoom, colliderColor, 32, 2.0f);
+                colliderDrawList->AddCircle(screenCenter, collider.Radius * worldToPixels, colliderColor, 32, 2.0f);
 
                 ImVec2 radiusHandle = worldToPaneScreen(center + glm::vec2{ collider.Radius, 0.0f });
                 colliderDrawList->AddRectFilled(ImVec2(radiusHandle.x - Collider2DHandleHalfSize, radiusHandle.y - Collider2DHandleHalfSize),
                     ImVec2(radiusHandle.x + Collider2DHandleHalfSize, radiusHandle.y + Collider2DHandleHalfSize), colliderColor);
 
-                float newRadius = DragCollider2DHandle("##Collider2DResizeRadius", screenCenter, radiusHandle, camera.Zoom, collider.Radius);
+                float newRadius = DragCollider2DHandle("##Collider2DResizeRadius", screenCenter, radiusHandle, worldToPixels, collider.Radius);
                 if (newRadius != collider.Radius) {
                     collider.Radius = newRadius;
                     MarkSceneDirty(ctx);
@@ -1371,7 +1372,7 @@ namespace Duality {
                 glm::vec2 bottomCap = center - glm::vec2{ 0.0f, halfBody };
                 ImVec2 topCapScreen = worldToPaneScreen(topCap);
                 ImVec2 bottomCapScreen = worldToPaneScreen(bottomCap);
-                float radiusPx = collider.Radius * camera.Zoom;
+                float radiusPx = collider.Radius * worldToPixels;
                 DrawCapsule2DOutline(colliderDrawList, topCapScreen, bottomCapScreen, radiusPx, colliderColor);
                 colliderDrawList->AddCircleFilled(topCapScreen, radiusPx, IM_COL32(60, 230, 90, 40));
                 colliderDrawList->AddCircleFilled(bottomCapScreen, radiusPx, IM_COL32(60, 230, 90, 40));
@@ -1390,12 +1391,12 @@ namespace Duality {
                 colliderDrawList->AddRectFilled(ImVec2(heightHandle.x - Collider2DHandleHalfSize, heightHandle.y - Collider2DHandleHalfSize),
                     ImVec2(heightHandle.x + Collider2DHandleHalfSize, heightHandle.y + Collider2DHandleHalfSize), colliderColor);
 
-                float newRadius = DragCollider2DHandle("##Collider2DCapsuleRadius", centerScreen, radiusHandle, camera.Zoom, collider.Radius);
+                float newRadius = DragCollider2DHandle("##Collider2DCapsuleRadius", centerScreen, radiusHandle, worldToPixels, collider.Radius);
                 if (newRadius != collider.Radius) {
                     collider.Radius = newRadius;
                     MarkSceneDirty(ctx);
                 }
-                float newHeight = DragCollider2DHandle("##Collider2DCapsuleHeight", centerScreen, heightHandle, camera.Zoom, collider.Height);
+                float newHeight = DragCollider2DHandle("##Collider2DCapsuleHeight", centerScreen, heightHandle, worldToPixels, collider.Height);
                 if (newHeight != collider.Height) {
                     collider.Height = newHeight;
                     MarkSceneDirty(ctx);
@@ -1443,8 +1444,8 @@ namespace Duality {
                 // same as the reference -- it was only ever repurposed here as
                 // an interim stand-in before this fix).
                 if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
-                    camera.Position.x -= io.MouseDelta.x / camera.Zoom;
-                    camera.Position.y -= io.MouseDelta.y / camera.Zoom;
+                    camera.Position.x -= io.MouseDelta.x / worldToPixels;
+                    camera.Position.y -= io.MouseDelta.y / worldToPixels;
                 }
 
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -1454,8 +1455,8 @@ namespace Duality {
                     } else {
                         glm::vec2 local{ io.MousePos.x - imagePos.x, io.MousePos.y - imagePos.y };
                         glm::vec2 worldPoint{
-                            (local.x - viewportW * 0.5f) / camera.Zoom + camera.Position.x,
-                            (local.y - viewportH * 0.5f) / camera.Zoom + camera.Position.y
+                            (local.x - viewportW * 0.5f) / worldToPixels + camera.Position.x,
+                            (local.y - viewportH * 0.5f) / worldToPixels + camera.Position.y
                         };
 
                         Entity hit;
@@ -1515,7 +1516,7 @@ namespace Duality {
                             if (PointInPolygon2D(localPoint, collider))
                                 tryPick(candidate);
                         }
-                        constexpr float EmptyEntityPickRadius2D = 12.0f;
+                        constexpr float EmptyEntityPickRadius2D = 0.12f;
                         for (auto handle : ctx.SceneRef.Registry().view<TransformComponent>()) {
                             Entity candidate(handle, &ctx.SceneRef);
                             if (candidate.HasComponent<SpriteRendererComponent>() ||
@@ -1560,7 +1561,7 @@ namespace Duality {
                         while (deltaDegrees < -180.0f) deltaDegrees += 360.0f;
                         selectedTransform.Rotation.z += deltaDegrees;
                     } else {
-                        glm::vec2 worldDelta{ io.MouseDelta.x / camera.Zoom, io.MouseDelta.y / camera.Zoom };
+                        glm::vec2 worldDelta{ io.MouseDelta.x / worldToPixels, io.MouseDelta.y / worldToPixels };
                         // The gizmo drag is a world-space mouse delta, but it's being
                         // added to a LOCAL Translation/Scale -- converted so dragging
                         // feels the same regardless of the entity's parent (identity
