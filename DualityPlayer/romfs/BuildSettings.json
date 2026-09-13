@@ -1,3 +1,5 @@
 {
-  "N3DSAntiAliasing": 2
+  "Gravity": 9.8100004196167,
+  "N3DSAntiAliasing": 2,
+  "PPU": 100.0
 }

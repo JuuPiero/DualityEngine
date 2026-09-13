@@ -165,10 +165,8 @@ namespace Duality {
         std::string bouncyMaterialGuid = AssetMeta::EnsureMetaFile(physMatPath);
         AssetDatabase::Register(bouncyMaterialGuid, physMatPath.string());
 
-        // A ball falls onto a static platform when Play starts, proving Box2D integration +
-        // camera-relative multi-sprite rendering. CollisionLogBehaviour rides alongside
-        // PointerClickDemoBehaviour to prove one entity can carry multiple scripts at once and
-        // shows every OnCollision/OnTrigger Enter/Exit firing in the Console the instant it lands.
+        // A ball falls onto a static platform when Play starts, proving Box2D integration,
+        // camera-relative multi-sprite rendering, and collision callback logging.
         Entity physicsGround = m_Scene.CreateEntity("PhysicsGround");
         physicsGround.GetComponent<TransformComponent>().Translation = { TopScreenWidth * 0.5f, 220.0f, 0.0f };
         auto& groundSprite = physicsGround.AddComponent<SpriteRendererComponent>();
@@ -187,8 +185,7 @@ namespace Duality {
         auto& ballCollider = physicsBall.AddComponent<CircleCollider2DComponent>();
         ballCollider.Radius = 10.0f;
         ballCollider.Restitution = 0.4f;
-        physicsBall.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "PointerClickDemoBehaviour" });
-        physicsBall.GetComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "CollisionLogBehaviour" });
+        physicsBall.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "CollisionLogBehaviour" });
         m_Scene.SetParent(physicsBall, physics2DGroup);
 
         // CapsuleCollider2DComponent, plus the Bouncy.physmat above overriding its own
@@ -239,7 +236,6 @@ namespace Duality {
         auto& ballCollider3D = physicsBall3D.AddComponent<SphereCollider3DComponent>();
         ballCollider3D.Radius = 20.0f;
         ballCollider3D.Restitution = 0.4f;
-        physicsBall3D.AddComponent<BehaviourComponent>().Scripts.push_back(ScriptInstance{ "PointerClickDemoBehaviour" });
         m_Scene.SetParent(physicsBall3D, physics3DGroup);
 
         // CapsuleCollider3DComponent, rendered with the real MeshPrimitive::Capsule (not a

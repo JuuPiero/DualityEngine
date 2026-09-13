@@ -117,7 +117,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         Source/ApiShowcaseBehaviour.cpp
         Source/CollisionLogBehaviour.cpp
         Source/RaycastDemoBehaviour.cpp
-        Source/PointerClickDemoBehaviour.cpp
         Source/UIButtonClickBehaviour.cpp
         Source/GameSettingsData.cpp
         Source/PlayerController.cpp
@@ -134,7 +133,6 @@ else()
         Source/ApiShowcaseBehaviour.cpp
         Source/CollisionLogBehaviour.cpp
         Source/RaycastDemoBehaviour.cpp
-        Source/PointerClickDemoBehaviour.cpp
         Source/UIButtonClickBehaviour.cpp
         Source/GameSettingsData.cpp
         Source/PlayerController.cpp

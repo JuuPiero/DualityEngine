@@ -572,10 +572,6 @@ namespace Duality {
         &EngineServices_AudioSourceIsPlaying,
     };
 
-    bool Entity::IsValid() const {
-        return m_Scene && m_Handle != entt::null && m_Scene->Registry().valid(m_Handle);
-    }
-
     namespace {
         // ScriptContext uses thread-local-like static state. Scope it so a desktop
         // exception cannot leave the next callback bound to the wrong entity.

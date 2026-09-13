@@ -168,6 +168,13 @@ namespace Duality {
     // Defined here (after Scene is complete) rather than in Entity.h, since
     // they need Scene::Registry() to be a complete type.
 
+    // Entity is deliberately a header-only handle from a game-script DLL's
+    // point of view. Keeping this check inline prevents the DLL from needing
+    // to import an engine implementation symbol just to test a handle.
+    inline bool Entity::IsValid() const {
+        return m_Scene && m_Handle != entt::null && m_Scene->Registry().valid(m_Handle);
+    }
+
     template<typename T, typename... Args>
     T& Entity::AddComponent(Args&&... args) {
         return m_Scene->Registry().emplace<T>(m_Handle, std::forward<Args>(args)...);

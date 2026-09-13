@@ -3,11 +3,13 @@
   "CompanyName": "",
   "Gravity": 9.8100004196167,
   "IconPath": "",
-  "N3DSAntiAliasing": 0,
+  "N3DSAntiAliasing": 2,
   "Name": "SampleProject",
   "PPU": 100.0,
   "ProductName": "",
-  "ScenesInBuild": [],
+  "ScenesInBuild": [
+    "Scenes/Platformer.scene"
+  ],
   "ScriptsDirectory": "Scripts",
   "StartScene": "",
   "Version": "0.1.0",
