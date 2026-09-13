@@ -28,6 +28,13 @@ namespace Duality {
         // root) via Scene::SetParent. Returns the new root Entity, or an empty Entity if
         // the file couldn't be loaded/parsed.
         static Entity Instantiate(Scene& scene, const std::string& path, Entity parent = {});
+
+        // Editor/runtime-safe in-memory duplicate of `source` and every descendant. The copy is
+        // inserted immediately after source in the same sibling list, keeps authored component
+        // values/scripts, and remaps EntityRef values that pointed inside the copied subtree to
+        // their corresponding copied entities. Returns the copied root or an empty Entity for
+        // an invalid source.
+        static Entity Duplicate(Scene& scene, Entity source);
     };
 
 }

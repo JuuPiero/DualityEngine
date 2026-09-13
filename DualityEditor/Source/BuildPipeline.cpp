@@ -4,14 +4,29 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
+#include <cctype>
+#include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <unordered_set>
+#include <vector>
+
+// The cooker needs CPU pixels only when an artist supplied a texture larger
+// than the 3DS can address. Give this translation unit its own static stb
+// implementation so it does not export symbols that collide with the desktop
+// OpenGL texture loader's stb implementation.
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 #include <nlohmann/json.hpp>
 
 #include "DualityEditor/ScriptEngine.h"
+#include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Asset/AudioImportSettings.h"
 #include "DualityEngine/Asset/TextureImportSettings.h"
@@ -83,6 +98,188 @@ namespace Duality {
             std::string exePath = devkitProDir + "\\tools\\bin\\tex3ds.exe";
             return std::filesystem::exists(exePath) ? exePath : "";
         }
+
+        std::string PathKey(const std::filesystem::path& path) {
+            std::error_code error;
+            const std::filesystem::path absolute = std::filesystem::absolute(path, error);
+            return (error ? path.lexically_normal() : absolute.lexically_normal()).generic_string();
+        }
+
+        constexpr int N3DSTextureMaxDimension = 1024;
+
+        bool WriteRgbaBmp(const std::filesystem::path& path, int width, int height,
+            const std::vector<unsigned char>& rgbaPixels) {
+            if (width <= 0 || height <= 0 || rgbaPixels.size() != static_cast<size_t>(width) * height * 4)
+                return false;
+
+            const uint32_t pixelBytes = static_cast<uint32_t>(rgbaPixels.size());
+            const uint32_t fileBytes = 14u + 40u + pixelBytes;
+            std::ofstream output(path, std::ios::binary);
+            if (!output)
+                return false;
+            const auto write16 = [&output](uint16_t value) { output.put(static_cast<char>(value & 0xff)); output.put(static_cast<char>((value >> 8) & 0xff)); };
+            const auto write32 = [&output](uint32_t value) {
+                output.put(static_cast<char>(value & 0xff)); output.put(static_cast<char>((value >> 8) & 0xff));
+                output.put(static_cast<char>((value >> 16) & 0xff)); output.put(static_cast<char>((value >> 24) & 0xff));
+            };
+            output.put('B'); output.put('M'); write32(fileBytes); write16(0); write16(0); write32(54);
+            write32(40); write32(static_cast<uint32_t>(width)); write32(static_cast<uint32_t>(height));
+            write16(1); write16(32); write32(0); write32(pixelBytes); write32(0); write32(0); write32(0); write32(0);
+            for (int y = height - 1; y >= 0; --y) {
+                for (int x = 0; x < width; ++x) {
+                    const unsigned char* pixel = &rgbaPixels[(static_cast<size_t>(y) * width + x) * 4];
+                    output.put(static_cast<char>(pixel[2])); output.put(static_cast<char>(pixel[1]));
+                    output.put(static_cast<char>(pixel[0])); output.put(static_cast<char>(pixel[3]));
+                }
+            }
+            return static_cast<bool>(output);
+        }
+
+        // Returns the source unchanged when it is 3DS-safe. Oversized source images are
+        // resampled with bilinear filtering to fit the 1024px hardware limit, preserving
+        // their aspect ratio. The temporary BMP lives beside the cooked .t3x and is removed
+        // immediately after tex3ds runs; Assets/ is never modified.
+        bool MakeTex3dsInput(const std::filesystem::path& sourcePath, const std::filesystem::path& cookedPath,
+            std::filesystem::path& inputPath, bool& wasResized) {
+            int sourceWidth = 0, sourceHeight = 0, channels = 0;
+            if (!stbi_info(sourcePath.string().c_str(), &sourceWidth, &sourceHeight, &channels) || sourceWidth <= 0 || sourceHeight <= 0)
+                return false;
+            if (sourceWidth <= N3DSTextureMaxDimension && sourceHeight <= N3DSTextureMaxDimension) {
+                inputPath = sourcePath;
+                wasResized = false;
+                return true;
+            }
+
+            const float scale = std::min(static_cast<float>(N3DSTextureMaxDimension) / sourceWidth,
+                static_cast<float>(N3DSTextureMaxDimension) / sourceHeight);
+            const int targetWidth = std::max(1, static_cast<int>(std::lround(sourceWidth * scale)));
+            const int targetHeight = std::max(1, static_cast<int>(std::lround(sourceHeight * scale)));
+            stbi_uc* decoded = stbi_load(sourcePath.string().c_str(), &sourceWidth, &sourceHeight, &channels, 4);
+            if (!decoded)
+                return false;
+            std::vector<unsigned char> resized(static_cast<size_t>(targetWidth) * targetHeight * 4);
+            for (int y = 0; y < targetHeight; ++y) {
+                const float sampleY = (static_cast<float>(y) + 0.5f) * sourceHeight / targetHeight - 0.5f;
+                const int y0 = std::clamp(static_cast<int>(std::floor(sampleY)), 0, sourceHeight - 1);
+                const int y1 = std::min(y0 + 1, sourceHeight - 1);
+                const float fy = std::clamp(sampleY - std::floor(sampleY), 0.0f, 1.0f);
+                for (int x = 0; x < targetWidth; ++x) {
+                    const float sampleX = (static_cast<float>(x) + 0.5f) * sourceWidth / targetWidth - 0.5f;
+                    const int x0 = std::clamp(static_cast<int>(std::floor(sampleX)), 0, sourceWidth - 1);
+                    const int x1 = std::min(x0 + 1, sourceWidth - 1);
+                    const float fx = std::clamp(sampleX - std::floor(sampleX), 0.0f, 1.0f);
+                    for (int channel = 0; channel < 4; ++channel) {
+                        const float top = decoded[(static_cast<size_t>(y0) * sourceWidth + x0) * 4 + channel] * (1.0f - fx) + decoded[(static_cast<size_t>(y0) * sourceWidth + x1) * 4 + channel] * fx;
+                        const float bottom = decoded[(static_cast<size_t>(y1) * sourceWidth + x0) * 4 + channel] * (1.0f - fx) + decoded[(static_cast<size_t>(y1) * sourceWidth + x1) * 4 + channel] * fx;
+                        resized[(static_cast<size_t>(y) * targetWidth + x) * 4 + channel] = static_cast<unsigned char>(std::lround(top * (1.0f - fy) + bottom * fy));
+                    }
+                }
+            }
+            stbi_image_free(decoded);
+            inputPath = cookedPath;
+            inputPath += ".cook.bmp";
+            wasResized = WriteRgbaBmp(inputPath, targetWidth, targetHeight, resized);
+            return wasResized;
+        }
+
+        bool IsPathInside(const std::filesystem::path& path, const std::filesystem::path& root) {
+            std::error_code error;
+            const std::filesystem::path canonicalPath = std::filesystem::weakly_canonical(path, error);
+            if (error)
+                return false;
+            const std::filesystem::path canonicalRoot = std::filesystem::weakly_canonical(root, error);
+            if (error)
+                return false;
+            const std::filesystem::path relative = canonicalPath.lexically_relative(canonicalRoot);
+            return !relative.empty() && *relative.begin() != "..";
+        }
+
+        bool IsAssetGuid(const std::string& value) {
+            return value.size() == 32 && std::all_of(value.begin(), value.end(), [](unsigned char c) {
+                return std::isxdigit(c) != 0;
+            });
+        }
+
+        void CollectAssetGuids(const json& value, std::unordered_set<std::string>& found) {
+            if (value.is_string()) {
+                const std::string& candidate = value.get_ref<const std::string&>();
+                if (IsAssetGuid(candidate))
+                    found.insert(candidate);
+            } else if (value.is_array()) {
+                for (const json& item : value)
+                    CollectAssetGuids(item, found);
+            } else if (value.is_object()) {
+                for (const auto& item : value.items())
+                    CollectAssetGuids(item.value(), found);
+            }
+        }
+
+        void CollectJsonAssetGuids(const std::filesystem::path& path, std::unordered_set<std::string>& found) {
+            std::ifstream file(path);
+            if (!file.is_open())
+                return;
+            try {
+                json root;
+                file >> root;
+                CollectAssetGuids(root, found);
+            } catch (const json::exception&) {
+                // Binary/non-JSON assets cannot have serialized AssetRef dependencies.
+            }
+        }
+
+        std::unordered_set<std::string> CollectReachableAssetPaths(const std::filesystem::path& assetsDir,
+            const std::string& mainScenePath, bool& discoverySucceeded) {
+            discoverySucceeded = false;
+            AssetDatabase::Refresh(assetsDir.string());
+
+            std::vector<std::filesystem::path> rootScenes;
+            if (auto project = Project::GetActive(); project && !project->GetConfig().ScenesInBuild.empty()) {
+                for (const std::string& scenePath : project->GetConfig().ScenesInBuild)
+                    rootScenes.push_back(assetsDir / scenePath);
+            } else if (!mainScenePath.empty()) {
+                rootScenes.emplace_back(mainScenePath);
+            }
+
+            std::unordered_set<std::string> requiredPaths;
+            std::unordered_set<std::string> discoveredGuids;
+            std::deque<std::string> pendingGuids;
+            for (const std::filesystem::path& scenePath : rootScenes) {
+                if (!std::filesystem::is_regular_file(scenePath) || !IsPathInside(scenePath, assetsDir)) {
+                    Log::Warn("BuildPipeline: build scene is missing or outside Assets: '" + scenePath.string() + "'");
+                    continue;
+                }
+                requiredPaths.insert(PathKey(scenePath));
+                CollectJsonAssetGuids(scenePath, discoveredGuids);
+                discoverySucceeded = true;
+            }
+            for (const std::string& guid : discoveredGuids)
+                pendingGuids.push_back(guid);
+
+            std::unordered_set<std::string> visitedGuids;
+            while (!pendingGuids.empty()) {
+                const std::string guid = pendingGuids.front();
+                pendingGuids.pop_front();
+                if (!visitedGuids.insert(guid).second)
+                    continue;
+
+                const std::string resolved = AssetDatabase::ResolvePath(guid);
+                if (resolved.empty()) {
+                    Log::Warn("BuildPipeline: referenced asset GUID '" + guid + "' was not found under Assets");
+                    continue;
+                }
+                const std::filesystem::path path(resolved);
+                if (!IsPathInside(path, assetsDir))
+                    continue;
+                requiredPaths.insert(PathKey(path));
+
+                std::unordered_set<std::string> nestedGuids;
+                CollectJsonAssetGuids(path, nestedGuids);
+                for (const std::string& nestedGuid : nestedGuids)
+                    if (!visitedGuids.count(nestedGuid))
+                        pendingGuids.push_back(nestedGuid);
+            }
+            return requiredPaths;
+        }
     }
 
     // std::system() on Windows runs `cmd.exe /c "<command>"` -- and cmd.exe's own documented
@@ -101,7 +298,8 @@ namespace Duality {
         return std::system(("\"" + command + "\"").c_str());
     }
 
-    bool BuildPipeline::CookAssets(const std::string& repoRoot, const std::string& assetsDirectory) {
+    bool BuildPipeline::CookAssets(const std::string& repoRoot, const std::string& assetsDirectory,
+        const std::string& mainScenePath) {
         namespace fs = std::filesystem;
 
         fs::path assetsDir(assetsDirectory);
@@ -109,6 +307,19 @@ namespace Duality {
             Log::Warn("BuildPipeline: assets directory '" + assetsDirectory + "' does not exist, skipping asset cook");
             return true; // a project with no assets yet is valid, not a failure
         }
+
+        bool dependencyDiscoverySucceeded = false;
+        const std::unordered_set<std::string> reachableAssetPaths =
+            CollectReachableAssetPaths(assetsDir, mainScenePath, dependencyDiscoverySucceeded);
+        if (!dependencyDiscoverySucceeded) {
+            Log::Warn("BuildPipeline: could not read a build scene; falling back to cooking all assets");
+        } else {
+            Log::Info("BuildPipeline: dependency cook selected " + std::to_string(reachableAssetPaths.size()) +
+                " reachable asset(s)");
+        }
+        const auto shouldCook = [&](const fs::path& path) {
+            return !dependencyDiscoverySucceeded || reachableAssetPaths.count(PathKey(path)) != 0;
+        };
 
         std::string tex3dsExe = FindTex3dsExe();
         if (tex3dsExe.empty()) {
@@ -127,30 +338,43 @@ namespace Duality {
 
         json manifest = json::object();
 
-        for (auto& entry : fs::recursive_directory_iterator(assetsDir)) {
-            if (entry.is_directory())
+        // tex3ds accepts JPEG as well as PNG. Both must be converted to .t3x:
+        // copying a JPEG unchanged into romfs makes the manifest point at a file
+        // Citro2D/Citro3D cannot load. Keep this extension check case-insensitive
+        // because assets copied from cameras/art tools commonly use .JPG.
+        const auto isTextureSource = [](const fs::path& path) {
+            std::string extension = path.extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            return extension == ".png" || extension == ".jpg" || extension == ".jpeg";
+        };
+
+        // tex3ds prints "Used lz11 for compression" once for every texture it
+        // processes. A project with a sprite catalogue can therefore look frozen
+        // in the console even though it is simply moving through a finite batch.
+        // Count it first so the Editor can report meaningful progress instead.
+        size_t totalTextures = 0;
+        for (fs::recursive_directory_iterator it(assetsDir, fs::directory_options::skip_permission_denied), end;
+             it != end; ++it) {
+            std::error_code typeError;
+            if (it->is_regular_file(typeError) && isTextureSource(it->path()) && shouldCook(it->path()))
+                ++totalTextures;
+        }
+        size_t cookedTextures = 0;
+
+        for (auto& entry : fs::recursive_directory_iterator(assetsDir, fs::directory_options::skip_permission_denied)) {
+            std::error_code typeError;
+            if (!entry.is_regular_file(typeError))
                 continue;
             const fs::path& srcPath = entry.path();
             if (srcPath.extension() == ".meta")
                 continue;
 
-            fs::path relPath = fs::relative(srcPath, assetsDir);
+            if (!shouldCook(srcPath))
+                continue;
 
-            // Build Settings filtering: once a project has configured ScenesInBuild (Build
-            // Settings window), a .scene file NOT in that list is excluded from the device build
-            // entirely -- matches Unity, where only scenes explicitly added to Build Settings
-            // ship. An empty ScenesInBuild means "not configured yet", which preserves this
-            // function's original "cook every asset unfiltered" behavior exactly -- no back-compat
-            // break for a project that hasn't touched Build Settings.
-            if (srcPath.extension() == ".scene") {
-                auto activeProject = Project::GetActive();
-                if (activeProject && !activeProject->GetConfig().ScenesInBuild.empty()) {
-                    const auto& scenesInBuild = activeProject->GetConfig().ScenesInBuild;
-                    std::string relPathStr = relPath.generic_string();
-                    if (std::find(scenesInBuild.begin(), scenesInBuild.end(), relPathStr) == scenesInBuild.end())
-                        continue;
-                }
-            }
+            fs::path relPath = fs::relative(srcPath, assetsDir);
 
             // Reused as-is -- creates the .meta if missing, exactly like ContentBrowserPanel
             // does when browsing into a folder, so a texture never used in the Editor yet
@@ -161,7 +385,8 @@ namespace Duality {
 
             std::string romfsPath;
 
-            if (srcPath.extension() == ".png") {
+            if (isTextureSource(srcPath)) {
+                ++cookedTextures;
                 if (tex3dsExe.empty())
                     continue; // already warned once, above, before the loop started
 
@@ -175,8 +400,27 @@ namespace Duality {
                 // this only changes behavior for a texture that actually asked for mipmaps).
                 TextureImportSettings settings = TextureImportSettings::Load(srcPath.string());
                 std::string mipmapFlag = settings.GenerateMipmaps ? " -m box" : "";
-                std::string command = "\"" + tex3dsExe + "\"" + mipmapFlag + " -o \"" + destPath.string() + "\" \"" + srcPath.string() + "\"";
-                if (RunCommand(command) != 0) {
+                Log::Info("BuildPipeline: cooking texture [" + std::to_string(cookedTextures) + "/" +
+                    std::to_string(totalTextures) + "] " + relPath.generic_string());
+                fs::path tex3dsInput;
+                bool textureWasResized = false;
+                if (!MakeTex3dsInput(srcPath, destPath, tex3dsInput, textureWasResized)) {
+                    Log::Warn("BuildPipeline: could not decode texture '" + srcPath.string() + "', skipping");
+                    continue;
+                }
+                if (textureWasResized) {
+                    Log::Info("BuildPipeline: resized oversized 3DS texture '" + relPath.generic_string() +
+                        "' to fit " + std::to_string(N3DSTextureMaxDimension) + "px (source asset unchanged)");
+                }
+                // Keep tex3ds's per-file LZ11 success chatter out of the visible
+                // build console. stderr remains visible for real converter errors;
+                // the explicit progress log above says exactly which source file
+                // is being handled.
+                std::string command = "\"" + tex3dsExe + "\"" + mipmapFlag + " -o \"" + destPath.string() + "\" \"" + tex3dsInput.string() + "\" > NUL";
+                const int tex3dsResult = RunCommand(command);
+                if (textureWasResized)
+                    fs::remove(tex3dsInput, ec);
+                if (tex3dsResult != 0) {
                     Log::Warn("BuildPipeline: tex3ds failed converting '" + srcPath.string() + "', skipping");
                     continue;
                 }
@@ -279,7 +523,7 @@ namespace Duality {
             return false;
         }
 
-        if (!CookAssets(repoRoot, assetsDirectory))
+        if (!CookAssets(repoRoot, assetsDirectory, mainScenePath))
             return false;
 
         // The .dproj itself is an Editor-side file and is never present in romfs. Bake only the

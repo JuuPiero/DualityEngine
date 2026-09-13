@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 #include <vector>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
@@ -19,7 +20,7 @@ namespace Duality {
         struct SpriteDrawItem {
             entt::entity Handle;
             int SortOrder = 0;
-            float SortY = 0.0f;
+            std::size_t HierarchyOrder = 0;
         };
 
         glm::vec4 FrameUV(int frame, int columns, int rows) {
@@ -139,6 +140,15 @@ namespace Duality {
             // last 2D render boundary, where a world unit becomes physical screen pixels.
             const float worldToPixels = cameraComponent.Zoom * PhysicsUnits::PPU();
 
+            // Equal SpriteRenderer Sort Order follows the visible Hierarchy, not EnTT's dense
+            // component storage (which is free to reorder at any time). Earlier siblings draw
+            // first; the last sibling therefore appears on top, as in Unity.
+            const std::vector<Entity> hierarchy = scene.GetHierarchyTraversalOrder();
+            std::unordered_map<entt::entity, std::size_t> hierarchyOrder;
+            hierarchyOrder.reserve(hierarchy.size());
+            for (std::size_t i = 0; i < hierarchy.size(); ++i)
+                hierarchyOrder[hierarchy[i].Handle()] = i;
+
             std::vector<SpriteDrawItem> sprites;
             auto view = scene.Registry().view<TransformComponent, SpriteRendererComponent>();
             for (auto handle : view) {
@@ -148,20 +158,25 @@ namespace Duality {
                     continue;
                 if (!view.get<SpriteRendererComponent>(handle).Enabled)
                     continue;
-                TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
-                sprites.push_back({ handle, view.get<SpriteRendererComponent>(handle).SortOrder, transform.Translation.y });
+                const auto found = hierarchyOrder.find(handle);
+                const std::size_t drawOrder = found == hierarchyOrder.end() ? hierarchy.size() : found->second;
+                sprites.push_back({ handle, view.get<SpriteRendererComponent>(handle).SortOrder, drawOrder });
             }
             std::sort(sprites.begin(), sprites.end(), [](const SpriteDrawItem& a, const SpriteDrawItem& b) {
                 if (a.SortOrder != b.SortOrder)
                     return a.SortOrder < b.SortOrder;
-                return a.SortY < b.SortY;
+                return a.HierarchyOrder < b.HierarchyOrder;
             });
 
             for (auto& item : sprites) {
                 TransformComponent transform = scene.GetWorldTransform(Entity(item.Handle, &scene));
                 auto& sprite = scene.Registry().get<SpriteRendererComponent>(item.Handle);
 
-                glm::vec2 size = sprite.Size * worldToPixels;
+                // SpriteRenderer::Size is the unscaled quad size. Transform.Scale
+                // is deliberately applied here (and in both editor Scene panes),
+                // so using the Scale gizmo changes the same object in Game and
+                // Scene just like Unity.
+                glm::vec2 size = sprite.Size * glm::vec2(transform.Scale.x, transform.Scale.y) * worldToPixels;
                 glm::vec2 pivotOffset{ size.x * sprite.Pivot.x, size.y * sprite.Pivot.y };
                 glm::vec2 screenCenter{
                     (transform.Translation.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f,

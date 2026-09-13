@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DualityEngine Docs</title>
+    <title>DualityEngine Documentation</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body data-page="home">
@@ -11,89 +11,54 @@
         <nav class="sidebar" id="sidebar-root"></nav>
         <main class="main">
             <div class="content">
-                <div class="eyebrow">DualityEngine · Tài liệu kỹ thuật</div>
-                <h1>Engine C++ tự viết cho Nintendo 3DS</h1>
-                <p class="lede">
-                    DualityEngine là một game engine + editor viết 
-                    bằng C++, nhắm tới Nintendo 3DS (devkitARM/devkitPro) và desktop Windows. Trang
-                    này là tài liệu tham khảo đầy đủ cho mọi hệ thống engine hiện có — từ tổng quan
-                    kiến trúc tới chữ ký từng API, sắp xếp từ cao xuống thấp.
-                </p>
+                <div class="eyebrow">Nintendo 3DS-first C++ game engine</div>
+                <h1>DualityEngine Documentation</h1>
+                <p class="lede">Tài liệu cho runtime, editor và pipeline build của DualityEngine. Engine chạy trên Windows để edit/hot-reload và Nintendo 3DS qua devkitPro, với hai màn hình, touch input, 2D/3D renderer và package gameplay.</p>
 
-                <h2 style="border-top:none;margin-top:0">Bắt đầu từ đâu?</h2>
+                <div class="callout">
+                    <span class="callout-title">Điểm bắt đầu khi viết game</span>
+                    Dùng <code>Behaviour</code> làm script, <code>Transform(GetEntity())</code> để thay đổi transform, wrapper như <code>SpriteRenderer</code>/<code>Rigidbody2D</code>/<code>LineRenderer</code> cho component, và <code>Input</code> cho nút/touch. Toàn bộ declaration xem ở API Reference.
+                </div>
+
+                <h2 style="border-top:none;margin-top:0">Tra cứu nhanh</h2>
                 <div class="card-grid">
-                    <a class="card" href="pages/getting-started.html">
-                        <span class="card-icon">⚙️</span>
-                        <div class="card-title">Cài đặt &amp; Build</div>
-                        <div class="card-desc">Cài devkitPro, build Editor trên desktop, build/chạy trên 3DS thật hoặc Citra.</div>
+                    <a class="card" href="pages/api-reference.html">
+                        <span class="card-icon">API</span>
+                        <div class="card-title">API Reference có tìm kiếm</div>
+                        <div class="card-desc">90 public header; lọc theo module, class, struct, enum, hàm hoặc declaration chính xác.</div>
                     </a>
                     <a class="card" href="pages/first-game-tutorial.html">
-                        <span class="card-icon">🎮</span>
-                        <div class="card-title">Làm game đầu tiên</div>
-                        <div class="card-desc">Hướng dẫn từng bước: tạo scene, thêm vật lý, viết script, dựng UI, chuyển scene, build ra máy thật.</div>
-                    </a>
-                    <a class="card" href="pages/architecture.html">
-                        <span class="card-icon">🧩</span>
-                        <div class="card-title">Kiến trúc: ECS &amp; Scene</div>
-                        <div class="card-desc">Entity/Component/Scene, hệ thống Reflection, vòng đời Play/Stop, cách engine tổ chức dữ liệu.</div>
-                    </a>
-                    <a class="card" href="pages/api-stack.html">
-                        <span class="card-icon">📚</span>
-                        <div class="card-title">API Stack (thấp → cao)</div>
-                        <div class="card-desc">Toàn bộ lớp API từ EnTT/GLM tới Behaviour wrappers, component mới, Editor — một trang tham chiếu.</div>
-                    </a>
-                </div>
-
-                <h2>Tài liệu API theo hệ thống</h2>
-                <div class="card-grid">
-                    <a class="card" href="pages/scripting-api.html">
-                        <span class="card-icon">📜</span>
-                        <div class="card-title">Scripting API</div>
-                        <div class="card-desc"><code>Behaviour</code>: vòng đời, Input, Physics, Audio, Raycast, DUALITY_PROPERTY(), EntityRef, SceneManager.</div>
-                    </a>
-                    <a class="card" href="pages/physics.html">
-                        <span class="card-icon">🪐</span>
-                        <div class="card-title">Physics 2D/3D</div>
-                        <div class="card-desc">Rigidbody, Collider, BodyType, Collision/Trigger events, Raycast2D/3D (Box2D + Bullet).</div>
-                    </a>
-                    <a class="card" href="pages/rendering.html">
-                        <span class="card-icon">🖼️</span>
-                        <div class="card-title">Rendering &amp; UI</div>
-                        <div class="card-desc">Renderer 2D/3D, Camera, Material/Mesh, hệ UI trong game (Panel/Button).</div>
-                    </a>
-                    <a class="card" href="pages/assets.html">
-                        <span class="card-icon">📦</span>
-                        <div class="card-title">Asset Pipeline</div>
-                        <div class="card-desc">GUID/.meta, Prefab, ScriptableObject, Texture/Audio Import Settings, AssetDatabase.</div>
+                        <span class="card-icon">Play</span>
+                        <div class="card-title">Tạo game đầu tiên</div>
+                        <div class="card-desc">Scene, camera Bottom, sprite, script, input và build thử lên 3DS.</div>
                     </a>
                     <a class="card" href="pages/editor.html">
-                        <span class="card-icon">🛠️</span>
-                        <div class="card-title">Editor Panels</div>
-                        <div class="card-desc">Hierarchy, Properties, Scene, Game, Content Browser, Console, Menu Bar.</div>
-                    </a>
-                    <a class="card" href="pages/build-deploy.html">
-                        <span class="card-icon">🚀</span>
-                        <div class="card-title">Build &amp; Deploy</div>
-                        <div class="card-desc">Build for 3DS/PC, đóng gói .3dsx/.cia, cấu trúc project/romfs.</div>
+                        <span class="card-icon">Edit</span>
+                        <div class="card-title">Editor workflow</div>
+                        <div class="card-desc">Hierarchy, Scene, Inspector, Content Browser, packages, duplicate, multi-select và Build Settings.</div>
                     </a>
                 </div>
 
-                <h2>Engine gồm những gì?</h2>
+                <h2>Hệ thống hiện có</h2>
                 <table>
-                    <tr><th>Thành phần</th><th>Mô tả</th></tr>
-                    <tr><td><code>DualityEngine</code></td><td>Thư viện lõi dùng chung: ECS (EnTT), Reflection, Scene, physics 2D (Box2D) + 3D (Bullet), renderer interface + backend OpenGL/citro2d/citro3d, hệ UI, asset pipeline, scripting registry.</td></tr>
-                    <tr><td><code>DualityEditor</code></td><td>Editor desktop (Dear ImGui) — toàn bộ panel, gizmo, build pipeline, asset inspector.</td></tr>
-                    <tr><td><code>DualityPlayer</code></td><td>Runtime thực thi trên 3DS — link tĩnh với GameScripts, không có UI editor.</td></tr>
-                    <tr><td><code>DualityPlayerDesktop</code></td><td>Runtime desktop độc lập (không Editor) — cùng pipeline Scene/Renderer với 3DS.</td></tr>
-                    <tr><td><code>GameScripts</code></td><td>Code gameplay (<code>Behaviour</code> subclass) — build DLL hot-reload trên desktop, link tĩnh trên 3DS, cùng một bộ source.</td></tr>
+                    <tr><th>Nhóm</th><th>Điểm cần biết</th></tr>
+                    <tr><td>Scene & ECS</td><td>Entity/EnTT, hierarchy, active state, layer Top/Bottom/Default, prefab, serializer và runtime lifecycle.</td></tr>
+                    <tr><td>Scripting</td><td>Behaviour lifecycle, reflection property, ScriptableObject, scene services, input, debug, audio, physics wrappers.</td></tr>
+                    <tr><td>Rendering</td><td>Sprite, mesh, material, flipbook, tilemap, line renderer, particles, Canvas/UI; OpenGL desktop và Citro2D/Citro3D trên 3DS.</td></tr>
+                    <tr><td>Physics</td><td>Box2D và Bullet, collider/raycast 2D/3D, pointer raycaster cho click/touch.</td></tr>
+                    <tr><td>3DS</td><td>Top 400×240, Bottom 320×240 touch, build <code>.3dsx</code>/<code>.cia</code>, anti-aliasing display-transfer và project PPU/gravity.</td></tr>
+                    <tr><td>Packages</td><td>Code package trong <code>Packages/&lt;id&gt;</code>; enabled package compile chung với GameScripts trên Desktop và link tĩnh trên 3DS.</td></tr>
                 </table>
 
-                <div class="callout note">
-                    <span class="callout-title">Về tài liệu này</span>
-                    Mọi API mô tả ở đây phản ánh code thực tế trong repo tại thời điểm viết. Nếu thấy
-                    sai lệch với source, source luôn là nguồn đúng — hãy đối chiếu đường dẫn file ghi
-                    kèm mỗi mục API.
+                <h2>Hướng dẫn theo mục tiêu</h2>
+                <div class="card-grid">
+                    <a class="card" href="pages/scripting-api.html"><div class="card-title">Viết gameplay</div><div class="card-desc">Behaviour, Transform, Input, Debug, save, AudioSource, SceneManager và ScriptableObject.</div></a>
+                    <a class="card" href="pages/components.html"><div class="card-title">Tìm component</div><div class="card-desc">Component ECS serializable và các wrapper dùng từ script.</div></a>
+                    <a class="card" href="pages/rendering.html"><div class="card-title">2D, UI và 3D</div><div class="card-desc">Camera/layer, Canvas, sprites, mesh, material, renderer 3DS.</div></a>
+                    <a class="card" href="pages/build-deploy.html"><div class="card-title">Đóng gói 3DS</div><div class="card-desc">Cook asset theo dependency, build scene, icon CIA, 3dsx, Citra và thiết bị thật.</div></a>
                 </div>
+
+                <p class="dim">API Reference được sinh từ source hiện tại. Sau khi thêm hoặc đổi public API, chạy <code>powershell -ExecutionPolicy Bypass -File Docs/tools/generate-api-index.ps1</code>.</p>
             </div>
         </main>
     </div>

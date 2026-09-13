@@ -415,6 +415,7 @@ namespace Duality {
         m_Scene.SetParent(audioDemo, gameplayGroup);
 
         m_Selected = topQuad;
+        m_SelectedEntities = { topQuad };
     }
 
     void Application::OpenProjectFromDialog() {
@@ -434,6 +435,9 @@ namespace Duality {
         m_Project = project;
         m_Scene = Scene(); // old Entity handles (including m_Selected) don't survive this
         m_Selected = Entity();
+        m_SelectedEntities.clear();
+        m_SelectedAssetPath.clear();
+        m_SelectedAssetPaths.clear();
         m_TopSceneView = SceneViewCamera();       // re-seed from the new scene's own cameras
         m_BottomSceneView = SceneViewCamera();    // instead of keeping the old project's pan/zoom
         m_TopSceneView3D = SceneViewCamera3D();   // same reasoning, 3D orbit cameras
@@ -485,6 +489,9 @@ namespace Duality {
         m_Project = project;
         m_Scene = Scene(); // old Entity handles (including m_Selected) don't survive this
         m_Selected = Entity();
+        m_SelectedEntities.clear();
+        m_SelectedAssetPath.clear();
+        m_SelectedAssetPaths.clear();
         m_TopSceneView = SceneViewCamera();       // re-seed from the new scene's own cameras
         m_BottomSceneView = SceneViewCamera();    // instead of keeping the old project's pan/zoom
         m_TopSceneView3D = SceneViewCamera3D();   // same reasoning, 3D orbit cameras
@@ -580,6 +587,9 @@ namespace Duality {
                     m_Renderer3D.UnloadAllMeshes();
                     m_Scene = Scene();
                     m_Selected = Entity();
+                    m_SelectedEntities.clear();
+                    m_SelectedAssetPath.clear();
+                    m_SelectedAssetPaths.clear();
                     SceneSerializer(m_Scene).Deserialize(m_Project->GetAssetsDirectory() + "/" + pendingPath);
                     m_Scene.OnRuntimeStart();
                 }
@@ -647,7 +657,7 @@ namespace Duality {
             ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
             EditorContext ctx{
-                m_Scene, m_Selected, m_SelectedAssetPath, m_IsPlaying, m_SceneDirty,
+                m_Scene, m_Selected, m_SelectedEntities, m_SelectedAssetPath, m_SelectedAssetPaths, m_IsPlaying, m_SceneDirty,
                 m_TopSceneView, m_BottomSceneView, m_ActiveGizmoMode, m_DraggingGizmoAxis, m_DraggingGizmoScreen,
                 m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,

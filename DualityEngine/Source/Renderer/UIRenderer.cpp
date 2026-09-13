@@ -1,6 +1,7 @@
 #include "DualityEngine/Renderer/UIRenderer.h"
 
 #include <algorithm>
+#include <unordered_map>
 #include <vector>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
@@ -203,8 +204,21 @@ namespace Duality {
         // a shared CanvasComponent, but the per-item draw step below can no longer assume every
         // item carries a UIImageComponent.
         enum class UIItemKind { Image, Text };
-        struct UIItem { entt::entity Handle; int SortOrder; UIItemKind Kind; };
+        struct UIItem { entt::entity Handle; int SortOrder; std::size_t HierarchyOrder; UIItemKind Kind; };
         std::vector<UIItem> items;
+
+        // Match SpriteRenderer's ordering contract: for equal explicit sort values, traversal
+        // through Hierarchy decides draw order and the final sibling is on top. EnTT view order
+        // is intentionally never used as a visual ordering signal.
+        const std::vector<Entity> hierarchy = scene.GetHierarchyTraversalOrder();
+        std::unordered_map<entt::entity, std::size_t> hierarchyOrder;
+        hierarchyOrder.reserve(hierarchy.size());
+        for (std::size_t i = 0; i < hierarchy.size(); ++i)
+            hierarchyOrder[hierarchy[i].Handle()] = i;
+        const auto orderFor = [&](entt::entity handle) {
+            const auto found = hierarchyOrder.find(handle);
+            return found == hierarchyOrder.end() ? hierarchy.size() : found->second;
+        };
 
         auto resolveSort = [&](entt::entity handle, int baseSort) {
             int sort = baseSort;
@@ -224,7 +238,7 @@ namespace Duality {
                 continue;
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
-            items.push_back({ handle, resolveSort(handle, rect.SortOrder), UIItemKind::Image });
+            items.push_back({ handle, resolveSort(handle, rect.SortOrder), orderFor(handle), UIItemKind::Image });
         }
 
         auto textView = scene.Registry().view<UIRectComponent, UITextComponent>();
@@ -234,10 +248,14 @@ namespace Duality {
                 continue;
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
-            items.push_back({ handle, resolveSort(handle, rect.SortOrder), UIItemKind::Text });
+            items.push_back({ handle, resolveSort(handle, rect.SortOrder), orderFor(handle), UIItemKind::Text });
         }
 
-        std::sort(items.begin(), items.end(), [](const UIItem& a, const UIItem& b) { return a.SortOrder < b.SortOrder; });
+        std::sort(items.begin(), items.end(), [](const UIItem& a, const UIItem& b) {
+            if (a.SortOrder != b.SortOrder)
+                return a.SortOrder < b.SortOrder;
+            return a.HierarchyOrder < b.HierarchyOrder;
+        });
 
         for (auto& item : items) {
             auto handle = item.Handle;

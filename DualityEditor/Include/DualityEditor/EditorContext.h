@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -32,12 +33,18 @@ namespace Duality {
     struct EditorContext {
         Scene& SceneRef;
         Entity& Selected;
+        // Full multi-selection for Hierarchy/Scene. `Selected` remains the
+        // primary (last interacted) entity so existing Inspector/gizmo code
+        // continues to have one unambiguous target.
+        std::vector<Entity>& SelectedEntities;
         // The currently-selected project asset file (Content Browser), if any -- e.g. a
         // ScriptableObject ".asset" the Properties panel should inspect instead of an
         // Entity's components. Mutually exclusive with Selected in practice: ContentBrowserPanel
         // clears Selected when a file is clicked; PropertiesPanel prioritizes Selected when both
         // happen to be set, so no other entity-select call site needs to clear this in turn.
         std::string& SelectedAssetPath;
+        // Full Project-window selection; SelectedAssetPath is its primary item.
+        std::vector<std::string>& SelectedAssetPaths;
         bool& IsPlaying;
         bool& SceneDirty;
 

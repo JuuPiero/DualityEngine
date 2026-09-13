@@ -235,7 +235,7 @@
                     Unity); danh sách rỗng thì mọi submesh dùng Material trắng mặc định.
                 </div>
 
-                <h3>ScreenGroupComponent</h3>
+                <h3>Top / Bottom hierarchy root</h3>
                 <p>
                     Tag opt-in đánh dấu entity là gốc tổ chức của một màn — gắn vào entity kiểu
                     "TopGroup"/"BottomGroup" (hoặc bất kỳ entity nào) để gán cả subtree của nó cho
@@ -246,7 +246,7 @@
                 </p>
                 <table>
                     <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
-                    <tr><td><code>Screen</code></td><td><code>Screen</code></td><td><code>Top</code></td><td>Màn mà subtree gốc tại entity này thuộc về.</td></tr>
+                    <tr><td><code>Value</code></td><td><code>Layer</code></td><td><code>Default</code></td><td>Đặt <code>Top</code> hoặc <code>Bottom</code> trên root để tổ chức subtree theo màn 3DS.</td></tr>
                 </table>
 
                 <h2>UI</h2>
@@ -398,7 +398,7 @@
                 </table>
 
                 <h3>AudioSourceComponent (mở rộng)</h3>
-                <p>Thêm <code>SpatialBlend</code>, <code>MinDistance</code>, <code>MaxDistance</code>, <code>Mute</code>, <code>PlayOnAwake</code> — script dùng <code>GetAudioSource().Play()</code>.</p>
+                <p>Thêm <code>SpatialBlend</code>, <code>MinDistance</code>, <code>MaxDistance</code>, <code>Mute</code>, <code>PlayOnAwake</code> — script dùng <code>AudioSource(GetEntity()).Play()</code>.</p>
 
                 <h2>UI &amp; Runtime visuals (mới)</h2>
                 <table>

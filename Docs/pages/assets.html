@@ -151,6 +151,14 @@ REGISTER_SCRIPTABLE_OBJECT(GameSettingsData) <span class="tok-com">// thay vì R
                     <li><strong>Chuột phải một file/folder</strong> — <strong>Rename</strong> (Enter/click-ra-ngoài lưu, Esc huỷ) / <strong>Delete</strong> (có xác nhận, không Recycle Bin).</li>
                 </ul>
 
+                <h2>Packages</h2>
+                <p>Package là code tùy chọn theo project, đặt trong <code>Packages/&lt;package-id&gt;/</code>. Mỗi package có <code>package.json</code>, <code>Include/</code> và <code>Source/</code>; chỉ package xuất hiện trong <code>EnabledPackages</code> của file <code>.dproj</code> mới được compile cùng <code>GameScripts</code>.</p>
+                <pre><code>Packages/com.example.mypackage/
+  package.json
+  Include/
+  Source/</code></pre>
+                <p>Desktop đưa source vào DLL hot-reload; 3DS đưa cùng source vào <code>libGameScripts.a</code> và link tĩnh vào Player. Sau khi cài/đổi package trong Editor, dùng <strong>Apply + Reload Scripts</strong> trước khi Play. Build 3DS tự cấu hình lại package đã enable.</p>
+
                 <div class="page-nav">
                     <a class="prev" href="rendering.html"><span class="dir">← Trước</span>Rendering &amp; UI</a>
                     <a class="next" href="editor.html"><span class="dir">Tiếp →</span>Editor Panels</a>

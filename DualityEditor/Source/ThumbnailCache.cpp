@@ -20,7 +20,9 @@ namespace Duality {
         if (it != m_Cache.end())
             return it->second;
 
-        uint32_t texture = GLTextureLoader::LoadTextureFromFile(path);
+        // ImGui's image quad, like our 2D renderer, places v=0 along its top
+        // edge. Do not apply the mesh-only OpenGL vertical flip to previews.
+        uint32_t texture = GLTextureLoader::LoadTextureFromFile(path, {}, false);
         m_Cache[path] = texture;
         return texture;
     }

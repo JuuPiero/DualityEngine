@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <exception>
 #include <limits>
 #include <set>
@@ -792,6 +793,34 @@ namespace Duality {
         return entity;
     }
 
+    std::vector<Entity> Scene::GetHierarchyTraversalOrder() const {
+        std::vector<Entity> ordered;
+        std::set<entt::entity> visited;
+
+        // The visited set is normally redundant (Scene::SetParent prevents cycles), but makes
+        // this rendering/editor utility safe even if a malformed scene file or future tool
+        // creates a bad hierarchy relationship.
+        auto visit = [&](auto&& self, Entity entity) -> void {
+            if (!entity || !m_Registry.valid(entity.Handle()) || !visited.insert(entity.Handle()).second)
+                return;
+            ordered.push_back(entity);
+            const HierarchyComponent& hierarchy = m_Registry.get<HierarchyComponent>(entity.Handle());
+            for (Entity child : hierarchy.Children)
+                self(self, child);
+        };
+
+        for (Entity root : m_RootEntities)
+            visit(visit, root);
+
+        // A well-formed Scene is completely reachable from m_RootEntities. Include any orphan
+        // entity as a deterministic trailing fallback instead of making it disappear merely
+        // because a tool loaded an incomplete hierarchy.
+        for (auto handle : m_Registry.view<HierarchyComponent>())
+            visit(visit, Entity(handle, const_cast<Scene*>(this)));
+
+        return ordered;
+    }
+
     void Scene::DestroyEntity(Entity entity) {
         auto& hierarchy = entity.GetComponent<HierarchyComponent>();
 
@@ -839,6 +868,30 @@ namespace Duality {
         }
         newSiblings.insert(insertPos, child);
 
+        childHierarchy.Parent = newParent;
+
+        if (preserveWorldPosition) {
+            TransformComponent parentWorld = newParent ? GetWorldTransform(newParent) : TransformComponent{};
+            child.GetComponent<TransformComponent>() = DecomposeWorld(worldBefore, parentWorld);
+        }
+    }
+
+    void Scene::SetSiblingIndex(Entity child, Entity newParent, std::size_t siblingIndex, bool preserveWorldPosition) {
+        if (!child || child == newParent)
+            return;
+        if (newParent && IsDescendantOf(newParent, child))
+            return; // would create a cycle
+
+        auto& childHierarchy = child.GetComponent<HierarchyComponent>();
+        Entity oldParent = childHierarchy.Parent;
+        TransformComponent worldBefore = GetWorldTransform(child);
+
+        std::vector<Entity>& oldSiblings = SiblingListFor(oldParent);
+        oldSiblings.erase(std::remove(oldSiblings.begin(), oldSiblings.end(), child), oldSiblings.end());
+
+        std::vector<Entity>& newSiblings = SiblingListFor(newParent);
+        siblingIndex = std::min(siblingIndex, newSiblings.size());
+        newSiblings.insert(newSiblings.begin() + static_cast<std::ptrdiff_t>(siblingIndex), child);
         childHierarchy.Parent = newParent;
 
         if (preserveWorldPosition) {

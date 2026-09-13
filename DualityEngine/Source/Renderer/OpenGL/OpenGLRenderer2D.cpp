@@ -228,7 +228,10 @@ namespace Duality {
         if (it != m_TextureCache.end())
             return it->second;
 
-        uint32_t texture = GLTextureLoader::LoadTextureFromFile(path, TextureImportSettings::Load(path));
+        // Our 2D pixel/world coordinate system starts at the top-left, and
+        // DrawQuad assigns v=0 to its top edge. Keep stb's source row order
+        // so sprites appear exactly as authored.
+        uint32_t texture = GLTextureLoader::LoadTextureFromFile(path, TextureImportSettings::Load(path), false);
         m_TextureCache[path] = texture;
         return texture;
     }

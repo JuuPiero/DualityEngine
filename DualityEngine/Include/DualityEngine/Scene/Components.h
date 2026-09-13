@@ -52,7 +52,9 @@ namespace Duality {
     };
 
     // A quad of Size world units centered on the entity's
-    // TransformComponent::Translation. Texture is an AssetRef (empty Guid =
+    // TransformComponent::Translation. Its final world size is Size multiplied
+    // by TransformComponent::Scale.xy, matching Unity's SpriteRenderer / Transform
+    // relationship. Texture is an AssetRef (empty Guid =
     // no texture assigned) -- when unresolved/absent, renders as a flat
     // Color-filled rect; when it resolves to an image, Color still
     // modulates it (white = unmodified). If the entity also has a

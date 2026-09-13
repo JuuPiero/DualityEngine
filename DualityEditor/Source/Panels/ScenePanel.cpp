@@ -1,9 +1,13 @@
 #include "DualityEditor/Panels/ScenePanel.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <limits>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <imgui.h>
@@ -16,8 +20,11 @@
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MeshLoader.h"
 #include "DualityEngine/Physics/PhysicsUnits.h"
+#include "DualityEngine/Renderer/DrawHelpers2D.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
+#include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/PrefabSerializer.h"
 
 namespace Duality {
 
@@ -28,6 +35,147 @@ namespace Duality {
         // feels proportionate instead of scale exploding after a few
         // pixels of movement.
         constexpr float ScaleDragSensitivity = 1.0f;
+        // PPU-based 2D assets commonly measure around 1 world unit. Scene 3D
+        // must be able to inspect them closer than the old 10-unit floor.
+        constexpr float MinSceneViewDistance3D = 0.25f;
+
+        // Content Browser uses one generic ASSET_GUID drag payload for every asset type.  Scene
+        // dropping deliberately accepts only raster image assets: a mesh/material/prefab has a
+        // different useful creation workflow and must never silently become a SpriteRenderer.
+        bool IsImageAsset(const std::string& guid) {
+            const std::string path = AssetDatabase::ResolvePath(guid);
+            if (path.empty())
+                return false;
+            std::string extension = std::filesystem::path(path).extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(),
+                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return extension == ".png" || extension == ".jpg" || extension == ".jpeg" ||
+                extension == ".bmp" || extension == ".tga" || extension == ".gif" ||
+                extension == ".psd" || extension == ".hdr";
+        }
+
+        bool IsPrefabAsset(const std::string& guid) {
+            const std::string path = AssetDatabase::ResolvePath(guid);
+            if (path.empty())
+                return false;
+            std::string extension = std::filesystem::path(path).extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(),
+                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return extension == ".prefab";
+        }
+
+        std::string EntityNameFromAsset(const std::string& guid) {
+            const std::string path = AssetDatabase::ResolvePath(guid);
+            const std::string stem = path.empty() ? std::string() : std::filesystem::path(path).stem().string();
+            return stem.empty() ? "Image" : stem;
+        }
+
+        // A Canvas is a screen-space layout context rather than a world-space rectangle.  The
+        // currently selected Canvas (or one of its children) therefore makes the user's intent
+        // explicit: dropping an image in the matching Scene pane creates an Image under it;
+        // otherwise the exact same gesture creates a world SpriteRenderer.
+        Entity SelectedCanvasForScreen(EditorContext& ctx, Screen screen) {
+            if (!ctx.Selected)
+                return {};
+            Entity canvas = FindOwningCanvas(ctx.SceneRef, ctx.Selected);
+            if (!canvas || !canvas.HasComponent<CanvasComponent>())
+                return {};
+            const CanvasComponent& component = canvas.GetComponent<CanvasComponent>();
+            return component.Enabled && component.Screen == screen ? canvas : Entity{};
+        }
+
+        void CreateDroppedImage(EditorContext& ctx, Screen screen, const std::string& guid,
+            const glm::vec3& worldPosition, const glm::vec2& canvasPosition) {
+            const std::string entityName = EntityNameFromAsset(guid);
+            Entity canvas = SelectedCanvasForScreen(ctx, screen);
+            if (canvas) {
+                Entity image = ctx.SceneRef.CreateEntity(entityName);
+                UIRectComponent& rect = image.AddComponent<UIRectComponent>();
+                rect.AnchorMin = { 0.5f, 0.5f };
+                rect.AnchorMax = { 0.5f, 0.5f };
+                rect.Pivot = { 0.5f, 0.5f };
+                const glm::vec2 screenSize = screen == Screen::Top
+                    ? glm::vec2{ static_cast<float>(TopScreenWidth), static_cast<float>(TopScreenHeight) }
+                    : glm::vec2{ static_cast<float>(BottomScreenWidth), static_cast<float>(BottomScreenHeight) };
+                rect.AnchoredPosition = canvasPosition - screenSize * 0.5f;
+                // A neutral square is intentional until texture import metadata owns native
+                // pixel dimensions. It is immediately visible and easy to resize in Inspector.
+                rect.SizeDelta = { 100.0f, 100.0f };
+                image.AddComponent<UIImageComponent>().Texture.Guid = guid;
+                ctx.SceneRef.SetParent(image, canvas);
+                ctx.Selected = image;
+            } else {
+                Entity sprite = ctx.SceneRef.CreateEntity(entityName);
+                sprite.GetComponent<TransformComponent>().Translation = worldPosition;
+                sprite.AddComponent<SpriteRendererComponent>().Texture.Guid = guid;
+                // Keep 3DS screen routing explicit, rather than leaving a dropped sprite on
+                // Default where it could appear on both physical screens.
+                ctx.SceneRef.SetParent(sprite, ctx.SceneRef.EnsureScreenRoot(screen), {}, true);
+                ctx.Selected = sprite;
+            }
+            MarkSceneDirty(ctx);
+        }
+
+        void CreateDroppedPrefab(EditorContext& ctx, Screen screen, const std::string& guid,
+            const glm::vec3& worldPosition, const glm::vec2& canvasPosition) {
+            const std::string path = AssetDatabase::ResolvePath(guid);
+            Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path);
+            if (!instance)
+                return;
+
+            Entity canvas = SelectedCanvasForScreen(ctx, screen);
+            if (canvas && instance.HasComponent<UIRectComponent>()) {
+                // A UI prefab gets the same pointer-position treatment as a directly dropped
+                // image, while retaining all authored anchors, visuals and child hierarchy.
+                ctx.SceneRef.SetParent(instance, canvas, {}, false);
+                const glm::vec2 screenSize = screen == Screen::Top
+                    ? glm::vec2{ static_cast<float>(TopScreenWidth), static_cast<float>(TopScreenHeight) }
+                    : glm::vec2{ static_cast<float>(BottomScreenWidth), static_cast<float>(BottomScreenHeight) };
+                instance.GetComponent<UIRectComponent>().AnchoredPosition = canvasPosition - screenSize * 0.5f;
+            } else {
+                // Non-UI prefabs stay in the world and inherit the physical-screen layer from
+                // the Top/Bottom root, exactly like a directly dropped SpriteRenderer.
+                ctx.SceneRef.SetParent(instance, ctx.SceneRef.EnsureScreenRoot(screen), {}, true);
+                instance.GetComponent<TransformComponent>().Translation = worldPosition;
+            }
+            ctx.Selected = instance;
+            MarkSceneDirty(ctx);
+        }
+
+        // Called directly after a Scene framebuffer Image(), while that image is still ImGui's
+        // active drop target. `worldPosition` and `canvasPosition` are each precomputed in the
+        // coordinate system relevant to the possible entity type.
+        void AcceptSceneAssetDrop(EditorContext& ctx, Screen screen, ImVec2 imagePos, ImVec2 imageSize,
+            const glm::vec3& worldPosition, const glm::vec2& canvasPosition) {
+            const ImGuiPayload* activePayload = ImGui::GetDragDropPayload();
+            const bool draggingAsset = activePayload && activePayload->IsDataType("ASSET_GUID");
+            const bool willCreateUI = SelectedCanvasForScreen(ctx, screen);
+            const std::string activeGuid = draggingAsset ? static_cast<const char*>(activePayload->Data) : std::string{};
+            const bool draggingPrefab = draggingAsset && IsPrefabAsset(activeGuid);
+            if (draggingAsset && (draggingPrefab || IsImageAsset(activeGuid))) {
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                const ImU32 border = willCreateUI ? IM_COL32(84, 210, 170, 255) : IM_COL32(85, 160, 255, 255);
+                drawList->AddRect(imagePos, ImVec2(imagePos.x + imageSize.x, imagePos.y + imageSize.y), border, 2.0f, 0, 2.0f);
+                const char* hint = draggingPrefab ? "Drop prefab: instantiate"
+                    : (willCreateUI ? "Drop image: create UI Image" : "Drop image: create Sprite");
+                const ImVec2 textSize = ImGui::CalcTextSize(hint);
+                const ImVec2 textPos{ imagePos.x + (imageSize.x - textSize.x) * 0.5f, imagePos.y + 10.0f };
+                drawList->AddRectFilled(ImVec2(textPos.x - 6.0f, textPos.y - 3.0f),
+                    ImVec2(textPos.x + textSize.x + 6.0f, textPos.y + textSize.y + 3.0f), IM_COL32(15, 20, 30, 210), 3.0f);
+                drawList->AddText(textPos, border, hint);
+            }
+
+            if (!ImGui::BeginDragDropTarget())
+                return;
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+                const std::string guid(static_cast<const char*>(payload->Data));
+                if (IsImageAsset(guid))
+                    CreateDroppedImage(ctx, screen, guid, worldPosition, canvasPosition);
+                else if (IsPrefabAsset(guid))
+                    CreateDroppedPrefab(ctx, screen, guid, worldPosition, canvasPosition);
+            }
+            ImGui::EndDragDropTarget();
+        }
 
         // A handful of "nice" round grid-cell sizes stepped by zoom level, rather than one
         // fixed size (which would look absurdly dense zoomed out or absurdly sparse zoomed in
@@ -173,10 +321,22 @@ namespace Duality {
             return std::sqrt((p.x - closest.x) * (p.x - closest.x) + (p.y - closest.y) * (p.y - closest.y));
         }
 
-        constexpr float Gizmo3DAxisLength = 60.0f;
+        // Transform handles are an editor overlay, so their visual size is measured in screen
+        // pixels rather than world units. A fixed 60-unit gizmo dwarfs normal PPU sprites (a
+        // 128px texture may be only 1.28 world units), as well as becoming unusable at range.
+        constexpr float Gizmo3DTargetPixels = 52.0f;
         constexpr float Gizmo3DHitBand = 8.0f;
         constexpr float Gizmo3DScaleHandleHalfSize = 5.0f;
         constexpr float Gizmo3DCenterRadius = 6.0f;
+
+        float Gizmo3DWorldAxisLength(const Projector3D& proj, const glm::vec3& originWorld) {
+            const float depth = glm::dot(originWorld - proj.CameraPos, proj.Forward);
+            if (depth <= 0.01f || proj.ViewportH <= 0)
+                return 1.0f;
+            const float worldPerPixel = (2.0f * depth * std::tan(glm::radians(proj.FovDegrees) * 0.5f)) /
+                static_cast<float>(proj.ViewportH);
+            return std::clamp(worldPerPixel * Gizmo3DTargetPixels, 0.01f, 1000.0f);
+        }
 
         // Unity/Blender-style frustum wireframe for a camera entity, screen-space-projected via
         // `proj` -- shows at a glance where it's looking and its Fov/Zoom, not just its
@@ -701,6 +861,7 @@ namespace Duality {
 
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 mouse = ImGui::GetIO().MousePos;
+            const float axisLength = Gizmo3DWorldAxisLength(proj, originWorld);
 
             struct AxisInfo { glm::vec3 Dir; ImU32 Color; ImU32 HighlightColor; GizmoAxis Axis; };
             AxisInfo axes[3] = {
@@ -724,7 +885,7 @@ namespace Duality {
                     points.reserve(Segments + 1);
                     for (int i = 0; i <= Segments; i++) {
                         float t = (static_cast<float>(i) / Segments) * 2.0f * 3.14159265f;
-                        glm::vec3 worldPt = originWorld + (a * std::cos(t) + b * std::sin(t)) * Gizmo3DAxisLength;
+                        glm::vec3 worldPt = originWorld + (a * std::cos(t) + b * std::sin(t)) * axisLength;
                         ImVec2 screenPt;
                         if (proj.Project(worldPt, screenPt))
                             points.push_back(screenPt);
@@ -749,7 +910,7 @@ namespace Duality {
 
             for (auto& info : axes) {
                 ImVec2 screenTip;
-                if (!proj.Project(originWorld + info.Dir * Gizmo3DAxisLength, screenTip))
+                if (!proj.Project(originWorld + info.Dir * axisLength, screenTip))
                     continue;
                 bool isHighlighted = (activeAxis == info.Axis);
                 ImU32 color = isHighlighted ? info.HighlightColor : info.Color;
@@ -839,35 +1000,34 @@ namespace Duality {
                     renderer3D.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
                 }
             }
-            // Sprites always visible here too now, drawn as flat upright quads (Plane rotated
-            // 90 degrees around X, so its XZ-facing surface faces the camera instead of lying
-            // flat) at Z=0 -- matches the real game's own "camera shows both 2D and 3D content"
-            // convention (see SceneRenderer.cpp's RenderScreen), just via a screen-space-quad
-            // stand-in since IRenderer3D has no dedicated 2D-quad-in-3D-space primitive. Real
-            // depth-testing against meshes falls out for free (both go through the same
-            // renderer/depth buffer here), unlike the fixed mesh-then-sprite draw order the
-            // real game and the 2D pane below have to use instead (two separate renderers,
-            // no shared depth buffer).
+            // Scene 3D shows SpriteRenderers as their actual world-space quads: an XY plane
+            // positioned, rotated and scaled by the entity Transform. 2D mode is therefore
+            // merely a convenient orthographic editing view, not a different representation.
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
                 if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                     continue;
-                if (!ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef)))
-                    continue; // see the mesh loop above for why this pane hides inactive entities too
                 auto& sprite = ctx.SceneRef.Registry().get<SpriteRendererComponent>(handle);
                 if (!sprite.Enabled)
                     continue;
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
-                // Resolved via renderer3D's own texture cache, not ctx.Renderer's -- keeps this
-                // draw call self-contained to the renderer it's actually issued through (a
-                // harmless double-allocation if the same file is also drawn by a real sprite
-                // elsewhere, same tolerance as Citro3DRenderer/Citro2DRenderer's own separate
-                // texture caches).
-                uint32_t textureId = ResolveMeshTexture(renderer3D, GetActiveSpriteTexture(ctx.SceneRef, handle));
+                const bool isInactive = !ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef));
+                glm::vec4 editorColor = sprite.Color;
+                if (isInactive)
+                    editorColor.a *= 0.35f; // visible/selectable in Scene, absent in Game
+                // This is still a SpriteRenderer, not a material texture. Reuse the 2D
+                // renderer's top-left-origin texture cache so this world quad has the same
+                // orientation as Scene 2D and Game; renderer3D only consumes the GL handle.
+                uint32_t textureId = ResolveSpriteTexture(ctx.Renderer, GetActiveSpriteTexture(ctx.SceneRef, handle));
+                // MeshPrimitive::Plane is XZ. Rotate it into XY once, then apply the
+                // Sprite entity's complete world rotation. Its material is double-sided in
+                // the editor, so it remains visible from either side as a Unity sprite does.
+                glm::quat quadRotation = EulerDegreesToQuat(transform.Rotation) *
+                    glm::angleAxis(glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
                 renderer3D.DrawMesh(MeshPrimitive::Plane, 0, 0,
-                    { transform.Translation.x, transform.Translation.y, 0.0f },
-                    { 90.0f, 0.0f, transform.Rotation.z },
-                    { sprite.Size.x, 1.0f, sprite.Size.y },
-                    sprite.Color, textureId);
+                    transform.Translation,
+                    QuatToEulerDegrees(quadRotation),
+                    { sprite.Size.x * transform.Scale.x, 1.0f, sprite.Size.y * transform.Scale.y },
+                    editorColor, textureId);
             }
             // Cameras have no mesh of their own -- shown via the frustum wireframe overlay
             // below instead of a solid mesh marker here: this pane's own orbit camera is
@@ -883,6 +1043,27 @@ namespace Duality {
             ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(framebuffer.GetColorAttachment())), avail, ImVec2(0, 1), ImVec2(1, 0));
             bool imageHovered = ImGui::IsItemHovered();
             ImGuiIO& io = ImGui::GetIO();
+
+            // The world drop point is the cursor ray intersecting the SpriteRenderer XY plane
+            // at the current Scene-view focus depth. This keeps a dropped sprite in front of
+            // the editor camera instead of arbitrarily placing it at the world origin.
+            const float ndcX = (2.0f * ((io.MousePos.x - imagePos.x) / viewportW)) - 1.0f;
+            const float ndcY = 1.0f - (2.0f * ((io.MousePos.y - imagePos.y) / viewportH));
+            const float tanHalfFov = std::tan(glm::radians(FovDegrees) * 0.5f);
+            const glm::vec3 dropRay = glm::normalize(forward + right * (ndcX * tanHalfFov * aspect) + up * (ndcY * tanHalfFov));
+            glm::vec3 worldDrop = camera3D.Target;
+            if (std::abs(dropRay.z) > 1e-4f) {
+                const float t = (camera3D.Target.z - cameraPos.z) / dropRay.z;
+                if (t > 0.0f)
+                    worldDrop = cameraPos + dropRay * t;
+            }
+            const float nativeWidth = screen == Screen::Top ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
+            const float nativeHeight = static_cast<float>(screen == Screen::Top ? TopScreenHeight : BottomScreenHeight);
+            const glm::vec2 canvasDrop{
+                std::clamp((io.MousePos.x - imagePos.x) / static_cast<float>(viewportW) * nativeWidth, 0.0f, nativeWidth),
+                std::clamp((io.MousePos.y - imagePos.y) / static_cast<float>(viewportH) * nativeHeight, 0.0f, nativeHeight)
+            };
+            AcceptSceneAssetDrop(ctx, screen, imagePos, avail, worldDrop, canvasDrop);
 
             Projector3D proj{ cameraPos, forward, right, up, FovDegrees, aspect, imagePos, viewportW, viewportH };
 
@@ -1015,8 +1196,31 @@ namespace Duality {
             bool orientationGizmoConsumedClick = DrawAndInteractOrientationGizmo3D(camera3D, imagePos, viewportW, imageHovered);
 
             if (imageHovered) {
+                // Frame Selected in the 3D pane too. A 1-unit sprite (for example a 100 px
+                // image at PPU 100) is correctly tiny at this view's normal 300-unit startup
+                // distance, so F is the reliable way to inspect it without distorting scene
+                // data solely for the editor.
+                if (!io.WantTextInput && ctx.Selected &&
+                    ctx.Selected.HasComponent<TransformComponent>() &&
+                    ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+                    TransformComponent selectedWorld = ctx.SceneRef.GetWorldTransform(ctx.Selected);
+                    camera3D.Target = selectedWorld.Translation;
+
+                    glm::vec2 bounds{ 1.0f, 1.0f };
+                    if (ctx.Selected.HasComponent<SpriteRendererComponent>()) {
+                        const auto& sprite = ctx.Selected.GetComponent<SpriteRendererComponent>();
+                        bounds = glm::max(glm::abs(sprite.Size * glm::vec2(selectedWorld.Scale.x, selectedWorld.Scale.y)), glm::vec2{ 0.01f, 0.01f });
+                    }
+
+                    constexpr float FitFraction = 0.65f;
+                    const float tanHalfFov = std::tan(glm::radians(FovDegrees) * 0.5f);
+                    const float distanceForHeight = bounds.y / (2.0f * FitFraction * tanHalfFov);
+                    const float distanceForWidth = bounds.x / (2.0f * FitFraction * tanHalfFov * aspect);
+                    camera3D.Distance = std::clamp(std::max(distanceForWidth, distanceForHeight), MinSceneViewDistance3D, 5000.0f);
+                }
+
                 if (io.MouseWheel != 0.0f)
-                    camera3D.Distance = std::clamp(camera3D.Distance * (1.0f - io.MouseWheel * 0.1f), 10.0f, 5000.0f);
+                    camera3D.Distance = std::clamp(camera3D.Distance * (1.0f - io.MouseWheel * 0.1f), MinSceneViewDistance3D, 5000.0f);
 
                 if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
                     float panScale = camera3D.Distance * 0.0015f;
@@ -1077,6 +1281,17 @@ namespace Duality {
                             float maxScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
                             testSphere(candidate, transform.Translation, MeshBoundingRadius(mesh) * maxScale);
                         }
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
+                            if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                                continue;
+                            Entity candidate(handle, &ctx.SceneRef);
+                            const auto& sprite = candidate.GetComponent<SpriteRendererComponent>();
+                            if (!sprite.Enabled)
+                                continue;
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            glm::vec2 size = glm::abs(sprite.Size * glm::vec2(transform.Scale.x, transform.Scale.y));
+                            testSphere(candidate, transform.Translation, glm::length(size) * 0.5f);
+                        }
                         for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CameraComponent>()) {
                             if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                                 continue;
@@ -1118,6 +1333,7 @@ namespace Duality {
                                 continue;
                             Entity candidate(handle, &ctx.SceneRef);
                             if (candidate.HasComponent<MeshRendererComponent>() ||
+                                candidate.HasComponent<SpriteRendererComponent>() ||
                                 candidate.HasComponent<CameraComponent>() ||
                                 candidate.HasComponent<BoxCollider3DComponent>() ||
                                 candidate.HasComponent<SphereCollider3DComponent>() ||
@@ -1156,7 +1372,8 @@ namespace Duality {
                         // camera orbits), then apply the resulting scalar along that WORLD axis.
                         auto axisScreenDelta = [&](const glm::vec3& axisDir) -> float {
                             ImVec2 tipScreen;
-                            if (!proj.Project(selectedTransform.Translation + axisDir * Gizmo3DAxisLength, tipScreen))
+                            const float axisLength = Gizmo3DWorldAxisLength(proj, selectedTransform.Translation);
+                            if (!proj.Project(selectedTransform.Translation + axisDir * axisLength, tipScreen))
                                 return 0.0f;
                             glm::vec2 axisDir2D{ tipScreen.x - gizmoOriginScreen.x, tipScreen.y - gizmoOriginScreen.y };
                             float len = glm::length(axisDir2D);
@@ -1267,18 +1484,43 @@ namespace Duality {
             // of them; an overlay drawn after ImGui::Image() below would sit on top of the
             // whole already-composited framebuffer, including every opaque sprite.
             ctx.Renderer.DrawGrid(camera.Position, worldToPixels, static_cast<float>(viewportW), static_cast<float>(viewportH), GridCellSize2D(worldToPixels));
+            const std::vector<Entity> hierarchy = ctx.SceneRef.GetHierarchyTraversalOrder();
+            std::unordered_map<entt::entity, std::size_t> hierarchyOrder;
+            hierarchyOrder.reserve(hierarchy.size());
+            for (std::size_t i = 0; i < hierarchy.size(); ++i)
+                hierarchyOrder[hierarchy[i].Handle()] = i;
+            struct EditorSpriteDrawItem { entt::entity Handle; int SortOrder; std::size_t HierarchyOrder; };
+            std::vector<EditorSpriteDrawItem> sprites;
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
                 if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                     continue;
-                if (!ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef)))
-                    continue; // see DrawScenePane3D's own mesh loop for why this pane hides inactive entities too
                 auto& sprite = ctx.SceneRef.Registry().get<SpriteRendererComponent>(handle);
                 if (!sprite.Enabled)
                     continue;
+                const auto found = hierarchyOrder.find(handle);
+                sprites.push_back({ handle, sprite.SortOrder, found == hierarchyOrder.end() ? hierarchy.size() : found->second });
+            }
+            std::sort(sprites.begin(), sprites.end(), [](const EditorSpriteDrawItem& a, const EditorSpriteDrawItem& b) {
+                if (a.SortOrder != b.SortOrder)
+                    return a.SortOrder < b.SortOrder;
+                return a.HierarchyOrder < b.HierarchyOrder;
+            });
+            for (const EditorSpriteDrawItem& item : sprites) {
+                const entt::entity handle = item.Handle;
+                auto& sprite = ctx.SceneRef.Registry().get<SpriteRendererComponent>(handle);
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
-                glm::vec2 topLeft{ transform.Translation.x - sprite.Size.x * 0.5f, transform.Translation.y - sprite.Size.y * 0.5f };
+                const bool isInactive = !ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef));
+                glm::vec4 editorColor = sprite.Color;
+                if (isInactive)
+                    editorColor.a *= 0.35f; // Unity-style Scene-only inactive preview
+                glm::vec2 size = sprite.Size * glm::vec2(transform.Scale.x, transform.Scale.y);
+                glm::vec2 topLeft{ transform.Translation.x - size.x * sprite.Pivot.x, transform.Translation.y - size.y * sprite.Pivot.y };
                 uint32_t textureId = ResolveSpriteTexture(ctx.Renderer, GetActiveSpriteTexture(ctx.SceneRef, handle));
-                ctx.Renderer.DrawQuad(topLeft, sprite.Size, sprite.Color, transform.Rotation.z, textureId);
+                // Use the same flip-aware helper as the Game renderer. This
+                // keeps Scene and Game views visually identical, including
+                // the optional per-sprite Flip X / Flip Y controls.
+                DrawSpriteQuad(ctx.Renderer, topLeft, size, editorColor,
+                    transform.Rotation.z, textureId, sprite.FlipX, sprite.FlipY);
             }
             // Cameras have no sprite of their own -- draw a small gizmo marker at
             // each one's position (color-coded by target screen), sized in world
@@ -1305,6 +1547,18 @@ namespace Duality {
             ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(framebuffer.GetColorAttachment())), avail, ImVec2(0, 1), ImVec2(1, 0));
             bool imageHovered = ImGui::IsItemHovered();
             ImGuiIO& io = ImGui::GetIO();
+
+            const glm::vec2 worldDrop{
+                (io.MousePos.x - imagePos.x - viewportW * 0.5f) / worldToPixels + camera.Position.x,
+                (io.MousePos.y - imagePos.y - viewportH * 0.5f) / worldToPixels + camera.Position.y
+            };
+            const float nativeWidth = screen == Screen::Top ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
+            const float nativeHeight = static_cast<float>(screen == Screen::Top ? TopScreenHeight : BottomScreenHeight);
+            const glm::vec2 canvasDrop{
+                std::clamp((io.MousePos.x - imagePos.x) / static_cast<float>(viewportW) * nativeWidth, 0.0f, nativeWidth),
+                std::clamp((io.MousePos.y - imagePos.y) / static_cast<float>(viewportH) * nativeHeight, 0.0f, nativeHeight)
+            };
+            AcceptSceneAssetDrop(ctx, screen, imagePos, avail, { worldDrop.x, worldDrop.y, 0.0f }, canvasDrop);
 
             auto worldToPaneScreen = [&](const glm::vec2& worldPos) {
                 return ImVec2(
@@ -1436,6 +1690,29 @@ namespace Duality {
             }
 
             if (imageHovered) {
+                // Frame Selected (Unity's F): keep the Scene view's camera independent
+                // from the game's CameraComponent, then fit a selected sprite comfortably
+                // in the editor pane.  SpriteRenderer::Size is expressed in world units
+                // (e.g. a 90 px texture at PPU 100 is 0.9 units), so this is the normal
+                // way to inspect and edit small 2D game assets without inflating them.
+                if (!io.WantTextInput && ctx.Selected &&
+                    ctx.Selected.HasComponent<TransformComponent>() &&
+                    ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+                    TransformComponent selectedWorld = ctx.SceneRef.GetWorldTransform(ctx.Selected);
+                    camera.Position = { selectedWorld.Translation.x, selectedWorld.Translation.y };
+
+                    glm::vec2 bounds{ 1.0f, 1.0f };
+                    if (ctx.Selected.HasComponent<SpriteRendererComponent>()) {
+                        const auto& sprite = ctx.Selected.GetComponent<SpriteRendererComponent>();
+                        bounds = glm::max(glm::abs(sprite.Size * glm::vec2(selectedWorld.Scale.x, selectedWorld.Scale.y)), glm::vec2{ 0.01f, 0.01f });
+                    }
+
+                    constexpr float FitFraction = 0.65f;
+                    const float fitZoomX = (static_cast<float>(viewportW) * FitFraction) / (bounds.x * PhysicsUnits::PPU());
+                    const float fitZoomY = (static_cast<float>(viewportH) * FitFraction) / (bounds.y * PhysicsUnits::PPU());
+                    camera.Zoom = std::clamp(std::min(fitZoomX, fitZoomY), 0.1f, 5.0f);
+                }
+
                 if (io.MouseWheel != 0.0f)
                     camera.Zoom = std::clamp(camera.Zoom * (1.0f + io.MouseWheel * 0.1f), 0.1f, 5.0f);
 
@@ -1463,8 +1740,6 @@ namespace Duality {
                         auto tryPick = [&](Entity candidate) {
                             if (!ShouldRenderOnScreen(ctx.SceneRef, candidate.Handle(), screen))
                                 return;
-                            if (!ctx.SceneRef.IsEffectivelyActive(candidate))
-                                return;
                             hit = candidate; // topmost (last drawn) match wins
                         };
 
@@ -1474,10 +1749,14 @@ namespace Duality {
                             auto& sprite = candidate.GetComponent<SpriteRendererComponent>();
                             if (!sprite.Enabled)
                                 continue;
-                            bool inside = worldPoint.x >= transform.Translation.x - sprite.Size.x * 0.5f &&
-                                          worldPoint.x <= transform.Translation.x + sprite.Size.x * 0.5f &&
-                                          worldPoint.y >= transform.Translation.y - sprite.Size.y * 0.5f &&
-                                          worldPoint.y <= transform.Translation.y + sprite.Size.y * 0.5f;
+                            glm::vec2 size = sprite.Size * glm::vec2(transform.Scale.x, transform.Scale.y);
+                            glm::vec2 topLeft{ transform.Translation.x - size.x * sprite.Pivot.x,
+                                transform.Translation.y - size.y * sprite.Pivot.y };
+                            glm::vec2 bottomRight = topLeft + size;
+                            bool inside = worldPoint.x >= std::min(topLeft.x, bottomRight.x) &&
+                                          worldPoint.x <= std::max(topLeft.x, bottomRight.x) &&
+                                          worldPoint.y >= std::min(topLeft.y, bottomRight.y) &&
+                                          worldPoint.y <= std::max(topLeft.y, bottomRight.y);
                             if (inside)
                                 tryPick(candidate);
                         }
@@ -1615,6 +1894,20 @@ namespace Duality {
 
     void ScenePanel::OnImGuiRender(EditorContext& ctx) {
         ImGui::Begin("Scene");
+
+        // Duplicate from either Scene view without making the Hierarchy a
+        // mandatory stop. PrefabSerializer keeps the selected entity's complete
+        // subtree and remaps references that point inside that subtree.
+        if (!ctx.IsPlaying && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl &&
+            ImGui::IsKeyPressed(ImGuiKey_D, false) && ctx.Selected &&
+            ctx.SceneRef.Registry().valid(ctx.Selected.Handle())) {
+            Entity duplicate = PrefabSerializer::Duplicate(ctx.SceneRef, ctx.Selected);
+            if (duplicate) {
+                ctx.Selected = duplicate;
+                MarkSceneDirty(ctx);
+            }
+        }
 
         // Gizmo tool switcher -- Unity/MyGameEngine's Q/W/E/R convention,
         // minus a "None" mode (Translate is always at least available). Shared

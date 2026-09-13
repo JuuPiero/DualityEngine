@@ -179,15 +179,15 @@ namespace Duality {
                 }
                 ImGui::PopID();
             } else if constexpr (std::is_same_v<T, std::vector<AssetRef>>) {
-                // One row per element, each reusing the single-AssetRef drag-drop-target chrome
-                // above almost verbatim (a button showing the resolved filename, drop target for
-                // the Content Browser's "ASSET_GUID" payload, a clear button) plus a remove
-                // button per row and a trailing add button. Manual add/remove only -- no
-                // auto-sizing to match e.g. a sibling Mesh field's real submesh count, since a
-                // FieldHandle has no visibility into sibling fields on the same component (see
-                // MeshRendererComponent::Materials' own comment).
+                // A collection is both a target for replacing an existing element and a trailing
+                // target for appending a new one.  The latter matters most in everyday authoring:
+                // dropping an asset from the Project browser directly onto the list creates the
+                // new element, just like Unity arrays/lists, so an empty placeholder is never
+                // required first.
                 ImGui::PushID(name.c_str());
                 ImGui::Text("%s", name.c_str());
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%d)", static_cast<int>(v.size()));
                 int removeIndex = -1;
                 for (int i = 0; i < static_cast<int>(v.size()); i++) {
                     ImGui::PushID(i);
@@ -216,17 +216,36 @@ namespace Duality {
                 }
                 if (removeIndex >= 0)
                     v.erase(v.begin() + removeIndex);
-                if (ImGui::SmallButton("+ Add")) {
+
+                const ImGuiPayload* activePayload = ImGui::GetDragDropPayload();
+                const bool draggingAsset = activePayload && activePayload->IsDataType("ASSET_GUID");
+                ImGui::PushStyleColor(ImGuiCol_Button, draggingAsset
+                    ? ImVec4(0.16f, 0.38f, 0.62f, 0.90f)
+                    : ImVec4(0.16f, 0.20f, 0.27f, 0.75f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.45f, 0.72f, 1.00f));
+                ImGui::Button(draggingAsset ? "Drop asset here to append" : "Drag asset here to add", ImVec2(-1.0f, 24.0f));
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+                        v.push_back(AssetRef{ static_cast<const char*>(payload->Data) });
+                        changed = true;
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                ImGui::PopStyleColor(2);
+
+                if (ImGui::SmallButton("+ Add empty slot")) {
                     v.push_back(AssetRef{});
                     changed = true;
                 }
                 ImGui::PopID();
             } else if constexpr (std::is_same_v<T, std::vector<EntityRef>>) {
-                // Ordered Entity references, primarily for authoring paths/splines.  Each row
-                // accepts the existing Hierarchy drag payload; arrows make the order explicit
-                // without requiring a fragile drag-reorder widget in a narrow Inspector.
+                // Ordered Entity references, primarily for authoring paths/splines.  Existing
+                // rows accept replacements while the trailing target appends a new reference
+                // when an entity is dragged from Hierarchy, avoiding Unity-unlike manual slots.
                 ImGui::PushID(name.c_str());
                 ImGui::Text("%s", name.c_str());
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%d)", static_cast<int>(v.size()));
                 int removeIndex = -1;
                 for (int i = 0; i < static_cast<int>(v.size()); ++i) {
                     ImGui::PushID(i);
@@ -278,7 +297,25 @@ namespace Duality {
                 }
                 if (removeIndex >= 0)
                     v.erase(v.begin() + removeIndex);
-                if (ImGui::SmallButton("+ Add")) {
+
+                const ImGuiPayload* activePayload = ImGui::GetDragDropPayload();
+                const bool draggingEntity = activePayload && activePayload->IsDataType("HIERARCHY_ENTITY");
+                ImGui::PushStyleColor(ImGuiCol_Button, draggingEntity
+                    ? ImVec4(0.16f, 0.38f, 0.62f, 0.90f)
+                    : ImVec4(0.16f, 0.20f, 0.27f, 0.75f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.45f, 0.72f, 1.00f));
+                ImGui::Button(draggingEntity ? "Drop entity here to append" : "Drag entity here to add", ImVec2(-1.0f, 24.0f));
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
+                        const entt::entity dropped = *static_cast<const entt::entity*>(payload->Data);
+                        v.push_back(EntityRef{ static_cast<uint32_t>(dropped) });
+                        changed = true;
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                ImGui::PopStyleColor(2);
+
+                if (ImGui::SmallButton("+ Add empty slot")) {
                     v.push_back(EntityRef{});
                     changed = true;
                 }

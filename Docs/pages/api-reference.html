@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Reference — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="api-reference">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content api-reference-page">
+                <div class="eyebrow">Generated from public headers</div>
+                <h1>API Reference</h1>
+                <p class="lede">Danh mục tra cứu của toàn bộ public header trong <code>DualityEngine/Include</code>. Tìm theo class, struct, enum, hàm, namespace, tham số hoặc bất kỳ đoạn declaration nào.</p>
+
+                <div class="callout note">
+                    <span class="callout-title">Nguồn chính xác</span>
+                    Nội dung header được nhúng vào index lúc sinh tài liệu, vì vậy declaration và comment luôn là code thật. Khi thay đổi API, chạy <code>Docs/tools/generate-api-index.ps1</code> trước khi commit Docs.
+                </div>
+
+                <section class="api-search-panel" aria-label="API search">
+                    <label class="api-search-label" for="api-query">Tìm API</label>
+                    <input id="api-query" class="api-query" type="search" autocomplete="off" placeholder="Ví dụ: Raycast, SetLocalPosition, CanvasComponent, SaveJson…">
+                    <div class="api-search-toolbar">
+                        <div id="api-module-filters" class="api-module-filters" aria-label="Filter by module"></div>
+                        <label class="api-check"><input id="api-types-only" type="checkbox"> Có class / struct / enum</label>
+                        <label class="api-check"><input id="api-functions-only" type="checkbox"> Có hàm</label>
+                    </div>
+                    <div class="api-search-footer">
+                        <span id="api-result-count" class="dim"></span>
+                        <button id="api-show-all" class="api-show-all" type="button">Hiện tất cả</button>
+                    </div>
+                </section>
+
+                <div id="api-results" class="api-results" aria-live="polite"></div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+    <script src="../js/api-index.js"></script>
+    <script src="../js/api-search.js"></script>
+</body>
+</html>

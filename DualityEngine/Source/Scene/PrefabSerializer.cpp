@@ -1,5 +1,6 @@
 #include "DualityEngine/Scene/PrefabSerializer.h"
 
+#include <cctype>
 #include <fstream>
 #include <functional>
 #include <initializer_list>
@@ -140,6 +141,58 @@ namespace Duality {
             }
             root["CanvasUIVersion"] = CanvasUIVersion;
         }
+
+        // EntityRef values serialize as { "$entity": rawHandle } (including inside script
+        // property overrides/nested fields). A duplicate must preserve references inside its
+        // own copied subtree rather than pointing those fields back at the source objects.
+        void RemapEntityReferences(json& value, const std::unordered_map<uint32_t, uint32_t>& remap) {
+            if (value.is_object()) {
+                auto entityRef = value.find("$entity");
+                if (entityRef != value.end() && entityRef->is_number_unsigned()) {
+                    const uint32_t oldHandle = entityRef->get<uint32_t>();
+                    const auto replacement = remap.find(oldHandle);
+                    if (replacement != remap.end())
+                        *entityRef = replacement->second;
+                }
+                for (auto& [key, child] : value.items()) {
+                    (void)key;
+                    RemapEntityReferences(child, remap);
+                }
+            } else if (value.is_array()) {
+                for (json& child : value)
+                    RemapEntityReferences(child, remap);
+            }
+        }
+
+        std::string MakeDuplicateName(Scene& scene, Entity source) {
+            std::string baseName = source.GetComponent<NameComponent>().Name;
+            // Repeating Unity's naming rule is friendlier than producing
+            // "Tree (1) (1)" when the currently selected copy is duplicated.
+            const size_t suffixStart = baseName.rfind(" (");
+            if (suffixStart != std::string::npos && !baseName.empty() && baseName.back() == ')') {
+                bool numericSuffix = suffixStart + 2 < baseName.size();
+                for (size_t i = suffixStart + 2; numericSuffix && i + 1 < baseName.size(); ++i)
+                    numericSuffix = std::isdigit(static_cast<unsigned char>(baseName[i])) != 0;
+                if (numericSuffix)
+                    baseName.resize(suffixStart);
+            }
+            const Entity parent = source.GetComponent<HierarchyComponent>().Parent;
+            const std::vector<Entity>& siblings = parent
+                ? parent.GetComponent<HierarchyComponent>().Children
+                : scene.GetRootEntities();
+            auto exists = [&](const std::string& candidate) {
+                for (Entity sibling : siblings) {
+                    if (sibling && sibling.GetComponent<NameComponent>().Name == candidate)
+                        return true;
+                }
+                return false;
+            };
+            for (int suffix = 1;; ++suffix) {
+                const std::string candidate = baseName + " (" + std::to_string(suffix) + ")";
+                if (!exists(candidate))
+                    return candidate;
+            }
+        }
     }
 
     bool PrefabSerializer::Save(Entity root, const std::string& path) {
@@ -238,6 +291,60 @@ namespace Duality {
             Log::Info("PrefabSerializer: migrated legacy pixel prefab to Unity-style world units");
         Log::Info("Prefab instantiated from '" + path + "'");
         return subtreeRoot;
+    }
+
+    Entity PrefabSerializer::Duplicate(Scene& scene, Entity source) {
+        if (!source || source.GetScene() != &scene || !scene.Registry().valid(source.Handle()))
+            return Entity{};
+
+        std::vector<Entity> sources;
+        std::unordered_map<entt::entity, int> sourceIndex;
+        std::function<void(Entity)> collect = [&](Entity entity) {
+            sourceIndex[entity.Handle()] = static_cast<int>(sources.size());
+            sources.push_back(entity);
+            for (Entity child : entity.GetComponent<HierarchyComponent>().Children)
+                collect(child);
+        };
+        collect(source);
+
+        json entities = json::array();
+        for (Entity entity : sources) {
+            json entityJson;
+            SerializeEntityComponents(entity, entityJson);
+            entityJson["Parent"] = entity == source
+                ? -1
+                : sourceIndex[entity.GetComponent<HierarchyComponent>().Parent.Handle()];
+            entities.push_back(std::move(entityJson));
+        }
+
+        // Allocate the entire subtree first so all intra-subtree EntityRefs have a destination
+        // before any component/script field is deserialized.
+        std::vector<Entity> copies;
+        copies.reserve(sources.size());
+        std::unordered_map<uint32_t, uint32_t> handleRemap;
+        handleRemap.reserve(sources.size());
+        for (Entity original : sources) {
+            Entity copy = scene.CreateEntity();
+            handleRemap[static_cast<uint32_t>(original.Handle())] = static_cast<uint32_t>(copy.Handle());
+            copies.push_back(copy);
+        }
+
+        for (size_t i = 0; i < copies.size(); ++i) {
+            RemapEntityReferences(entities[i], handleRemap);
+            DeserializeEntityComponents(copies[i], entities[i]);
+        }
+        for (size_t i = 1; i < copies.size(); ++i) {
+            const int parentIndex = entities[i].value("Parent", -1);
+            if (parentIndex >= 0 && parentIndex < static_cast<int>(copies.size()))
+                scene.SetParent(copies[i], copies[parentIndex], {}, /*preserveWorldPosition=*/false);
+        }
+
+        Entity copyRoot = copies.front();
+        const Entity sourceParent = source.GetComponent<HierarchyComponent>().Parent;
+        scene.SetParent(copyRoot, sourceParent, source, /*preserveWorldPosition=*/false);
+        copyRoot.GetComponent<NameComponent>().Name = MakeDuplicateName(scene, source);
+        Log::Info("Duplicated entity '" + source.GetComponent<NameComponent>().Name + "'");
+        return copyRoot;
     }
 
 }

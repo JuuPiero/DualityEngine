@@ -72,9 +72,11 @@ namespace Duality {
         std::string m_ScenePath;
 
         Entity m_Selected;
+        std::vector<Entity> m_SelectedEntities;
         // The Content Browser's own selected file path, if any -- see EditorContext::
         // SelectedAssetPath for why this and m_Selected are effectively mutually exclusive.
         std::string m_SelectedAssetPath;
+        std::vector<std::string> m_SelectedAssetPaths;
         bool m_IsPlaying = false;
         bool m_SceneDirty = false;
         bool m_Running = true;

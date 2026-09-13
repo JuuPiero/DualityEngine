@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <vector>
@@ -25,6 +26,54 @@ namespace Duality {
         // class) and as the drag-drop payload value.
         int EntityId(Entity entity) { return static_cast<int>(static_cast<uint32_t>(entity.Handle())); }
 
+        Entity DraggedHierarchyEntity(EditorContext& ctx) {
+            const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+            if (!payload || std::strcmp(payload->DataType, "HIERARCHY_ENTITY") != 0 ||
+                payload->DataSize != sizeof(entt::entity))
+                return {};
+            entt::entity handle = *static_cast<const entt::entity*>(payload->Data);
+            return ctx.SceneRef.Registry().valid(handle) ? Entity(handle, &ctx.SceneRef) : Entity{};
+        }
+
+        bool CanReparent(Entity child, Entity parent) {
+            if (!child || child == parent)
+                return false;
+            // A child cannot be made a descendant of itself. Keep this UI-side
+            // guard in addition to Scene::SetParent's own defensive check so an
+            // invalid target never advertises itself as a valid blue drop zone.
+            for (Entity current = parent; current; current = current.GetComponent<HierarchyComponent>().Parent) {
+                if (current == child)
+                    return false;
+            }
+            return true;
+        }
+
+        const std::vector<Entity>& SiblingsFor(const Scene& scene, Entity parent) {
+            return parent ? parent.GetComponent<HierarchyComponent>().Children : scene.GetRootEntities();
+        }
+
+        size_t SiblingIndexOf(const std::vector<Entity>& siblings, Entity entity) {
+            auto it = std::find(siblings.begin(), siblings.end(), entity);
+            return it == siblings.end() ? siblings.size() : static_cast<size_t>(it - siblings.begin());
+        }
+
+        void SetSiblingIndex(EditorContext& ctx, Entity dragged, Entity parent, size_t index) {
+            if (!CanReparent(dragged, parent))
+                return;
+            const std::vector<Entity>& siblings = SiblingsFor(ctx.SceneRef, parent);
+            Entity oldParent = dragged.GetComponent<HierarchyComponent>().Parent;
+            size_t oldIndex = oldParent == parent ? SiblingIndexOf(siblings, dragged) : siblings.size();
+            // The requested index is measured before SetSiblingIndex removes the
+            // dragged row. Account for that removal so dropping B below C gives
+            // A/C/B rather than A/C/D/B.
+            if (oldParent == parent && oldIndex < index)
+                --index;
+            if (oldParent == parent && oldIndex == index)
+                return;
+            ctx.SceneRef.SetSiblingIndex(dragged, parent, index);
+            MarkSceneDirty(ctx);
+        }
+
         // Used only by the one-shot migration action below. New scenes use one
         // Top/Bottom root and all of their children inherit the root's layer.
         bool TryResolveRootLayer(Entity root, Layer& outLayer) {
@@ -43,8 +92,50 @@ namespace Duality {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
                 entt::entity draggedHandle = *static_cast<const entt::entity*>(payload->Data);
                 Entity dragged(draggedHandle, &ctx.SceneRef);
-                ctx.SceneRef.SetParent(dragged, newParent, insertAfter);
-                MarkSceneDirty(ctx);
+                if (payload->Delivery && ctx.SceneRef.Registry().valid(draggedHandle) && CanReparent(dragged, newParent)) {
+                    ctx.SceneRef.SetParent(dragged, newParent, insertAfter);
+                    MarkSceneDirty(ctx);
+                }
+            }
+        }
+
+        enum class RowDropPlacement { Before, Child, After };
+
+        void AcceptEntityRowDrop(EditorContext& ctx, Entity target) {
+            Entity dragged = DraggedHierarchyEntity(ctx);
+            ImVec2 min = ImGui::GetItemRectMin();
+            ImVec2 max = ImGui::GetItemRectMax();
+            float edge = (max.y - min.y) * 0.25f;
+            float mouseY = ImGui::GetIO().MousePos.y;
+            RowDropPlacement placement = mouseY < min.y + edge ? RowDropPlacement::Before :
+                (mouseY > max.y - edge ? RowDropPlacement::After : RowDropPlacement::Child);
+
+            Entity parent = placement == RowDropPlacement::Child
+                ? target : target.GetComponent<HierarchyComponent>().Parent;
+            bool valid = dragged && dragged != target && CanReparent(dragged, parent);
+            if (valid) {
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                const ImU32 highlight = IM_COL32(80, 160, 255, 255);
+                if (placement == RowDropPlacement::Child)
+                    drawList->AddRect(min, max, highlight, 2.0f, 0, 2.0f);
+                else {
+                    float y = placement == RowDropPlacement::Before ? min.y : max.y;
+                    drawList->AddLine(ImVec2(min.x, y), ImVec2(max.x, y), highlight, 2.0f);
+                }
+            }
+
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
+                if (payload->Delivery && valid) {
+                    if (placement == RowDropPlacement::Child) {
+                        ctx.SceneRef.SetParent(dragged, target);
+                        MarkSceneDirty(ctx);
+                    } else {
+                        const std::vector<Entity>& siblings = SiblingsFor(ctx.SceneRef, parent);
+                        size_t targetIndex = SiblingIndexOf(siblings, target);
+                        SetSiblingIndex(ctx, dragged, parent,
+                            placement == RowDropPlacement::Before ? targetIndex : targetIndex + 1);
+                    }
+                }
             }
         }
 
@@ -364,13 +455,96 @@ namespace Duality {
             return it != haystack.end();
         }
 
-        bool IsInSubtree(Scene& scene, Entity entity, Entity root) {
-            while (entity && scene.Registry().valid(entity.Handle())) {
-                if (entity == root)
-                    return true;
-                entity = entity.GetComponent<HierarchyComponent>().Parent;
+        bool IsSelected(const EditorContext& ctx, Entity entity) {
+            return std::find(ctx.SelectedEntities.begin(), ctx.SelectedEntities.end(), entity) != ctx.SelectedEntities.end();
+        }
+
+        void NormalizeSelection(EditorContext& ctx, Entity& rangeAnchor) {
+            auto& selection = ctx.SelectedEntities;
+            selection.erase(std::remove_if(selection.begin(), selection.end(), [&](Entity entity) {
+                return !entity || !ctx.SceneRef.Registry().valid(entity.Handle());
+            }), selection.end());
+            if (!ctx.Selected || !ctx.SceneRef.Registry().valid(ctx.Selected.Handle())) {
+                ctx.Selected = Entity{};
+                selection.clear();
+                rangeAnchor = Entity{};
+                return;
             }
-            return false;
+            if (!IsSelected(ctx, ctx.Selected)) {
+                selection = { ctx.Selected };
+                rangeAnchor = ctx.Selected;
+            }
+        }
+
+        void SelectEntity(EditorContext& ctx, Entity entity, Entity& rangeAnchor, bool additive, bool range) {
+            if (!entity || !ctx.SceneRef.Registry().valid(entity.Handle()))
+                return;
+
+            auto& selection = ctx.SelectedEntities;
+            if (range && rangeAnchor && ctx.SceneRef.Registry().valid(rangeAnchor.Handle())) {
+                const std::vector<Entity> traversal = ctx.SceneRef.GetHierarchyTraversalOrder();
+                auto first = std::find(traversal.begin(), traversal.end(), rangeAnchor);
+                auto last = std::find(traversal.begin(), traversal.end(), entity);
+                if (first != traversal.end() && last != traversal.end()) {
+                    if (first > last)
+                        std::swap(first, last);
+                    selection.assign(first, last + 1);
+                } else {
+                    selection = { entity };
+                    rangeAnchor = entity;
+                }
+            } else if (additive) {
+                auto found = std::find(selection.begin(), selection.end(), entity);
+                if (found == selection.end())
+                    selection.push_back(entity);
+                else
+                    selection.erase(found);
+                if (!rangeAnchor)
+                    rangeAnchor = entity;
+            } else {
+                selection = { entity };
+                rangeAnchor = entity;
+            }
+
+            ctx.Selected = selection.empty() ? Entity{} : (IsSelected(ctx, entity) ? entity : selection.back());
+            ctx.SelectedAssetPath.clear();
+            ctx.SelectedAssetPaths.clear();
+        }
+
+        std::vector<Entity> TopLevelSelection(EditorContext& ctx) {
+            std::vector<Entity> roots;
+            for (Entity entity : ctx.SelectedEntities) {
+                if (!entity || !ctx.SceneRef.Registry().valid(entity.Handle()))
+                    continue;
+                bool ancestorSelected = false;
+                for (Entity parent = entity.GetComponent<HierarchyComponent>().Parent; parent;
+                     parent = parent.GetComponent<HierarchyComponent>().Parent) {
+                    if (IsSelected(ctx, parent)) {
+                        ancestorSelected = true;
+                        break;
+                    }
+                }
+                if (!ancestorSelected)
+                    roots.push_back(entity);
+            }
+            return roots;
+        }
+
+        void DuplicateSelection(EditorContext& ctx, Entity& rangeAnchor) {
+            std::vector<Entity> duplicates;
+            for (Entity source : TopLevelSelection(ctx)) {
+                Entity duplicate = PrefabSerializer::Duplicate(ctx.SceneRef, source);
+                if (duplicate)
+                    duplicates.push_back(duplicate);
+            }
+            if (duplicates.empty())
+                return;
+            ctx.SelectedEntities = duplicates;
+            ctx.Selected = duplicates.back();
+            ctx.SelectedAssetPath.clear();
+            ctx.SelectedAssetPaths.clear();
+            rangeAnchor = ctx.Selected;
+            MarkSceneDirty(ctx);
         }
 
         // A search box over a tree with drag-drop reparenting either has to hide/show
@@ -379,7 +553,7 @@ namespace Duality {
         // search box has text, every matching entity in the WHOLE scene is listed (no
         // tree structure, no drag-drop), still clickable to select. Empty search box
         // shows the normal full tree UI, completely unchanged.
-        void DrawFilteredFlatList(EditorContext& ctx, const std::string& filter, Entity& pendingRemoval) {
+        void DrawFilteredFlatList(EditorContext& ctx, const std::string& filter, std::vector<Entity>& pendingRemovals, Entity& rangeAnchor) {
             for (auto handle : ctx.SceneRef.Registry().view<NameComponent>()) {
                 Entity entity(handle, &ctx.SceneRef);
                 const std::string& name = entity.GetComponent<NameComponent>().Name;
@@ -387,29 +561,25 @@ namespace Duality {
                     continue;
 
                 ImGui::PushID(EntityId(entity));
-                bool selected = (entity == ctx.Selected);
+                bool selected = IsSelected(ctx, entity);
                 if (ImGui::Selectable(name.c_str(), selected))
-                    ctx.Selected = entity;
+                    SelectEntity(ctx, entity, rangeAnchor, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected)
+                    SelectEntity(ctx, entity, rangeAnchor, false, false);
                 if (ImGui::BeginPopupContextItem()) {
                     DrawCreateObjectMenu(ctx, entity);
                     ImGui::Separator();
+                    if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
+                        DuplicateSelection(ctx, rangeAnchor);
                     if (ImGui::MenuItem("Remove", "Delete"))
-                        pendingRemoval = entity;
+                        pendingRemovals = TopLevelSelection(ctx);
                     ImGui::EndPopup();
                 }
                 ImGui::PopID();
             }
         }
 
-        void DrawSiblingGap(EditorContext& ctx, Entity parent, Entity insertAfter) {
-            ImGui::InvisibleButton("##Gap", ImVec2(-1.0f, 4.0f));
-            if (ImGui::BeginDragDropTarget()) {
-                AcceptReparentDrop(ctx, parent, insertAfter);
-                ImGui::EndDragDropTarget();
-            }
-        }
-
-        void DrawEntityNode(Entity entity, EditorContext& ctx, Entity& pendingRemoval) {
+        void DrawEntityNode(Entity entity, EditorContext& ctx, std::vector<Entity>& pendingRemovals, Entity& rangeAnchor) {
             auto& hierarchy = entity.GetComponent<HierarchyComponent>();
             const std::string& name = entity.GetComponent<NameComponent>().Name;
 
@@ -429,7 +599,7 @@ namespace Duality {
             ImGui::PushID(EntityId(entity));
 
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-            if (entity == ctx.Selected)
+            if (IsSelected(ctx, entity))
                 flags |= ImGuiTreeNodeFlags_Selected;
             if (wasLeaf)
                 flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -449,25 +619,34 @@ namespace Duality {
             }
 
             bool open = ImGui::TreeNodeEx(name.c_str(), flags);
-            if (ImGui::IsItemClicked())
-                ctx.Selected = entity;
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+                SelectEntity(ctx, entity, rangeAnchor, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !IsSelected(ctx, entity))
+                SelectEntity(ctx, entity, rangeAnchor, false, false);
 
             if (ImGui::BeginDragDropSource()) {
+                if (!IsSelected(ctx, entity))
+                    SelectEntity(ctx, entity, rangeAnchor, false, false);
                 entt::entity handle = entity.Handle();
                 ImGui::SetDragDropPayload("HIERARCHY_ENTITY", &handle, sizeof(handle));
                 ImGui::Text("%s", name.c_str());
                 ImGui::EndDragDropSource();
             }
             if (ImGui::BeginDragDropTarget()) {
-                AcceptReparentDrop(ctx, entity); // dropped ON this node -> becomes its child
+                // Top quarter = before this sibling, middle = child, bottom
+                // quarter = after this sibling. This makes reordering possible
+                // directly on a row instead of requiring a 4px invisible gap.
+                AcceptEntityRowDrop(ctx, entity);
                 ImGui::EndDragDropTarget();
             }
 
             if (ImGui::BeginPopupContextItem()) {
                 DrawCreateObjectMenu(ctx, entity);
                 ImGui::Separator();
+                if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
+                    DuplicateSelection(ctx, rangeAnchor);
                 if (ImGui::MenuItem("Remove", "Delete"))
-                    pendingRemoval = entity;
+                    pendingRemovals = TopLevelSelection(ctx);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Create Prefab from Selection"))
                     CreatePrefabFromSelection(ctx, entity);
@@ -483,23 +662,19 @@ namespace Duality {
                 // were iterating that vector directly.
                 std::vector<Entity> children = hierarchy.Children;
                 for (Entity child : children)
-                    DrawEntityNode(child, ctx, pendingRemoval);
+                    DrawEntityNode(child, ctx, pendingRemovals, rangeAnchor);
                 ImGui::TreePop();
             }
-
-            // Insert-after-this-node reorder gap, in this node's own parent's
-            // sibling list (root list if this node itself is a root).
-            DrawSiblingGap(ctx, hierarchy.Parent, entity);
-
             ImGui::PopID();
         }
     }
 
     void HierarchyPanel::OnImGuiRender(EditorContext& ctx) {
         ImGui::Begin("Hierarchy");
+        NormalizeSelection(ctx, m_RangeAnchor);
 
         if (ImGui::Button("Create Entity", ImVec2(-1, 0))) {
-            ctx.Selected = ctx.SceneRef.CreateEntity("Entity");
+            SelectEntity(ctx, ctx.SceneRef.CreateEntity("Entity"), m_RangeAnchor, false, false);
             MarkSceneDirty(ctx);
         }
 
@@ -511,14 +686,14 @@ namespace Duality {
         // see DrawFilteredFlatList's own comment for why (a tree with drag-drop
         // reparenting doesn't have an obvious cheap way to hide/show whole subtrees).
         if (m_SearchBuffer[0] != '\0') {
-            DrawFilteredFlatList(ctx, m_SearchBuffer, m_PendingRemoval);
+            DrawFilteredFlatList(ctx, m_SearchBuffer, m_PendingRemovals, m_RangeAnchor);
         } else {
             // One real tree, not three display-only sections. Drop an entity onto
             // Top or Bottom to make it a child and inherit that screen's layer.
             // Copy protects this traversal from a drag-drop reparenting mutation.
             std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
             for (Entity entity : roots)
-                DrawEntityNode(entity, ctx, m_PendingRemoval);
+                DrawEntityNode(entity, ctx, m_PendingRemovals, m_RangeAnchor);
 
         // Drop target filling the remaining panel space below the tree -- it moves
         // an entity back to the unlayered scene root. InvisibleButton
@@ -539,8 +714,11 @@ namespace Duality {
                 std::string guid = static_cast<const char*>(payload->Data);
                 std::string path = AssetDatabase::ResolvePath(guid);
                 if (!path.empty()) {
-                    ctx.Selected = PrefabSerializer::Instantiate(ctx.SceneRef, path);
-                    MarkSceneDirty(ctx);
+                    Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path);
+                    if (instance) {
+                        SelectEntity(ctx, instance, m_RangeAnchor, false, false);
+                        MarkSceneDirty(ctx);
+                    }
                 }
             }
             ImGui::EndDragDropTarget();
@@ -556,12 +734,19 @@ namespace Duality {
         }
         }
 
+        // Scope scene-object shortcuts to this window; typing in the search box
+        // must not turn Ctrl+D/Delete into a scene mutation.
+        if (!ctx.IsPlaying && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl &&
+            ImGui::IsKeyPressed(ImGuiKey_D, false) && !ctx.SelectedEntities.empty())
+            DuplicateSelection(ctx, m_RangeAnchor);
+
         // Only react while this panel has keyboard focus, and never turn a
         // Delete keypress intended for the search box into an entity removal.
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
             !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete) &&
-            ctx.Selected && ctx.SceneRef.Registry().valid(ctx.Selected.Handle())) {
-            m_PendingRemoval = ctx.Selected;
+            !ctx.SelectedEntities.empty()) {
+            m_PendingRemovals = TopLevelSelection(ctx);
         }
 
         // Unity-style quick rename. A modal avoids changing the tree row's ImGui ID/layout in
@@ -597,13 +782,22 @@ namespace Duality {
             ImGui::EndPopup();
         }
 
-        if (m_PendingRemoval && ctx.SceneRef.Registry().valid(m_PendingRemoval.Handle())) {
-            if (IsInSubtree(ctx.SceneRef, ctx.Selected, m_PendingRemoval))
-                ctx.Selected = Entity{};
-            ctx.SceneRef.DestroyEntity(m_PendingRemoval);
+        bool removedAny = false;
+        for (Entity pendingRemoval : m_PendingRemovals) {
+            if (!pendingRemoval || !ctx.SceneRef.Registry().valid(pendingRemoval.Handle()))
+                continue;
+            ctx.SceneRef.DestroyEntity(pendingRemoval);
+            removedAny = true;
+        }
+        if (removedAny) {
+            ctx.SelectedEntities.erase(std::remove_if(ctx.SelectedEntities.begin(), ctx.SelectedEntities.end(), [&](Entity entity) {
+                return !entity || !ctx.SceneRef.Registry().valid(entity.Handle());
+            }), ctx.SelectedEntities.end());
+            ctx.Selected = ctx.SelectedEntities.empty() ? Entity{} : ctx.SelectedEntities.back();
+            m_RangeAnchor = ctx.Selected;
             MarkSceneDirty(ctx);
         }
-        m_PendingRemoval = Entity{};
+        m_PendingRemovals.clear();
 
         ImGui::End();
     }

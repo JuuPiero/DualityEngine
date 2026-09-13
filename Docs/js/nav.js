@@ -1,60 +1,45 @@
-// Shared sidebar navigation for every Docs page. Each page includes:
-//   <body data-page="page-id">
-//   <div id="sidebar-root"></div>   (as the first child inside .shell)
-//   <script src=".../js/nav.js"></script>   (placed right before </body>, so #sidebar-root
-//                                             already exists in the DOM by the time this runs)
+// Shared sidebar navigation. Pages work from file:// as well as a static host.
 (function () {
+    "use strict";
     var isRoot = !/\/pages\//.test(location.pathname);
-    var base = isRoot ? "pages/" : "";
-    var rootBase = isRoot ? "" : "../";
-
-    var NAV = [
+    var pages = isRoot ? "pages/" : "";
+    var root = isRoot ? "" : "../";
+    var navigation = [
         { group: "Bắt đầu", items: [
-            { id: "home", label: "Tổng quan", href: rootBase + "index.html", icon: "🏠" },
-            { id: "getting-started", label: "Cài đặt & Build", href: base + "getting-started.html", icon: "⚙️" },
-            { id: "first-game", label: "Làm game đầu tiên", href: base + "first-game-tutorial.html", icon: "🎮" }
+            { id: "home", label: "Tổng quan", href: root + "index.html", icon: "Home" },
+            { id: "getting-started", label: "Cài đặt & Build", href: pages + "getting-started.html", icon: "Build" },
+            { id: "first-game", label: "Game đầu tiên", href: pages + "first-game-tutorial.html", icon: "Play" }
         ]},
-        { group: "Kiến trúc", items: [
-            { id: "architecture", label: "ECS & Scene", href: base + "architecture.html", icon: "🧩" },
-            { id: "api-stack", label: "API Stack (thấp → cao)", href: base + "api-stack.html", icon: "📚" }
+        { group: "Engine", items: [
+            { id: "architecture", label: "ECS & Scene", href: pages + "architecture.html", icon: "ECS" },
+            { id: "api-stack", label: "API Stack", href: pages + "api-stack.html", icon: "Stack" },
+            { id: "api-reference", label: "API Reference", href: pages + "api-reference.html", icon: "API" }
         ]},
-        { group: "Future Systems", items: [
-            { id: "multiplayer-design", label: "Multiplayer & 3DS Network", href: base + "multiplayer-design.html", icon: "Network" }
-        ]},
-        { group: "API Reference", items: [
-            { id: "scripting-api", label: "Scripting (Behaviour)", href: base + "scripting-api.html", icon: "📜" },
-            { id: "physics", label: "Physics 2D/3D", href: base + "physics.html", icon: "🪐" },
-            { id: "rendering", label: "Rendering & UI", href: base + "rendering.html", icon: "🖼️" },
-            { id: "assets", label: "Asset Pipeline", href: base + "assets.html", icon: "📦" },
-            { id: "components", label: "Components Reference", href: base + "components.html", icon: "🧱" }
+        { group: "Hệ thống", items: [
+            { id: "scripting-api", label: "Scripting", href: pages + "scripting-api.html", icon: "Code" },
+            { id: "physics", label: "Physics 2D / 3D", href: pages + "physics.html", icon: "Physics" },
+            { id: "rendering", label: "Rendering & UI", href: pages + "rendering.html", icon: "Render" },
+            { id: "assets", label: "Assets & Packages", href: pages + "assets.html", icon: "Assets" },
+            { id: "components", label: "Components", href: pages + "components.html", icon: "Components" }
         ]},
         { group: "Editor & Deploy", items: [
-            { id: "editor", label: "Editor Panels", href: base + "editor.html", icon: "🛠️" },
-            { id: "build-deploy", label: "Build & Deploy", href: base + "build-deploy.html", icon: "🚀" }
+            { id: "editor", label: "Editor", href: pages + "editor.html", icon: "Editor" },
+            { id: "build-deploy", label: "Build & Deploy", href: pages + "build-deploy.html", icon: "3DS" }
+        ]},
+        { group: "Thiết kế tương lai", items: [
+            { id: "multiplayer-design", label: "Multiplayer & 3DS Network", href: pages + "multiplayer-design.html", icon: "Network" }
         ]}
     ];
-
-    var currentPage = document.body.getAttribute("data-page") || "";
-
-    function render() {
-        var html = '<div class="sidebar-brand">' +
-            '<img class="logo" src="' + rootBase + 'images/logo.png" />' +
-            '<div class="name">DualityEngine<small>Docs</small></div>' +
-            '</div>';
-        for (var g = 0; g < NAV.length; g++) {
-            var group = NAV[g];
-            html += '<div class="nav-group"><div class="nav-group-title">' + group.group + '</div>';
-            for (var i = 0; i < group.items.length; i++) {
-                var item = group.items[i];
-                var active = item.id === currentPage ? " active" : "";
-                html += '<a class="nav-link' + active + '" href="' + item.href + '">' +
-                    '<span>' + item.icon + '</span>' + item.label + '</a>';
-            }
-            html += '</div>';
-        }
-        return html;
-    }
-
-    var root = document.getElementById("sidebar-root");
-    if (root) root.innerHTML = render();
+    var current = document.body.getAttribute("data-page") || "";
+    var html = '<div class="sidebar-brand"><img class="logo" alt="DualityEngine" src="' + root + 'images/logo.png"><div class="name">DualityEngine<small>Documentation</small></div></div>';
+    html += '<a class="docs-search-link" href="' + pages + 'api-reference.html">Tìm API, class, hàm</a>';
+    navigation.forEach(function (section) {
+        html += '<div class="nav-group"><div class="nav-group-title">' + section.group + '</div>';
+        section.items.forEach(function (item) {
+            html += '<a class="nav-link' + (item.id === current ? ' active' : '') + '" href="' + item.href + '"><span class="nav-icon">' + item.icon + '</span>' + item.label + '</a>';
+        });
+        html += '</div>';
+    });
+    var container = document.getElementById("sidebar-root");
+    if (container) container.innerHTML = html;
 })();

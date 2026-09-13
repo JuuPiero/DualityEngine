@@ -7,9 +7,10 @@
 
 namespace Duality {
 
-    unsigned int GLTextureLoader::LoadTextureFromFile(const std::string& path, const TextureImportSettings& settings) {
+    unsigned int GLTextureLoader::LoadTextureFromFile(const std::string& path,
+        const TextureImportSettings& settings, bool flipVertically) {
         int width, height, channels;
-        stbi_set_flip_vertically_on_load(1);
+        stbi_set_flip_vertically_on_load(flipVertically ? 1 : 0);
         unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 4);
         if (!data)
             return 0;

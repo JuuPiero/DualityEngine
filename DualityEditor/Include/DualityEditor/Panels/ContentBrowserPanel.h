@@ -56,6 +56,16 @@ namespace Duality {
         // AssetRef pointing at its guid keeps resolving. A no-op if the name is unchanged,
         // blank, or already taken.
         void CommitRename(EditorContext& ctx);
+        // Applies regular / Ctrl / Shift selection semantics to a file cell.
+        // SelectedAssetPath stays the primary item for the existing Inspector.
+        void SelectAsset(EditorContext& ctx, const std::filesystem::path& path, bool additive, bool range);
+        void NormalizeAssetSelection(EditorContext& ctx);
+        // Copies a regular project asset beside itself using Unity's "Name (1)"
+        // convention, then creates a fresh .meta GUID for the copy. Directories
+        // and C++ source files deliberately stay out of this helper: recursive
+        // copying would duplicate GUIDs, while copying a C++ script would create
+        // a second translation unit with the same class/symbols.
+        void DuplicateSelectedAsset(EditorContext& ctx);
         void CreateFolder(const std::filesystem::path& parent);
         void RequestDelete(const std::filesystem::path& path, bool isDirectory);
         // Moves the asset `guid` resolves to (plus its ".meta") into `destDir` and
@@ -78,6 +88,7 @@ namespace Duality {
         // Set true the same frame a rename starts so the InputText claims keyboard focus
         // exactly once (SetKeyboardFocusHere must be called before the widget it targets).
         bool m_FocusRenameField = false;
+        std::string m_RangeAnchorPath;
 
         // Empty = no delete confirmation open; otherwise the path awaiting a Yes/Cancel
         // decision in the modal popup rendered at the bottom of OnImGuiRender.

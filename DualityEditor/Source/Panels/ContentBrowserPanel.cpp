@@ -280,9 +280,146 @@ namespace Duality {
 
             if (ctx.SelectedAssetPath == oldPath.string())
                 ctx.SelectedAssetPath = newPath.string();
+            for (std::string& selectedPath : ctx.SelectedAssetPaths) {
+                if (selectedPath == oldPath.string())
+                    selectedPath = newPath.string();
+            }
+            if (m_RangeAnchorPath == oldPath.string())
+                m_RangeAnchorPath = newPath.string();
         }
 
         Log::Info("Renamed '" + oldPath.string() + "' to '" + newPath.string() + "'");
+    }
+
+    void ContentBrowserPanel::NormalizeAssetSelection(EditorContext& ctx) {
+        auto& selection = ctx.SelectedAssetPaths;
+        selection.erase(std::remove_if(selection.begin(), selection.end(), [](const std::string& path) {
+            return !std::filesystem::is_regular_file(path);
+        }), selection.end());
+
+        // Selecting an Entity from Hierarchy/Scene takes precedence over stale
+        // Project selection just as the old single-selection implementation did.
+        if (ctx.Selected) {
+            selection.clear();
+            m_RangeAnchorPath.clear();
+            return;
+        }
+        if (ctx.SelectedAssetPath.empty() || !std::filesystem::is_regular_file(ctx.SelectedAssetPath)) {
+            ctx.SelectedAssetPath.clear();
+            selection.clear();
+            m_RangeAnchorPath.clear();
+            return;
+        }
+        if (std::find(selection.begin(), selection.end(), ctx.SelectedAssetPath) == selection.end()) {
+            selection = { ctx.SelectedAssetPath };
+            m_RangeAnchorPath = ctx.SelectedAssetPath;
+        }
+    }
+
+    void ContentBrowserPanel::SelectAsset(EditorContext& ctx, const std::filesystem::path& path, bool additive, bool range) {
+        const std::string clickedPath = path.string();
+        auto& selection = ctx.SelectedAssetPaths;
+
+        if (range && !m_RangeAnchorPath.empty()) {
+            std::vector<std::filesystem::path> files;
+            std::error_code error;
+            for (const auto& entry : std::filesystem::directory_iterator(m_CurrentDirectory, error)) {
+                if (error)
+                    break;
+                const std::filesystem::path candidate = entry.path();
+                if (!entry.is_regular_file() || candidate.extension() == ".meta")
+                    continue;
+                if (m_SearchBuffer[0] != '\0' && !ContainsCaseInsensitive(candidate.filename().string(), m_SearchBuffer))
+                    continue;
+                files.push_back(candidate);
+            }
+            std::sort(files.begin(), files.end());
+            auto first = std::find_if(files.begin(), files.end(), [&](const std::filesystem::path& candidate) {
+                return candidate.string() == m_RangeAnchorPath;
+            });
+            auto last = std::find(files.begin(), files.end(), path);
+            if (first != files.end() && last != files.end()) {
+                if (first > last)
+                    std::swap(first, last);
+                selection.clear();
+                for (; first != last + 1; ++first)
+                    selection.push_back(first->string());
+            } else {
+                selection = { clickedPath };
+                m_RangeAnchorPath = clickedPath;
+            }
+        } else if (additive) {
+            auto found = std::find(selection.begin(), selection.end(), clickedPath);
+            if (found == selection.end())
+                selection.push_back(clickedPath);
+            else
+                selection.erase(found);
+            if (m_RangeAnchorPath.empty())
+                m_RangeAnchorPath = clickedPath;
+        } else {
+            selection = { clickedPath };
+            m_RangeAnchorPath = clickedPath;
+        }
+
+        ctx.SelectedAssetPath = selection.empty() ? std::string() :
+            (std::find(selection.begin(), selection.end(), clickedPath) != selection.end() ? clickedPath : selection.back());
+        ctx.Selected = Entity{};
+        ctx.SelectedEntities.clear();
+    }
+
+    void ContentBrowserPanel::DuplicateSelectedAsset(EditorContext& ctx) {
+        std::vector<std::string> sources = ctx.SelectedAssetPaths;
+        if (sources.empty() && !ctx.SelectedAssetPath.empty())
+            sources.push_back(ctx.SelectedAssetPath);
+        if (sources.empty())
+            return;
+
+        std::vector<std::string> duplicates;
+        for (const std::string& sourcePath : sources) {
+            const std::filesystem::path source(sourcePath);
+            if (IsPackagesView(source) || !std::filesystem::is_regular_file(source) || source.extension() == ".meta") {
+                Log::Warn("ContentBrowserPanel: Ctrl+D duplicates regular editable assets only");
+                continue;
+            }
+
+            // A script copy needs a simultaneous class/REGISTER_* rename to compile.
+            const std::string extension = source.extension().string();
+            if (extension == ".c" || extension == ".cc" || extension == ".cpp" ||
+                extension == ".cxx" || extension == ".h" || extension == ".hh" ||
+                extension == ".hpp" || extension == ".hxx") {
+                Log::Warn("ContentBrowserPanel: skipped C++ script '" + source.filename().string() + "'");
+                continue;
+            }
+
+            std::filesystem::path destination;
+            for (int suffix = 1; ; ++suffix) {
+                destination = source.parent_path() /
+                    (source.stem().string() + " (" + std::to_string(suffix) + ")" + source.extension().string());
+                if (!std::filesystem::exists(destination))
+                    break;
+            }
+
+            std::error_code error;
+            std::filesystem::copy_file(source, destination, std::filesystem::copy_options::none, error);
+            if (error) {
+                Log::Error("ContentBrowserPanel: duplicate failed: " + error.message());
+                continue;
+            }
+
+            // A fresh .meta GUID makes the newly copied asset distinct in AssetDatabase.
+            const std::string guid = AssetMeta::EnsureMetaFile(destination);
+            AssetDatabase::Register(guid, destination.string());
+            duplicates.push_back(destination.string());
+            Log::Info("Duplicated asset: " + destination.string());
+        }
+
+        if (duplicates.empty())
+            return;
+        ctx.SelectedAssetPaths = duplicates;
+        ctx.SelectedAssetPath = duplicates.back();
+        ctx.Selected = Entity{};
+        ctx.SelectedEntities.clear();
+        m_RangeAnchorPath = ctx.SelectedAssetPath;
     }
 
     void ContentBrowserPanel::CreateFolder(const std::filesystem::path& parent) {
@@ -358,6 +495,7 @@ namespace Duality {
 
     void ContentBrowserPanel::OnImGuiRender(EditorContext& ctx) {
         ImGui::Begin("Content Browser");
+        NormalizeAssetSelection(ctx);
 
         // Unity-style Project tree: Assets and Packages are separate roots. Packages are shown
         // here for discovery, but Package Manager owns install/enable/remove so browsing them
@@ -411,7 +549,18 @@ namespace Duality {
         int columnCount = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cellSize));
         ImGui::Columns(columnCount, nullptr, false);
 
-        for (auto& entry : std::filesystem::directory_iterator(m_CurrentDirectory)) {
+        std::vector<std::filesystem::directory_entry> entries;
+        for (const auto& entry : std::filesystem::directory_iterator(m_CurrentDirectory))
+            entries.push_back(entry);
+        std::sort(entries.begin(), entries.end(), [](const auto& left, const auto& right) {
+            const bool leftDirectory = left.is_directory();
+            const bool rightDirectory = right.is_directory();
+            if (leftDirectory != rightDirectory)
+                return leftDirectory > rightDirectory;
+            return left.path().filename().string() < right.path().filename().string();
+        });
+
+        for (const auto& entry : entries) {
             const std::filesystem::path& path = entry.path();
             bool isDirectory = entry.is_directory();
 
@@ -505,7 +654,9 @@ namespace Duality {
             // Selection highlight, drawn as an outline after the icon/label so it reads clearly
             // on top of either -- a filled background would need the item's bounds known BEFORE
             // drawing the icon, which BeginGroup/EndGroup's own layout doesn't provide.
-            if (!isDirectory && !guid.empty() && path.string() == ctx.SelectedAssetPath) {
+            const bool selected = !isDirectory &&
+                std::find(ctx.SelectedAssetPaths.begin(), ctx.SelectedAssetPaths.end(), path.string()) != ctx.SelectedAssetPaths.end();
+            if (selected) {
                 ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
                     IM_COL32(80, 160, 255, 255), 3.0f, 0, 2.0f);
             }
@@ -515,15 +666,20 @@ namespace Duality {
             } else if (doubleClicked && !isDirectory && path.extension() == ".scene") {
                 OpenScene(ctx, path.string());
             } else if (pressed && !isDirectory && !renamingThis) {
-                ctx.SelectedAssetPath = path.string();
-                ctx.Selected = Entity{};
+                SelectAsset(ctx, path, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
             }
+
+            if (!isDirectory && ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected)
+                SelectAsset(ctx, path, false, false);
 
             // Per-item context menu -- takes precedence over the background one below thanks to
             // that popup's own ImGuiPopupFlags_NoOpenOverItems.
             if (!readOnlyPackages && !renamingThis && ImGui::BeginPopupContextItem("ItemContextMenu")) {
                 if (ImGui::MenuItem("Rename"))
                     BeginRename(path);
+                if (!isDirectory && ImGui::MenuItem("Duplicate", "Ctrl+D")) {
+                    DuplicateSelectedAsset(ctx);
+                }
                 if (ImGui::MenuItem("Delete"))
                     RequestDelete(path, isDirectory);
                 ImGui::EndPopup();
@@ -603,6 +759,14 @@ namespace Duality {
                 }
                 ImGui::EndPopup();
             }
+        }
+
+        // Scope this shortcut to the Project window. WantTextInput keeps Ctrl+D
+        // usable by the search and inline-rename fields without creating a file.
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+            !ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl &&
+            ImGui::IsKeyPressed(ImGuiKey_D, false)) {
+            DuplicateSelectedAsset(ctx);
         }
 
         ImGui::EndChild();

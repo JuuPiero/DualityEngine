@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,13 @@ namespace Duality {
         // serialization order -- what HierarchyPanel iterates at the top of its tree.
         const std::vector<Entity>& GetRootEntities() const { return m_RootEntities; }
 
+        // Depth-first Hierarchy order (each root, then its children in sibling order). This is
+        // the canonical visual order for equal Sort Order: later entries render later/on top,
+        // so the last sibling in Hierarchy is visibly on top of its earlier siblings.
+        // Kept in Scene rather than relying on EnTT storage iteration, whose order is an ECS
+        // implementation detail and changes when components are added/removed.
+        std::vector<Entity> GetHierarchyTraversalOrder() const;
+
         // Reparents `child` under `newParent` (Entity{} = root), inserted immediately
         // after `insertAfter` in the sibling list (appended at the end if insertAfter is
         // null/not found). The same call handles a normal reparent (insertAfter={}), a
@@ -51,6 +59,10 @@ namespace Duality {
         // Pass false only from SceneSerializer::Deserialize, where the just-loaded
         // Transform is already the correct local value and must not be re-derived.
         void SetParent(Entity child, Entity newParent, Entity insertAfter = {}, bool preserveWorldPosition = true);
+
+        // Unity's SetSiblingIndex equivalent. Reparents `child` then inserts it at an exact
+        // index in `newParent`'s children (or in the root list when newParent is empty).
+        void SetSiblingIndex(Entity child, Entity newParent, std::size_t siblingIndex, bool preserveWorldPosition = true);
 
         // Walks the Parent chain, composing local TransformComponents into one
         // world-space TransformComponent (2D: translate + Z-rotation + non-uniform XY

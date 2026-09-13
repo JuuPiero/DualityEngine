@@ -22,7 +22,13 @@ namespace Duality {
         // original hardcoded behavior) -- ThumbnailCache intentionally
         // doesn't look up a texture's real import settings for its small
         // preview, only OpenGLRenderer2D's real sprite-texture path does.
-        static unsigned int LoadTextureFromFile(const std::string& path, const TextureImportSettings& settings = {});
+        //
+        // 2D screens use a top-left origin, so sprites and ImGui thumbnails
+        // must keep image rows in their source order. Imported 3D mesh UVs
+        // follow OpenGL's conventional bottom-left orientation instead, hence
+        // their caller retains the default vertical flip.
+        static unsigned int LoadTextureFromFile(const std::string& path,
+            const TextureImportSettings& settings = {}, bool flipVertically = true);
     };
 
 }

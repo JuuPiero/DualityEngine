@@ -107,12 +107,12 @@ transform.Rotation.z += <span class="tok-num">90.0f</span> * deltaTime; <span cl
                 <table>
                     <tr><th>Method</th><th>Wrapper</th></tr>
                     <tr><td><code>GetTransform()</code></td><td>Local/world position, rotation Z/Y, scale</td></tr>
-                    <tr><td><code>GetSpriteRenderer()</code> / <code>GetMeshRenderer()</code></td><td>Color, size, texture/material</td></tr>
-                    <tr><td><code>GetRigidbody2D()</code> / <code>GetRigidbody3D()</code></td><td>Velocity, AddForce, BodyType</td></tr>
-                    <tr><td><code>GetCollider2D()</code> / <code>GetCollider3D()</code></td><td>Truy cập collider component</td></tr>
-                    <tr><td><code>GetEntityLayer()</code></td><td><code>GetLayer()</code>, <code>SetComponentLayer(Layer)</code></td></tr>
-                    <tr><td><code>GetAudioSource()</code></td><td>Play/Stop/Pause/Volume</td></tr>
-                    <tr><td><code>GetUIButton()</code>, <code>GetUIRect()</code>, …</td><td>UI widget polling</td></tr>
+                    <tr><td><code>SpriteRenderer(GetEntity())</code> / <code>MeshRenderer(GetEntity())</code></td><td>Wrapper component render được tạo tường minh.</td></tr>
+                    <tr><td><code>Rigidbody2D(GetEntity())</code> / <code>Rigidbody3D(GetEntity())</code></td><td>Velocity, AddForce, BodyType.</td></tr>
+                    <tr><td><code>Collider2D(GetEntity())</code> / <code>Collider3D(GetEntity())</code></td><td>Wrapper collider được tạo tường minh.</td></tr>
+                    <tr><td><code>EntityLayer(GetEntity())</code></td><td><code>GetLayer()</code>, <code>SetComponentLayer(Layer)</code>.</td></tr>
+                    <tr><td><code>AudioSource(GetEntity())</code></td><td>Play/Stop/Pause/Volume.</td></tr>
+                    <tr><td><code>UIButton(GetEntity())</code>, <code>UIRect(GetEntity())</code>, …</td><td>UI wrapper được tạo tường minh.</td></tr>
                 </table>
 
                 <h2>DUALITY_PROPERTY &amp; Inspector</h2>

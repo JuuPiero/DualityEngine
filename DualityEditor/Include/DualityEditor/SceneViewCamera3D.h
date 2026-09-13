@@ -23,7 +23,10 @@ namespace Duality {
     struct SceneViewCamera3D {
         glm::vec3 Target{ 0.0f, 0.0f, 0.0f };
         glm::quat Rotation = glm::angleAxis(glm::radians(20.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-        float Distance = 300.0f;
+        // 2D assets use world units (typically 1-3 units at PPU 100), so a
+        // 300-unit startup distance made every SpriteRenderer effectively
+        // invisible in Scene 3D. F still frames any selected object exactly.
+        float Distance = 10.0f;
         bool Seeded = false;
     };
 

@@ -381,3 +381,32 @@ hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
     .sidebar { width: 100%; height: auto; position: relative; border-right: none; border-bottom: 1px solid var(--border); }
     .content { padding: 32px 20px 80px; }
 }
+
+/* ---------- Generated API reference ---------- */
+.nav-icon { display: inline-flex; min-width: 34px; justify-content: flex-start; color: var(--text-faint); font-family: "Cascadia Code", Consolas, monospace; font-size: 10px; font-weight: 700; }
+.nav-link.active .nav-icon { color: currentColor; }
+.docs-search-link { display: block; margin: 0 6px 12px; padding: 8px 10px; border: 1px solid var(--accent-dim); border-radius: var(--radius); background: var(--accent-bg); color: var(--accent); font-size: 12px; font-weight: 700; }
+.docs-search-link:hover { text-decoration: none; border-color: var(--accent); }
+.api-search-panel { margin: 24px 0 28px; padding: 18px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; }
+.api-search-label { display: block; margin-bottom: 7px; color: #fff; font-weight: 700; }
+.api-query { display: block; width: 100%; padding: 11px 13px; background: var(--bg-code); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; }
+.api-query:focus { outline: 2px solid var(--accent-dim); border-color: var(--accent); }
+.api-search-toolbar, .api-search-footer, .api-module-filters, .api-symbols { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.api-search-toolbar { justify-content: space-between; margin-top: 13px; }
+.api-search-footer { justify-content: space-between; margin-top: 14px; font-size: 13px; }
+.api-filter, .api-show-all, .api-load-more { cursor: pointer; border: 1px solid var(--border); border-radius: 999px; padding: 4px 9px; background: transparent; color: var(--text-dim); font: inherit; font-size: 12px; }
+.api-filter:hover, .api-filter.active, .api-show-all:hover, .api-load-more:hover { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-bg); }
+.api-check { color: var(--text-dim); font-size: 12.5px; white-space: nowrap; }
+.api-check input { accent-color: var(--accent); }
+.api-file { padding: 18px; margin: 14px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); }
+.api-file-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.api-file-title { font-size: 18px; }
+.api-file-path { margin: 5px 0 12px; color: var(--text-faint); font-size: 12px; overflow-wrap: anywhere; }
+.api-symbol { border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font: 11px "Cascadia Code", Consolas, monospace; color: var(--text-dim); }
+.api-symbol.type { color: var(--green); border-color: rgba(88, 214, 141, 0.35); }
+.api-symbol.function { color: var(--accent); border-color: rgba(90, 169, 255, 0.35); }
+.api-symbol.more { color: var(--text-faint); }
+.api-source { margin-top: 14px; }
+.api-source summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 650; }
+.api-source pre { margin: 10px 0 0; max-height: 680px; }
+.api-load-more { display: block; margin: 18px auto; padding: 8px 14px; }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "DualityEngine/ECS/Entity.h"
 
 namespace Duality {
@@ -19,10 +21,13 @@ namespace Duality {
         // Entity instead of a raw NameComponent pointer makes it safe across reparent/removal.
         Entity m_Renaming;
         char m_RenameBuffer[256] = "";
+        // Shift extends from this entity; Ctrl toggles an entity without moving
+        // the anchor, matching the familiar Unity/Explorer selection model.
+        Entity m_RangeAnchor;
         // Defer destruction until the hierarchy has finished drawing: removing a
         // node while its parent/child vectors are being traversed would invalidate
         // those traversals.
-        Entity m_PendingRemoval;
+        std::vector<Entity> m_PendingRemovals;
     };
 
 }

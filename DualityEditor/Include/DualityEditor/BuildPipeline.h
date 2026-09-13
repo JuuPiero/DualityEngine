@@ -62,12 +62,11 @@ namespace Duality {
         static int RunCommand(const std::string& command);
 
     private:
-        // Cooks every asset under `assetsDirectory` into `DualityPlayer/romfs/Assets/` (images
-        // to .t3x via tex3ds, everything else copied verbatim) and writes a guid->romfs-path
-        // manifest (DualityPlayer/romfs/AssetManifest.json) that AssetDatabase::LoadManifest
-        // loads on-device at startup. A single bad/unconvertible file is logged and skipped,
-        // not fatal to the whole build.
-        static bool CookAssets(const std::string& repoRoot, const std::string& assetsDirectory);
+        // Cooks only assets reachable from the enabled build scenes (images to .t3x, everything
+        // else copied verbatim) and writes the guid->romfs-path manifest the player consumes.
+        // `mainScenePath` is the fallback root when Build Settings has no explicit scene list.
+        static bool CookAssets(const std::string& repoRoot, const std::string& assetsDirectory,
+            const std::string& mainScenePath);
 
         static std::atomic<BuildStatus> s_Status;
     };

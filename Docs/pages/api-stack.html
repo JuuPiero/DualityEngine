@@ -90,7 +90,7 @@
                     <tr><td><code>EngineServices</code></td><td>Struct con trỏ hàm C-ABI — Input, Audio, Raycast, Log, Instantiate, …</td></tr>
                     <tr><td><code>Behaviour</code></td><td>Base class lifecycle + <code>GetComponent</code> + wrappers</td></tr>
                     <tr><td><code>Input</code>, <code>ScriptPhysics2D/3D</code>, <code>ScriptDebug</code>, <code>ScriptScene</code></td><td>Static API Unity-style trên entity hiện tại</td></tr>
-                    <tr><td>Component wrappers</td><td><code>GetTransform()</code>, <code>GetRigidbody2D()</code>, <code>GetSpriteRenderer()</code>, <code>GetEntityLayer()</code>, <code>GetUIButton()</code>, …</td></tr>
+                    <tr><td>Component wrappers</td><td><code>GetTransform()</code> là wrapper duy nhất của Behaviour. Các wrapper khác tạo tường minh: <code>Rigidbody2D(GetEntity())</code>, <code>SpriteRenderer(GetEntity())</code>, <code>EntityLayer(GetEntity())</code>, <code>UIButton(GetEntity())</code>, …</td></tr>
                     <tr><td><code>ScriptRegistry</code></td><td>Factory + <code>GetFields</code> cho Inspector</td></tr>
                     <tr><td><code>DUALITY_PROPERTY()</code></td><td>Field Inspector-editable; enum → dropdown; nested struct → foldout</td></tr>
                 </table>
