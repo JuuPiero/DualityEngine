@@ -29,6 +29,12 @@ namespace Duality {
         // `screen` and Primary == true, or an empty Entity if none exists.
         Entity GetPrimaryCamera(Screen screen);
 
+        // The optional organizational roots for the 3DS's physical screens.
+        // A child inherits its effective Layer from Top/Bottom through the
+        // normal parent walk, so it does not need a LayerComponent itself.
+        Entity GetScreenRoot(Screen screen);
+        Entity EnsureScreenRoot(Screen screen);
+
         // Root-level entities (HierarchyComponent::Parent == null), in display/
         // serialization order -- what HierarchyPanel iterates at the top of its tree.
         const std::vector<Entity>& GetRootEntities() const { return m_RootEntities; }
@@ -113,6 +119,13 @@ namespace Duality {
         void OnRuntimeUpdate(float deltaTime);
         void OnRuntimeStop();
 
+        // Platform hosts forward their lifecycle here on the main thread.
+        // Scene dispatches safely to active script instances, so libctru/GLFW
+        // callbacks never execute gameplay code directly.
+        void OnApplicationFocus(bool focused);
+        void OnApplicationPause(bool paused);
+        void OnApplicationQuit();
+
         // Destroys every entity and resets root-entity bookkeeping, leaving this Scene as if
         // freshly default-constructed -- used before loading new content into an EXISTING
         // Scene object (Editor "Load Scene"/opening a different scene, Play->Stop reverting
@@ -171,8 +184,22 @@ namespace Duality {
     }
 
     template<typename T>
+    T* Entity::TryGetComponent() {
+        if (!IsValid() || !m_Scene->Registry().all_of<T>(m_Handle))
+            return nullptr;
+        return &m_Scene->Registry().get<T>(m_Handle);
+    }
+
+    template<typename T>
+    const T* Entity::TryGetComponent() const {
+        if (!IsValid() || !m_Scene->Registry().all_of<T>(m_Handle))
+            return nullptr;
+        return &m_Scene->Registry().get<T>(m_Handle);
+    }
+
+    template<typename T>
     bool Entity::HasComponent() const {
-        return m_Scene->Registry().all_of<T>(m_Handle);
+        return IsValid() && m_Scene->Registry().all_of<T>(m_Handle);
     }
 
     template<typename T>

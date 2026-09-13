@@ -17,13 +17,18 @@ namespace Duality {
         Map()[entry.Name] = entry;
     }
 
+    bool ScriptRegistry::IsRegistered(const std::string& className) {
+        const auto it = Map().find(className);
+        return it != Map().end() && it->second.Create && it->second.Destroy;
+    }
+
     bool ScriptRegistry::TryCreate(const std::string& className, Behaviour** outInstance, void (**outDestroy)(Behaviour*)) {
-        auto it = Map().find(className);
-        if (it == Map().end())
+        if (!outInstance || !outDestroy || !IsRegistered(className))
             return false;
+        auto it = Map().find(className);
         *outInstance = it->second.Create();
         *outDestroy = it->second.Destroy;
-        return true;
+        return *outInstance != nullptr;
     }
 
     int ScriptRegistry::Count() {

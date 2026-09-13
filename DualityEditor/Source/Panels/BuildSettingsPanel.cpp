@@ -122,8 +122,10 @@ namespace Duality {
         bool building = (BuildPipeline::GetStatus() == BuildStatus::Running) || (ScriptEngine::GetStatus() == ReloadStatus::Running);
         ImGui::BeginDisabled(building);
         if (ImGui::Button("Build for 3DS", ImVec2(-1.0f, 0.0f))) {
-            SaveScene(ctx);
-            BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
+            if (ValidateSceneForRuntime(ctx, "Build")) {
+                SaveScene(ctx);
+                BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
+            }
         }
         ImGui::EndDisabled();
 

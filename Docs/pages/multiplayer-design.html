@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer &amp; 3DS Network Design — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="multiplayer-design">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">Thiết kế tương lai · Chưa implement</div>
+                <h1>Multiplayer &amp; Nintendo 3DS Network</h1>
+                <p class="lede">Bản thiết kế cho local wireless và online multiplayer của DualityEngine. Trang này chốt ranh giới module, protocol và lộ trình trước khi runtime có bất kỳ transport nào.</p>
+
+                <div class="callout warn">
+                    <span class="callout-title">Trạng thái hiện tại</span>
+                    Engine chưa có transport, lobby, replication hay Network component. Chỉ lifecycle portable
+                    <code>OnApplicationFocus</code>, <code>OnApplicationPause</code>,
+                    <code>OnApplicationQuit</code> đã có để game xử lý HOME/gập máy/wake/exit. Tất cả class có chữ “proposed” là thiết kế, chưa phải API gọi được.
+                </div>
+
+                <h2 style="border-top:none;margin-top:0">Nguyên tắc</h2>
+                <ul>
+                    <li><strong>Gameplay không biết UDS hay socket.</strong> Script chỉ biết session, peer, message và state game.</li>
+                    <li><strong>Local-first.</strong> UDS là milestone đầu cho multiplayer gần nhau trên 3DS; online là transport khác.</li>
+                    <li><strong>Host authoritative.</strong> Client gửi input/intent; host quyết định state, hit, spawn và score.</li>
+                    <li><strong>Không gửi raw ECS.</strong> Không truyền <code>entt::entity</code>, pointer, layout của <code>std::string</code> hoặc memcpy struct C++.</li>
+                    <li><strong>Không block frame.</strong> Scan, receive, reconnect là poll/tick có packet budget.</li>
+                    <li><strong>Desktop test được.</strong> Cùng session/codec phải chạy Loopback hoặc UDP desktop trước khi test hai máy.</li>
+                </ul>
+
+                <h2>Ranh giới kiến trúc</h2>
+                <pre><code>GameScripts / Behaviour
+    │  gameplay messages, input, presentation
+    ▼
+NetworkSession                 <span class="tok-com">// portable: lobby state, peer state, reliability</span>
+    ├── PacketCodec             <span class="tok-com">// bytes &lt;-&gt; versioned messages</span>
+    ├── ReplicationSystem       <span class="tok-com">// later: input command, snapshot, interpolation</span>
+    ▼
+INetworkTransport              <span class="tok-com">// Host, Scan, Join, Send, Poll, Leave</span>
+    ├── UdsTransport            <span class="tok-com">// 3DS local wireless</span>
+    ├── UdpTransport            <span class="tok-com">// desktop + 3DS Wi-Fi/Internet</span>
+    └── LoopbackTransport       <span class="tok-com">// deterministic test</span></code></pre>
+                <p><code>DualityEngine/Network</code> sẽ chứa codec/session/interface portable. Chỉ <code>DualityEngine/Platform/N3DS</code> được include <code>&lt;3ds.h&gt;</code> và gọi UDS/SOC. Đây cùng quy tắc với Input: host đọc HID, script dùng API cấp cao.</p>
+
+                <h3>API gameplay dự kiến</h3>
+                <pre><code><span class="tok-com">// proposed only — not implemented</span>
+<span class="tok-kw">class</span> <span class="tok-type">NetworkSession</span> {
+<span class="tok-kw">public</span>:
+    <span class="tok-type">NetworkState</span> <span class="tok-fn">GetState</span>() <span class="tok-kw">const</span>;
+    <span class="tok-type">bool</span> <span class="tok-fn">Host</span>(<span class="tok-type">const</span> LobbyConfig&amp;);
+    <span class="tok-type">bool</span> <span class="tok-fn">Join</span>(<span class="tok-type">const</span> LobbyInfo&amp;);
+    <span class="tok-type">void</span> <span class="tok-fn">Send</span>(PeerId, MessageType, ByteSpan, Delivery);
+    <span class="tok-type">void</span> <span class="tok-fn">Tick</span>(<span class="tok-type">float</span> deltaTime);
+};</code></pre>
+                <p>Message handler được game mode/system đăng ký rõ ràng; không nhét interface network vào mọi <code>Behaviour</code>. Nếu cần component sau này, chỉ thêm <code>NetworkIdentityComponent</code> với network id, ownership và prefab id.</p>
+
+                <h2>UDS local wireless</h2>
+                <p>UDS dành cho thiết bị 3DS ở gần nhau. Host tạo lobby; client scan beacon và join. Nó không phải internet API và không thay UDP. Lobby cần protocol version, build/content hash, player limit và room name trong beacon/application data.</p>
+                <table>
+                    <tr><th>Giai đoạn</th><th>libctru primitive</th><th>Vai trò engine</th></tr>
+                    <tr><td>Khởi tạo</td><td><code>udsInit</code> / <code>udsExit</code></td><td>UdsTransport sở hữu shared memory và lifetime.</td></tr>
+                    <tr><td>Host</td><td><code>udsGenerateDefaultNetworkStruct</code>, <code>udsCreateNetwork</code></td><td>Tạo lobby, bind data channel.</td></tr>
+                    <tr><td>Discover/join</td><td><code>udsScanBeacons</code>, <code>udsConnectNetwork</code></td><td>Scan async, version gate trước join.</td></tr>
+                    <tr><td>Data</td><td><code>udsSendTo</code>, <code>udsPullPacket</code></td><td>Đưa bytes vào PacketCodec, giới hạn packet/frame.</td></tr>
+                    <tr><td>Peer state</td><td><code>udsGetConnectionStatus</code></td><td>Emit PeerJoined/PeerLeft đúng một lần.</td></tr>
+                    <tr><td>Shutdown</td><td><code>udsDestroyNetwork</code>/<code>udsDisconnectNetwork</code>, <code>udsUnbind</code></td><td>Idempotent khi leave/pause/quit.</td></tr>
+                </table>
+                <div class="callout note"><span class="callout-title">Không gọi UDS từ script</span><code>udsSendTo</code> chỉ biết bytes. Session mới biết peer nào hợp lệ, packet nào reliable và callback gameplay nào chạy ở main thread.</div>
+
+                <h2>UDP / online</h2>
+                <p>Online không dùng UDS. Trên 3DS, UdpTransport sở hữu buffer aligned cho <code>socInit</code> và dùng BSD UDP non-blocking; desktop dùng transport tương đương. NAT traversal, relay, account/authentication và matchmaking server là một dịch vụ riêng, không phải vài hàm engine.</p>
+                <ul>
+                    <li>Milestone online đầu: direct IP/LAN UDP để kiểm chứng codec và simulation.</li>
+                    <li>UDP không tự reliable: session bổ sung sequence, ack bitmask, resend timeout và ordering theo channel khi cần.</li>
+                    <li>Game cạnh tranh không tin client: host/relay phải authoritative với input và state quan trọng.</li>
+                </ul>
+
+                <h2>Protocol và serialization</h2>
+                <pre><code><span class="tok-com">// wire-format concept — encode từng field, không memcpy</span>
+magic:u16 | protocolVersion:u8 | channel:u8 | sessionId:u16 |
+sequence:u16 | ack:u16 | ackBits:u32 | payloadLength:u16 | payload:bytes</code></pre>
+                <ul>
+                    <li><strong>Unreliable sequenced:</strong> input mới nhất, transform snapshot; packet cũ bị bỏ.</li>
+                    <li><strong>Reliable ordered:</strong> lobby, spawn/despawn, inventory, scene transition.</li>
+                    <li><strong>Version gate:</strong> từ chối protocol/build/content hash không tương thích trước gameplay packet.</li>
+                    <li><strong>Budget:</strong> hard cap size/packet/frame; reject length sai trước allocation và parse.</li>
+                </ul>
+
+                <h2>Replication: gửi input, không gửi Transform</h2>
+                <p>Với platformer/physics, client gửi input command kèm tick. Host validate và simulate, sau đó gửi snapshot. Client nội suy remote entity; client prediction/reconciliation chỉ thêm sau khi loop cơ bản ổn định.</p>
+                <table>
+                    <tr><th>Data</th><th>Gửi</th><th>Authority</th><th>Nhận xử lý</th></tr>
+                    <tr><td>Input command</td><td>Client</td><td>Host</td><td>Host simulate ở tick xác định</td></tr>
+                    <tr><td>Snapshot</td><td>Host</td><td>Host</td><td>Client interpolate/correct</td></tr>
+                    <tr><td>Spawn/despawn</td><td>Host</td><td>Host</td><td>Map prefab id + network id, không Entity handle</td></tr>
+                    <tr><td>UI/local sound</td><td>Local game</td><td>Local</td><td>Không replicate trừ gameplay event</td></tr>
+                </table>
+
+                <h2>HOME, sleep và reconnect</h2>
+                <p><code>DualityPlayer</code> đã bridge APT suspend/sleep, restore/wake và exit thành lifecycle portable. NetworkSession subscribe tại runtime layer, không để từng script tự đóng UDS/socket.</p>
+                <ol>
+                    <li><code>OnApplicationPause(true)</code>: dừng gửi input, mark session suspended, flush save/checkpoint nếu cần.</li>
+                    <li>Transport đóng hoặc đánh dấu connection stale; không block chờ network.</li>
+                    <li><code>OnApplicationPause(false)</code>: rescan/reconnect qua state machine; chỉ resume khi host xác nhận.</li>
+                    <li><code>OnApplicationQuit()</code>: leave best-effort rồi cleanup idempotent.</li>
+                </ol>
+
+                <h2>Lobby state machine</h2>
+                <pre><code>Offline
+  ├─ Host() ───────────────► Hosting ─► InGame ─► Leaving ─► Offline
+  └─ Scan() ─► Discovering ─► Joining ─► Lobby ─► InGame
+                         │        │          │
+                         └────────┴──────────┴── error/timeout ─► Offline
+
+Suspended là overlay state: transport không gửi gameplay packet tới khi reconnect.</code></pre>
+
+                <h2>Lộ trình được khuyến nghị</h2>
+                <ol>
+                    <li><strong>Foundation:</strong> ByteWriter/ByteReader bounds-check, codec versioned, LoopbackTransport và packet-loss/reorder test.</li>
+                    <li><strong>UDS lobby:</strong> host, scan, join, leave, peer status; chưa replicate scene.</li>
+                    <li><strong>Message layer:</strong> reliable/unreliable channel, ack/retry, packet budget và Console metrics.</li>
+                    <li><strong>Vertical slice:</strong> demo hai người: input command, host snapshot, disconnect/rejoin.</li>
+                    <li><strong>UDP direct IP:</strong> giữ nguyên session/codec, chỉ thay transport.</li>
+                    <li><strong>Prediction/backend:</strong> sau profiling on-device và reconnect ổn định.</li>
+                </ol>
+
+                <h2>Tham khảo trong workspace</h2>
+                <ul>
+                    <li><code>References/devkitpro-3ds-templates/network/uds/source/uds.c</code> — scan, host, join, send/pull packet, disconnect.</li>
+                    <li><code>References/devkitpro-3ds-templates/network/sockets/source/sockets.c</code> — <code>socInit</code>, buffer aligned, BSD socket non-blocking.</li>
+                    <li><code>E:/App/devkitPro/libctru/include/3ds/services/apt.h</code> — <code>aptHook</code>, suspend/restore/sleep/wakeup/exit.</li>
+                    <li><code>DualityPlayer/Source/Main.cpp</code> — APT bridge hiện tại sang Scene lifecycle.</li>
+                    <li><code>DualityEngine/Include/DualityEngine/Scripting/EngineServices.h</code> — mẫu ABI bridge cần giữ khi public networking API cho GameScripts DLL.</li>
+                </ul>
+                <div class="callout"><span class="callout-title">Quyết định khi bắt đầu code</span>Milestone đầu nên là <strong>UDS local wireless, host-authoritative, một game mode demo</strong>. Khi flow này ổn trên hai máy thật mới thêm UDP online, tránh debug protocol, NAT và gameplay authority cùng lúc.</div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

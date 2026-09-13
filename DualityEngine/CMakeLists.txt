@@ -16,6 +16,7 @@ add_library(DualityEngine STATIC
     Source/Scripting/ScriptRegistry.cpp
     Source/Scripting/ScriptableObjectRegistry.cpp
     Source/Scene/Scene.cpp
+    Source/Scene/SceneValidator.cpp
     Source/Scene/SceneRuntimeSystems.cpp
     Source/Scene/SceneSerializer.cpp
     Source/Scene/EntitySerialization.cpp

@@ -16,6 +16,7 @@ namespace Duality {
     public:
         static void Clear();
         static void Register(const ScriptFactoryEntry& entry);
+        static bool IsRegistered(const std::string& className);
         static bool TryCreate(const std::string& className, Behaviour** outInstance, void (**outDestroy)(Behaviour*));
         static int Count();
 

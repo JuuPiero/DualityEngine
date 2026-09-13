@@ -54,8 +54,10 @@ namespace Duality {
                 bool building = (BuildPipeline::GetStatus() == BuildStatus::Running) ||
                     (ScriptEngine::GetStatus() == ReloadStatus::Running);
                 if (ImGui::MenuItem(building ? "Build for 3DS (building...)" : "Build for 3DS", nullptr, false, !building)) {
-                    SaveScene(ctx);
-                    BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
+                    if (ValidateSceneForRuntime(ctx, "Build")) {
+                        SaveScene(ctx);
+                        BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
+                    }
                 }
                 // Shares the same `building`/s_Status as "Build for 3DS" above (BuildPipeline
                 // deliberately funnels both through one status flag -- see its own header

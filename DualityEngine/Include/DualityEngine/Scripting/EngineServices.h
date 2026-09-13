@@ -22,6 +22,13 @@ namespace Duality {
         bool (*GetPointerDown)();
         void (*GetPointerPosition)(float* outX, float* outY);
 
+        // Gameplay clock, owned by Scene::OnRuntimeUpdate. Kept on this ABI
+        // bridge (rather than header-only statics) so desktop GameScripts.dll
+        // observes the same values as the engine host.
+        float (*GetDeltaTime)();
+        float (*GetElapsedTime)();
+        unsigned long long (*GetFrameCount)();
+
         // `assetGuid` is an AssetRef's guid (see Reflection/Field.h) -- the
         // adapter resolves it to a real file path via AssetDatabase before
         // reaching Duality::AudioEngine, same-binary calls both, exactly

@@ -25,9 +25,8 @@ namespace Duality {
         // class) and as the drag-drop payload value.
         int EntityId(Entity entity) { return static_cast<int>(static_cast<uint32_t>(entity.Handle())); }
 
-        // A root entity's own layer, if it has one -- LayerComponent takes priority
-        // (explicit organizational tag), falling back to CameraComponent (a camera
-        // already maps to TOP/BOTTOM via its Screen field).
+        // Used only by the one-shot migration action below. New scenes use one
+        // Top/Bottom root and all of their children inherit the root's layer.
         bool TryResolveRootLayer(Entity root, Layer& outLayer) {
             if (root.HasComponent<LayerComponent>()) {
                 outLayer = root.GetComponent<LayerComponent>().Value;
@@ -49,22 +48,66 @@ namespace Duality {
             }
         }
 
-        // Dropping directly onto a section header moves the dragged entity into that
-        // section: unparented to root first, then LayerComponent is set/added
-        // (targetLayer non-null) or removed (Default / "Ungrouped").
-        void AcceptSectionDrop(EditorContext& ctx, const Layer* targetLayer) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
-                entt::entity draggedHandle = *static_cast<const entt::entity*>(payload->Data);
-                Entity dragged(draggedHandle, &ctx.SceneRef);
-                ctx.SceneRef.SetParent(dragged, Entity{});
-                if (targetLayer) {
-                    if (dragged.HasComponent<LayerComponent>())
-                        dragged.GetComponent<LayerComponent>().Value = *targetLayer;
-                    else
-                        dragged.AddComponent<LayerComponent>().Value = *targetLayer;
-                } else if (dragged.HasComponent<LayerComponent>()) {
-                    dragged.RemoveComponent<LayerComponent>();
-                }
+        void EnsureScreenRoots(EditorContext& ctx) {
+            const bool hadTop = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Top));
+            const bool hadBottom = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Bottom));
+            ctx.SceneRef.EnsureScreenRoot(Screen::Top);
+            ctx.SceneRef.EnsureScreenRoot(Screen::Bottom);
+            if (!hadTop || !hadBottom)
+                MarkSceneDirty(ctx);
+        }
+
+        // Converts the previous section-based layout into two honest hierarchy
+        // roots. Redundant LayerComponents are removed from the moved roots so
+        // their descendants inherit from Top/Bottom instead.
+        void OrganizeExistingScreenRoots(EditorContext& ctx) {
+            const bool hadTop = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Top));
+            const bool hadBottom = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Bottom));
+            std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
+            Entity top = ctx.SceneRef.EnsureScreenRoot(Screen::Top);
+            Entity bottom = ctx.SceneRef.EnsureScreenRoot(Screen::Bottom);
+            bool changed = false;
+            for (Entity root : roots) {
+                if (root == top || root == bottom)
+                    continue;
+                Layer layer;
+                if (!TryResolveRootLayer(root, layer) || layer == Layer::Default)
+                    continue;
+                Entity target = layer == Layer::TOP ? top : bottom;
+                ctx.SceneRef.SetParent(root, target);
+                if (root.HasComponent<LayerComponent>() && root.GetComponent<LayerComponent>().Value == layer)
+                    root.RemoveComponent<LayerComponent>();
+                changed = true;
+            }
+            if (changed || !hadTop || !hadBottom)
+                MarkSceneDirty(ctx);
+        }
+
+        // A minimal, useful 3DS scene needs a real camera for each physical
+        // screen. This bootstrap deliberately stays 2D/orthographic: it is a
+        // safe starting point for sprites, tilemaps and touch raycasts; a game
+        // that needs 3D can switch either Camera component in the Inspector.
+        void Bootstrap3DSScene(EditorContext& ctx) {
+            const bool hadTopRoot = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Top));
+            const bool hadBottomRoot = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Bottom));
+            Entity topRoot = ctx.SceneRef.EnsureScreenRoot(Screen::Top);
+            Entity bottomRoot = ctx.SceneRef.EnsureScreenRoot(Screen::Bottom);
+            bool changed = !hadTopRoot || !hadBottomRoot;
+
+            auto createCameraIfMissing = [&](Screen screen, Entity parent) {
+                if (ctx.SceneRef.GetPrimaryCamera(screen))
+                    return;
+                Entity camera = ctx.SceneRef.CreateEntity(screen == Screen::Top ? "Top Camera" : "Bottom Camera");
+                camera.AddComponent<CameraComponent>().Screen = screen;
+                camera.AddComponent<PhysicsRaycaster2DComponent>();
+                ctx.SceneRef.SetParent(camera, parent);
+                changed = true;
+            };
+            createCameraIfMissing(Screen::Top, topRoot);
+            createCameraIfMissing(Screen::Bottom, bottomRoot);
+
+            if (changed) {
+                ctx.Selected = topRoot;
                 MarkSceneDirty(ctx);
             }
         }
@@ -96,13 +139,118 @@ namespace Duality {
         }
 
         Entity CreateCanvas(EditorContext& ctx, Screen screen, Entity parent = {}) {
+            // Canvas belongs to a physical screen. With no explicit parent, put
+            // it beneath that screen's organizational root so UI follows the
+            // same one-tree Top/Bottom convention as gameplay entities.
+            if (!parent)
+                parent = ctx.SceneRef.EnsureScreenRoot(screen);
             Entity canvas = ctx.SceneRef.CreateEntity(screen == Screen::Top ? "Top Canvas" : "Bottom Canvas");
             canvas.AddComponent<CanvasComponent>().Screen = screen;
-            if (parent)
-                ctx.SceneRef.SetParent(canvas, parent);
+            ctx.SceneRef.SetParent(canvas, parent);
             ctx.Selected = canvas;
             MarkSceneDirty(ctx);
             return canvas;
+        }
+
+        Entity CreateEmpty(EditorContext& ctx, Entity parent = {}) {
+            Entity entity = ctx.SceneRef.CreateEntity("Entity");
+            if (parent)
+                ctx.SceneRef.SetParent(entity, parent);
+            ctx.Selected = entity;
+            MarkSceneDirty(ctx);
+            return entity;
+        }
+
+        Entity CreateSprite(EditorContext& ctx, Entity parent = {}) {
+            Entity sprite = ctx.SceneRef.CreateEntity("Sprite");
+            sprite.AddComponent<SpriteRendererComponent>();
+            if (parent)
+                ctx.SceneRef.SetParent(sprite, parent);
+            ctx.Selected = sprite;
+            MarkSceneDirty(ctx);
+            return sprite;
+        }
+
+        Entity CreatePrimitive(EditorContext& ctx, const char* name, MeshPrimitive primitive, Entity parent = {}) {
+            Entity mesh = ctx.SceneRef.CreateEntity(name);
+            mesh.AddComponent<MeshRendererComponent>().Primitive = primitive;
+            if (parent)
+                ctx.SceneRef.SetParent(mesh, parent);
+            ctx.Selected = mesh;
+            MarkSceneDirty(ctx);
+            return mesh;
+        }
+
+        Entity FindCanvasAncestor(Entity entity) {
+            while (entity) {
+                if (entity.HasComponent<CanvasComponent>())
+                    return entity;
+                entity = entity.GetComponent<HierarchyComponent>().Parent;
+            }
+            return Entity{};
+        }
+
+        // Creates Unity's familiar Button bundle in one action: RectTransform-equivalent,
+        // Image, Button and Text. If the caller has not selected a Canvas subtree, make the
+        // required Canvas first so no UI element is ever orphaned outside a physical 3DS screen.
+        Entity CreateUIButton(EditorContext& ctx, Screen screen, Entity parent = {}) {
+            Entity canvas = FindCanvasAncestor(parent);
+            if (!canvas)
+                canvas = CreateCanvas(ctx, screen, parent);
+
+            Entity button = ctx.SceneRef.CreateEntity("Button");
+            auto& rect = button.AddComponent<UIRectComponent>();
+            rect.SizeDelta = { 120.0f, 40.0f };
+            button.AddComponent<UIImageComponent>();
+            button.AddComponent<UIButtonComponent>();
+            auto& text = button.AddComponent<UITextComponent>();
+            text.Text = "Button";
+            text.Alignment = TextAlignment::Center;
+            ctx.SceneRef.SetParent(button, canvas);
+            ctx.Selected = button;
+            MarkSceneDirty(ctx);
+            return button;
+        }
+
+        void DrawCreateObjectMenu(EditorContext& ctx, Entity parent = {}) {
+            if (ImGui::MenuItem(parent ? "Create Empty Child" : "Create Empty"))
+                CreateEmpty(ctx, parent);
+
+            if (ImGui::BeginMenu("2D Object")) {
+                if (ImGui::MenuItem("Sprite"))
+                    CreateSprite(ctx, parent);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("3D Object")) {
+                if (ImGui::MenuItem("Cube"))
+                    CreatePrimitive(ctx, "Cube", MeshPrimitive::Cube, parent);
+                if (ImGui::MenuItem("Sphere"))
+                    CreatePrimitive(ctx, "Sphere", MeshPrimitive::Sphere, parent);
+                if (ImGui::MenuItem("Capsule"))
+                    CreatePrimitive(ctx, "Capsule", MeshPrimitive::Capsule, parent);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("UI")) {
+                if (ImGui::MenuItem("Canvas (Top Screen)"))
+                    CreateCanvas(ctx, Screen::Top, parent);
+                if (ImGui::MenuItem("Canvas (Bottom Screen)"))
+                    CreateCanvas(ctx, Screen::Bottom, parent);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Button (Top Screen)"))
+                    CreateUIButton(ctx, Screen::Top, parent);
+                if (ImGui::MenuItem("Button (Bottom Screen)"))
+                    CreateUIButton(ctx, Screen::Bottom, parent);
+                ImGui::EndMenu();
+            }
+            if (!parent && ImGui::BeginMenu("3DS Screen Roots")) {
+                if (ImGui::MenuItem("Bootstrap 3DS Scene (Roots + Cameras)"))
+                    Bootstrap3DSScene(ctx);
+                if (ImGui::MenuItem("Create Top and Bottom Roots"))
+                    EnsureScreenRoots(ctx);
+                if (ImGui::MenuItem("Organize Existing Screen Roots"))
+                    OrganizeExistingScreenRoots(ctx);
+                ImGui::EndMenu();
+            }
         }
 
         // Case-insensitive substring match, same small local-helper shape as the
@@ -142,6 +290,8 @@ namespace Duality {
                 if (ImGui::Selectable(name.c_str(), selected))
                     ctx.Selected = entity;
                 if (ImGui::BeginPopupContextItem()) {
+                    DrawCreateObjectMenu(ctx, entity);
+                    ImGui::Separator();
                     if (ImGui::MenuItem("Remove", "Delete"))
                         pendingRemoval = entity;
                     ImGui::EndPopup();
@@ -213,19 +363,8 @@ namespace Duality {
             }
 
             if (ImGui::BeginPopupContextItem()) {
-                if (ImGui::MenuItem("Create Child Entity")) {
-                    Entity child = ctx.SceneRef.CreateEntity("Entity");
-                    ctx.SceneRef.SetParent(child, entity);
-                    ctx.Selected = child;
-                    MarkSceneDirty(ctx);
-                }
-                if (ImGui::BeginMenu("UI")) {
-                    if (ImGui::MenuItem("Canvas (Top Screen)"))
-                        CreateCanvas(ctx, Screen::Top, entity);
-                    if (ImGui::MenuItem("Canvas (Bottom Screen)"))
-                        CreateCanvas(ctx, Screen::Bottom, entity);
-                    ImGui::EndMenu();
-                }
+                DrawCreateObjectMenu(ctx, entity);
+                ImGui::Separator();
                 if (ImGui::MenuItem("Remove", "Delete"))
                     pendingRemoval = entity;
                 ImGui::Separator();
@@ -273,65 +412,15 @@ namespace Duality {
         if (m_SearchBuffer[0] != '\0') {
             DrawFilteredFlatList(ctx, m_SearchBuffer, m_PendingRemoval);
         } else {
-            // Copy, same reasoning as DrawEntityNode's own Children copy -- a drop
-            // during this pass can reparent a root entity elsewhere mid-iteration.
-            // Split into 3 stacked sections by each ROOT's own resolved screen (see
-            // TryResolveRootScreen) -- an entity nested under a Top/Bottom-tagged root
-            // shows up only in that section, matching what was asked; anything that
-            // hasn't been tagged (or isn't a camera) goes to "Ungrouped" rather than
-            // being silently hidden from the Hierarchy entirely. Root order (and thus
-            // drag-reorder/reparent) is still one flat list underneath (Scene::
-            // m_RootEntities) -- this split is a display filter over it, not a second
-            // data structure, so dragging a root across a section boundary via the
-            // sibling gap (as opposed to dropping it directly onto a node to reparent)
-            // reorders it in that flat list without necessarily landing in the section
-            // the gap visually belonged to; dropping ON a node always works correctly.
+            // One real tree, not three display-only sections. Drop an entity onto
+            // Top or Bottom to make it a child and inherit that screen's layer.
+            // Copy protects this traversal from a drag-drop reparenting mutation.
             std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
-            std::vector<Entity> topRoots, bottomRoots, ungroupedRoots;
-            for (Entity entity : roots) {
-                Layer layer;
-                if (TryResolveRootLayer(entity, layer)) {
-                    if (layer == Layer::TOP)
-                        topRoots.push_back(entity);
-                    else if (layer == Layer::BOTTOM)
-                        bottomRoots.push_back(entity);
-                    else
-                        ungroupedRoots.push_back(entity);
-                } else
-                    ungroupedRoots.push_back(entity);
-            }
-
-            bool topOpen = ImGui::CollapsingHeader("TOP Layer", ImGuiTreeNodeFlags_DefaultOpen);
-            if (ImGui::BeginDragDropTarget()) {
-                Layer top = Layer::TOP;
-                AcceptSectionDrop(ctx, &top);
-                ImGui::EndDragDropTarget();
-            }
-            if (topOpen)
-            for (Entity entity : topRoots)
+            for (Entity entity : roots)
                 DrawEntityNode(entity, ctx, m_PendingRemoval);
 
-            bool bottomOpen = ImGui::CollapsingHeader("BOTTOM Layer", ImGuiTreeNodeFlags_DefaultOpen);
-            if (ImGui::BeginDragDropTarget()) {
-                Layer bottom = Layer::BOTTOM;
-                AcceptSectionDrop(ctx, &bottom);
-                ImGui::EndDragDropTarget();
-            }
-            if (bottomOpen)
-            for (Entity entity : bottomRoots)
-                DrawEntityNode(entity, ctx, m_PendingRemoval);
-
-            bool ungroupedOpen = ImGui::CollapsingHeader("Default Layer", ImGuiTreeNodeFlags_DefaultOpen);
-            if (ImGui::BeginDragDropTarget()) {
-            AcceptSectionDrop(ctx, nullptr);
-            ImGui::EndDragDropTarget();
-            }
-            if (ungroupedOpen)
-            for (Entity entity : ungroupedRoots)
-                DrawEntityNode(entity, ctx, m_PendingRemoval);
-
-        // Drop target filling the remaining panel space below the tree -- same as
-        // dropping directly onto the "Ungrouped" header above. InvisibleButton
+        // Drop target filling the remaining panel space below the tree -- it moves
+        // an entity back to the unlayered scene root. InvisibleButton
         // asserts on a zero-size axis, which GetContentRegionAvail() can return
         // when the tree already fills the panel -- clamp to a 1px minimum.
         ImVec2 dropZoneSize = ImGui::GetContentRegionAvail();
@@ -339,7 +428,7 @@ namespace Duality {
         dropZoneSize.y = std::max(dropZoneSize.y, 1.0f);
         ImGui::InvisibleButton("##RootDropZone", dropZoneSize);
         if (ImGui::BeginDragDropTarget()) {
-            AcceptSectionDrop(ctx, nullptr);
+            AcceptReparentDrop(ctx, Entity{});
             // A Prefab asset dropped here (not an existing HIERARCHY_ENTITY drag)
             // instantiates a new copy at the scene root -- PrefabSerializer::Instantiate
             // itself just logs an error and returns an empty Entity if the dropped
@@ -361,17 +450,7 @@ namespace Duality {
         // lets each node's own BeginPopupContextItem (Create Child Entity) take
         // precedence when right-clicking directly on a row.
         if (ImGui::BeginPopupContextWindow("HierarchyContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-            if (ImGui::MenuItem("Create Entity")) {
-                ctx.Selected = ctx.SceneRef.CreateEntity("Entity");
-                MarkSceneDirty(ctx);
-            }
-            if (ImGui::BeginMenu("UI")) {
-                if (ImGui::MenuItem("Canvas (Top Screen)"))
-                    CreateCanvas(ctx, Screen::Top);
-                if (ImGui::MenuItem("Canvas (Bottom Screen)"))
-                    CreateCanvas(ctx, Screen::Bottom);
-                ImGui::EndMenu();
-            }
+            DrawCreateObjectMenu(ctx);
             ImGui::EndPopup();
         }
         }

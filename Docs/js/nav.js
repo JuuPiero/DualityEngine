@@ -18,6 +18,9 @@
             { id: "architecture", label: "ECS & Scene", href: base + "architecture.html", icon: "🧩" },
             { id: "api-stack", label: "API Stack (thấp → cao)", href: base + "api-stack.html", icon: "📚" }
         ]},
+        { group: "Future Systems", items: [
+            { id: "multiplayer-design", label: "Multiplayer & 3DS Network", href: base + "multiplayer-design.html", icon: "Network" }
+        ]},
         { group: "API Reference", items: [
             { id: "scripting-api", label: "Scripting (Behaviour)", href: base + "scripting-api.html", icon: "📜" },
             { id: "physics", label: "Physics 2D/3D", href: base + "physics.html", icon: "🪐" },

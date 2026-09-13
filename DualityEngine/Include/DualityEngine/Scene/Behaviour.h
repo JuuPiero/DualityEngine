@@ -44,6 +44,15 @@ namespace Duality {
         virtual void OnEnable() {}
         virtual void OnDisable() {}
 
+        // Platform-neutral application lifecycle. On Nintendo 3DS these are
+        // driven by APT (HOME/suspend/sleep/wake/exit); desktop hosts can map
+        // their window focus lifecycle to the same callbacks later. Keep save
+        // checkpoints and network reconnect logic here, never in a raw 3DS
+        // service callback.
+        virtual void OnApplicationFocus(bool focused) {}
+        virtual void OnApplicationPause(bool paused) {}
+        virtual void OnApplicationQuit() {}
+
         // Fired by Scene::OnRuntimeUpdate right after each physics world steps, once per
         // touching-pair transition this frame -- BOTH entities in a pair get the callback,
         // each passed the OTHER as `other` (Unity's own convention). A pair counts as a
@@ -60,7 +69,15 @@ namespace Duality {
         template<typename T>
         T& GetComponent() { return m_Entity.GetComponent<T>(); }
 
+        // Prefer this for optional components and EntityRef targets. It makes
+        // ordinary authoring mistakes recoverable instead of an EnTT assertion.
+        template<typename T>
+        T* TryGetComponent() { return m_Entity.TryGetComponent<T>(); }
+        template<typename T>
+        const T* TryGetComponent() const { return m_Entity.TryGetComponent<T>(); }
+
         Entity GetEntity() const { return m_Entity; }
+        bool IsEntityValid() const { return m_Entity.IsValid(); }
 
         // Transform is the one universal component wrapper: every Entity owns a Transform.
         // Other component wrappers are deliberately explicit, e.g.
@@ -94,11 +111,17 @@ namespace Duality {
         // ActiveComponent rather than EngineServices). Note this sets THIS entity's own
         // flag only -- see Scene::IsEffectivelyActive for the cascading parent-aware
         // check OnUpdate/rendering/physics actually use.
-        void SetActive(bool active) { GetComponent<ActiveComponent>().Active = active; }
+        void SetActive(bool active) {
+            if (auto* component = TryGetComponent<ActiveComponent>())
+                component->Active = active;
+        }
         // Not const: matches GetComponent<T>() above, which EnTT's non-const
         // registry access requires -- entt::registry::get<T> has no const overload
         // reachable through Entity's own (also non-const) GetComponent<T>().
-        bool IsActive() { return GetComponent<ActiveComponent>().Active; }
+        bool IsActive() {
+            const auto* component = TryGetComponent<ActiveComponent>();
+            return component && component->Active;
+        }
 
         // Unity's MonoBehaviour.enabled -- toggles THIS script slot only (ScriptInstance::
         // Enabled), not the whole entity. Wired by Scene at Play start via m_Enabled;

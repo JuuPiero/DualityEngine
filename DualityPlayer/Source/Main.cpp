@@ -43,6 +43,34 @@ extern "C" void GetScriptableObjectFactories(const Duality::ScriptableObjectFact
 using namespace Duality;
 
 namespace {
+    // APT invokes this from the platform side. It never calls scripts or
+    // renderer/audio code directly: the main loop drains these tiny requests
+    // and forwards portable lifecycle callbacks through Scene instead.
+    struct N3DSLifecycleRequests {
+        bool SuspendRequested = false;
+        bool ResumeRequested = false;
+        bool ExitRequested = false;
+    };
+
+    void N3DSAptHook(APT_HookType hook, void* parameter) {
+        auto* requests = static_cast<N3DSLifecycleRequests*>(parameter);
+        switch (hook) {
+            case APTHOOK_ONSUSPEND:
+            case APTHOOK_ONSLEEP:
+                requests->SuspendRequested = true;
+                break;
+            case APTHOOK_ONRESTORE:
+            case APTHOOK_ONWAKEUP:
+                requests->ResumeRequested = true;
+                break;
+            case APTHOOK_ONEXIT:
+                requests->ExitRequested = true;
+                break;
+            default:
+                break;
+        }
+    }
+
     int LoadN3DSAntiAliasingMode() {
         std::ifstream file("romfs:/BuildSettings.json");
         if (!file)
@@ -106,9 +134,41 @@ int main(int argc, char* argv[]) {
     SceneSerializer(scene).Deserialize("romfs:/Scene.scene");
     scene.OnRuntimeStart();
 
+    N3DSLifecycleRequests lifecycleRequests;
+    aptHookCookie lifecycleHook{};
+    aptHook(&lifecycleHook, N3DSAptHook, &lifecycleRequests);
+    bool applicationPaused = false;
+    bool applicationFocused = true;
+
     u64 lastTick = svcGetSystemTick();
 
-    while (aptMainLoop()) {
+    while (aptMainLoop() && !lifecycleRequests.ExitRequested) {
+        // APT can issue suspend/sleep and restore/wake while graphics or
+        // network services are unavailable. Drain only on this safe main-loop
+        // boundary; callback code can then save state or request reconnects.
+        if (lifecycleRequests.SuspendRequested) {
+            lifecycleRequests.SuspendRequested = false;
+            if (applicationFocused) {
+                scene.OnApplicationFocus(false);
+                applicationFocused = false;
+            }
+            if (!applicationPaused) {
+                scene.OnApplicationPause(true);
+                applicationPaused = true;
+            }
+        }
+        if (lifecycleRequests.ResumeRequested) {
+            lifecycleRequests.ResumeRequested = false;
+            if (applicationPaused) {
+                scene.OnApplicationPause(false);
+                applicationPaused = false;
+            }
+            if (!applicationFocused) {
+                scene.OnApplicationFocus(true);
+                applicationFocused = true;
+            }
+        }
+
         hidScanInput();
         u32 heldKeys = hidKeysHeld();
         if (hidKeysDown() & KEY_START)
@@ -186,6 +246,8 @@ int main(int argc, char* argv[]) {
         renderer.EndFrame();
     }
 
+    aptUnhook(&lifecycleHook);
+    scene.OnApplicationQuit();
     scene.OnRuntimeStop();
     AudioEngine::Shutdown();
     renderer.Shutdown();

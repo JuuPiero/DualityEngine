@@ -14,6 +14,11 @@ namespace Duality {
     // Writes ctx.ScenePath and clears the dirty flag. No-op if path is empty.
     void SaveScene(EditorContext& ctx);
 
+    // Runs authored-scene checks before Play or Build. Diagnostics are written
+    // to the Console panel; returns false when an error makes the operation
+    // unsafe to start.
+    bool ValidateSceneForRuntime(EditorContext& ctx, const char* operation);
+
     // Stops Play if running, clears ctx.SceneRef (Scene::Clear()), and loads `path` into it
     // as the new active scene -- lands in Edit mode regardless of whether Play was running.
     // Shared by MenuBarPanel's "Load Scene"/"Open Scene...", ContentBrowserPanel's

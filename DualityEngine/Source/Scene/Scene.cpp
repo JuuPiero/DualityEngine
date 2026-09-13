@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <set>
 #include <utility>
@@ -40,6 +41,12 @@ namespace Duality {
     // it is a 2D renderer scale only (SceneRenderer.cpp). +Y remains down for 2D.
     static constexpr int32 VelocityIterations = 6;
     static constexpr int32 PositionIterations = 2;
+    // One active runtime Scene exists in each player/editor session. These
+    // values are read by the Time scripting API through EngineServices, so
+    // GameScripts.dll never relies on duplicate header-only mutable state.
+    static float s_RuntimeDeltaTime = 0.0f;
+    static float s_RuntimeElapsedTime = 0.0f;
+    static unsigned long long s_RuntimeFrameCount = 0;
 
     static void ApplyPhysicsMaterial(const AssetRef& ref, float& friction, float& restitution, float& density) {
         if (ref.Guid.empty())
@@ -303,6 +310,9 @@ namespace Duality {
         *outX = position.x;
         *outY = position.y;
     }
+    static float EngineServices_GetDeltaTime() { return s_RuntimeDeltaTime; }
+    static float EngineServices_GetElapsedTime() { return s_RuntimeElapsedTime; }
+    static unsigned long long EngineServices_GetFrameCount() { return s_RuntimeFrameCount; }
     static void EngineServices_PlaySound(const char* assetGuid, bool loop) {
         std::string path = AssetDatabase::ResolvePath(assetGuid);
         if (!path.empty())
@@ -533,6 +543,9 @@ namespace Duality {
         &EngineServices_GetAxis,
         &EngineServices_GetPointerDown,
         &EngineServices_GetPointerPosition,
+        &EngineServices_GetDeltaTime,
+        &EngineServices_GetElapsedTime,
+        &EngineServices_GetFrameCount,
         &EngineServices_PlaySound,
         &EngineServices_StopAllSounds,
         &EngineServices_FindEntityInScreen,
@@ -558,6 +571,51 @@ namespace Duality {
         &EngineServices_AudioSourceSetVolume,
         &EngineServices_AudioSourceIsPlaying,
     };
+
+    bool Entity::IsValid() const {
+        return m_Scene && m_Handle != entt::null && m_Scene->Registry().valid(m_Handle);
+    }
+
+    namespace {
+        // ScriptContext uses thread-local-like static state. Scope it so a desktop
+        // exception cannot leave the next callback bound to the wrong entity.
+        class ScriptContextScope {
+        public:
+            ScriptContextScope(Scene* scene, entt::entity entity) {
+                ScriptContext::Bind(&s_EngineServices, scene, static_cast<unsigned int>(entity));
+            }
+            ~ScriptContextScope() { ScriptContext::Clear(); }
+        };
+
+        template<typename TCallback>
+        bool InvokeScriptCallback(Scene* scene, entt::entity entity, ScriptInstance& script,
+                                  const char* callbackName, TCallback&& callback) {
+            ScriptContextScope context(scene, entity);
+#if defined(DE_PLATFORM_DESKTOP) && defined(__cpp_exceptions)
+            try {
+                callback();
+                return true;
+            } catch (const std::exception& exception) {
+                Log::Error("Script '" + script.ClassName + "' on entity " +
+                    std::to_string(static_cast<uint32_t>(entity)) + " threw in " + callbackName +
+                    ": " + exception.what() + ". Script disabled for this Play session.");
+            } catch (...) {
+                Log::Error("Script '" + script.ClassName + "' on entity " +
+                    std::to_string(static_cast<uint32_t>(entity)) + " threw an unknown exception in " +
+                    callbackName + ". Script disabled for this Play session.");
+            }
+            script.Enabled = false;
+            script.WasEnabledLastFrame = false;
+            return false;
+#else
+            // devkitARM builds commonly disable C++ exceptions to keep code and
+            // unwind tables small. Validation and safe component APIs remain
+            // active there; native memory faults cannot be recovered from.
+            callback();
+            return true;
+#endif
+        }
+    }
 
     Entity Scene::CreateEntity(const std::string& name) {
         Entity entity(m_Registry.create(), this);
@@ -646,18 +704,9 @@ namespace Duality {
 
     Entity Scene::FindEntityInScreen(Screen screen, const std::string& name) {
         Layer targetLayer = ScreenToLayer(screen);
-        bool anyGroupForScreen = false;
-        for (auto handle : m_Registry.view<LayerComponent>()) {
-            auto& layerComp = m_Registry.get<LayerComponent>(handle);
-            if (layerComp.Value != targetLayer)
-                continue;
-            anyGroupForScreen = true;
-            Entity found = FindByNameInSubtree(Entity(handle, this), name);
-            if (found)
-                return found;
-        }
-        if (anyGroupForScreen)
-            return Entity{}; // layer roots exist for this screen, but `name` wasn't in any of them
+        Entity root = GetScreenRoot(screen);
+        if (root)
+            return FindByNameInSubtree(root, name);
 
         // No LayerComponent adopted for this screen yet -- fall back to a
         // scene-wide by-name search so the API isn't a no-op out of the box.
@@ -675,8 +724,15 @@ namespace Duality {
     Layer Scene::ResolveEntityLayer(Entity entity) {
         Entity current = entity;
         while (current) {
-            if (current.HasComponent<LayerComponent>())
-                return current.GetComponent<LayerComponent>().Value;
+            // Default is deliberately not an override: it means "inherit from
+            // my parent when one exists". Thus a single LayerComponent on the
+            // Top/Bottom root governs its full subtree; add TOP/BOTTOM on a
+            // descendant only when it intentionally needs to cross screens.
+            if (current.HasComponent<LayerComponent>()) {
+                Layer layer = current.GetComponent<LayerComponent>().Value;
+                if (layer != Layer::Default)
+                    return layer;
+            }
             if (current.HasComponent<CameraComponent>())
                 return ScreenToLayer(current.GetComponent<CameraComponent>().Screen);
             current = current.GetComponent<HierarchyComponent>().Parent;
@@ -692,6 +748,25 @@ namespace Duality {
                 return Entity(handle, this);
         }
         return Entity{};
+    }
+
+    Entity Scene::GetScreenRoot(Screen screen) {
+        const Layer targetLayer = ScreenToLayer(screen);
+        for (Entity root : m_RootEntities) {
+            if (root.HasComponent<LayerComponent>() &&
+                root.GetComponent<LayerComponent>().Value == targetLayer)
+                return root;
+        }
+        return Entity{};
+    }
+
+    Entity Scene::EnsureScreenRoot(Screen screen) {
+        if (Entity root = GetScreenRoot(screen))
+            return root;
+
+        Entity root = CreateEntity(screen == Screen::Top ? "Top" : "Bottom");
+        root.AddComponent<LayerComponent>().Value = ScreenToLayer(screen);
+        return root;
     }
 
     namespace {
@@ -887,6 +962,9 @@ namespace Duality {
 
     void Scene::OnRuntimeStart() {
         m_PhysicsAccumulator = 0.0f;
+        s_RuntimeDeltaTime = 0.0f;
+        s_RuntimeElapsedTime = 0.0f;
+        s_RuntimeFrameCount = 0;
 
         Physics2DWorld* world2D = new Physics2DWorld();
         world2D->World = new b2World(b2Vec2(0.0f, PhysicsUnits::PhysicsGravity()));
@@ -1154,9 +1232,9 @@ namespace Duality {
                         }
                     }
 
-                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(handle));
-                    script.Instance->OnCreate();
-                    ScriptContext::Clear();
+                    InvokeScriptCallback(this, handle, script, "OnCreate", [&]() {
+                        script.Instance->OnCreate();
+                    });
                 } else {
                     Log::Error("Behaviour: unknown script class '" + script.ClassName + "'");
                 }
@@ -1171,6 +1249,11 @@ namespace Duality {
     }
 
     void Scene::OnRuntimeUpdate(float deltaTime) {
+        // Updated before any physics/collision/script callback so Time reports
+        // this exact frame consistently from every callback type.
+        s_RuntimeDeltaTime = std::max(0.0f, deltaTime);
+        s_RuntimeElapsedTime += s_RuntimeDeltaTime;
+        ++s_RuntimeFrameCount;
         // Filled by Box2DContactListener (repointed here for the duration of this one
         // Step call) and/or the Bullet manifold-diff below, then dispatched to
         // Behaviour::OnCollisionEnter/Exit/OnTriggerEnter/Exit right after both physics
@@ -1357,13 +1440,15 @@ namespace Duality {
                 for (auto& script : bc.Scripts) {
                     if (!script.Instance || !script.Enabled)
                         continue;
-                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(self));
-                    if (isTrigger) {
-                        if (isBegin) script.Instance->OnTriggerEnter(other); else script.Instance->OnTriggerExit(other);
-                    } else {
-                        if (isBegin) script.Instance->OnCollisionEnter(other); else script.Instance->OnCollisionExit(other);
-                    }
-                    ScriptContext::Clear();
+                    InvokeScriptCallback(this, self, script, isTrigger
+                        ? (isBegin ? "OnTriggerEnter" : "OnTriggerExit")
+                        : (isBegin ? "OnCollisionEnter" : "OnCollisionExit"), [&]() {
+                            if (isTrigger) {
+                                if (isBegin) script.Instance->OnTriggerEnter(other); else script.Instance->OnTriggerExit(other);
+                            } else {
+                                if (isBegin) script.Instance->OnCollisionEnter(other); else script.Instance->OnCollisionExit(other);
+                            }
+                        });
                 }
             };
             fire(event.A, Entity(event.B, this), event.IsTrigger, event.IsBegin);
@@ -1410,19 +1495,65 @@ namespace Duality {
                     continue;
                 bool enabled = entityActive && script.Enabled;
                 if (enabled != script.WasEnabledLastFrame) {
-                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(handle));
-                    if (enabled)
-                        script.Instance->OnEnable();
-                    else
-                        script.Instance->OnDisable();
-                    ScriptContext::Clear();
-                    script.WasEnabledLastFrame = enabled;
+                    InvokeScriptCallback(this, handle, script, enabled ? "OnEnable" : "OnDisable", [&]() {
+                        if (enabled)
+                            script.Instance->OnEnable();
+                        else
+                            script.Instance->OnDisable();
+                    });
+                    script.WasEnabledLastFrame = entityActive && script.Enabled;
                 }
-                if (enabled) {
-                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(handle));
-                    script.Instance->OnUpdate(deltaTime);
-                    ScriptContext::Clear();
+                if (entityActive && script.Enabled) {
+                    InvokeScriptCallback(this, handle, script, "OnUpdate", [&]() {
+                        script.Instance->OnUpdate(deltaTime);
+                    });
                 }
+            }
+        }
+    }
+
+    void Scene::OnApplicationFocus(bool focused) {
+        auto behaviourView = m_Registry.view<BehaviourComponent>();
+        for (auto handle : behaviourView) {
+            if (!IsEffectivelyActive(Entity(handle, this)))
+                continue;
+            auto& behaviours = behaviourView.get<BehaviourComponent>(handle);
+            for (auto& script : behaviours.Scripts) {
+                if (!script.Instance || !script.Enabled)
+                    continue;
+                InvokeScriptCallback(this, handle, script, focused ? "OnApplicationFocus(true)" : "OnApplicationFocus(false)", [&]() {
+                    script.Instance->OnApplicationFocus(focused);
+                });
+            }
+        }
+    }
+
+    void Scene::OnApplicationPause(bool paused) {
+        auto behaviourView = m_Registry.view<BehaviourComponent>();
+        for (auto handle : behaviourView) {
+            if (!IsEffectivelyActive(Entity(handle, this)))
+                continue;
+            auto& behaviours = behaviourView.get<BehaviourComponent>(handle);
+            for (auto& script : behaviours.Scripts) {
+                if (!script.Instance || !script.Enabled)
+                    continue;
+                InvokeScriptCallback(this, handle, script, paused ? "OnApplicationPause(true)" : "OnApplicationPause(false)", [&]() {
+                    script.Instance->OnApplicationPause(paused);
+                });
+            }
+        }
+    }
+
+    void Scene::OnApplicationQuit() {
+        auto behaviourView = m_Registry.view<BehaviourComponent>();
+        for (auto handle : behaviourView) {
+            auto& behaviours = behaviourView.get<BehaviourComponent>(handle);
+            for (auto& script : behaviours.Scripts) {
+                if (!script.Instance)
+                    continue;
+                InvokeScriptCallback(this, handle, script, "OnApplicationQuit", [&]() {
+                    script.Instance->OnApplicationQuit();
+                });
             }
         }
     }
@@ -1444,12 +1575,13 @@ namespace Duality {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
             for (auto& script : bc.Scripts) {
                 if (script.Instance) {
-                    ScriptContext::Bind(&s_EngineServices, this, static_cast<unsigned int>(handle));
                     if (script.WasEnabledLastFrame)
-                        script.Instance->OnDisable();
-                    script.Instance->OnDestroy();
-                    ScriptContext::Clear();
-                    script.Destroy(script.Instance);
+                        InvokeScriptCallback(this, handle, script, "OnDisable", [&]() { script.Instance->OnDisable(); });
+                    InvokeScriptCallback(this, handle, script, "OnDestroy", [&]() { script.Instance->OnDestroy(); });
+                    if (script.Destroy)
+                        script.Destroy(script.Instance);
+                    else
+                        Log::Error("Script '" + script.ClassName + "' has no destroy function.");
                     script.Instance = nullptr;
                 }
             }
@@ -1545,9 +1677,9 @@ namespace Duality {
                 auto* handler = dynamic_cast<THandler*>(script.Instance);
                 if (!handler)
                     continue;
-                ScriptContext::Bind(&s_EngineServices, &scene, static_cast<unsigned int>(target));
-                (handler->*method)(eventData);
-                ScriptContext::Clear();
+                InvokeScriptCallback(&scene, target, script, "pointer event", [&]() {
+                    (handler->*method)(eventData);
+                });
             }
         }
 

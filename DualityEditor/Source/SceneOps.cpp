@@ -1,7 +1,9 @@
 #include "DualityEditor/SceneOps.h"
 
 #include "DualityEditor/EditorContext.h"
+#include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
+#include "DualityEngine/Scene/SceneValidator.h"
 
 namespace Duality {
 
@@ -15,6 +17,19 @@ namespace Duality {
             return;
         SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath);
         ctx.SceneDirty = false;
+    }
+
+    bool ValidateSceneForRuntime(EditorContext& ctx, const char* operation) {
+        const SceneValidationResult validation = SceneValidator::Validate(ctx.SceneRef);
+        for (const SceneValidationIssue& issue : validation.Issues) {
+            const char* severity = issue.Severity == SceneValidationSeverity::Error ? "error" : "warning";
+            Log::Error(std::string("Scene validation ") + severity + " [" + issue.EntityName + "]: " + issue.Message);
+        }
+        if (validation.HasErrors()) {
+            Log::Error(std::string(operation) + " cancelled: fix Scene validation errors first.");
+            return false;
+        }
+        return true;
     }
 
     void OpenScene(EditorContext& ctx, const std::string& path) {

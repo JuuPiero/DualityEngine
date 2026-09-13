@@ -7,6 +7,7 @@
 #include <imgui.h>
 
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Input/InputManager.h"
 #include "DualityEngine/Renderer/Screen.h"
@@ -198,9 +199,11 @@ namespace Duality {
 
         if (!ctx.IsPlaying) {
             if (ImGui::Button("Play")) {
-                ctx.PlaySnapshot = SceneSerializer(ctx.SceneRef).SerializeToJson().dump();
-                ctx.IsPlaying = true;
-                ctx.SceneRef.OnRuntimeStart();
+                if (ValidateSceneForRuntime(ctx, "Play")) {
+                    ctx.PlaySnapshot = SceneSerializer(ctx.SceneRef).SerializeToJson().dump();
+                    ctx.IsPlaying = true;
+                    ctx.SceneRef.OnRuntimeStart();
+                }
             }
         } else {
             if (ImGui::Button("Stop"))
