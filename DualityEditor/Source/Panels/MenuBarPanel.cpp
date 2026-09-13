@@ -85,6 +85,11 @@ namespace Duality {
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("Window")) {
+                ImGui::MenuItem("Package Manager...", nullptr, &ctx.ShowPackageManager);
+                ImGui::EndMenu();
+            }
+
             // Which scene "Save Scene"/"Load Scene" currently target -- easy to lose track of
             // once "Open Scene..."/Content Browser double-click/the Scene asset inspector's
             // "Open Scene" button can all change it; a plain menu bar Text widget (ImGui allows

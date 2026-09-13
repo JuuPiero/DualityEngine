@@ -17,6 +17,7 @@
 #include "DualityEngine/Asset/MaterialLoader.h"
 #include "DualityEngine/Asset/ScriptableObjectLoader.h"
 #include "DualityEngine/Core/Log.h"
+#include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 #include "DualityEngine/Scripting/ScriptableObjectRegistry.h"
@@ -31,6 +32,20 @@ namespace Duality {
         auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
             [](char a, char b) { return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)); });
         return it != haystack.end();
+    }
+
+    static bool IsPathInside(const std::filesystem::path& path, const std::filesystem::path& root) {
+        if (root.empty())
+            return false;
+        std::error_code error;
+        const std::filesystem::path canonicalPath = std::filesystem::weakly_canonical(path, error);
+        if (error)
+            return false;
+        const std::filesystem::path canonicalRoot = std::filesystem::weakly_canonical(root, error);
+        if (error)
+            return false;
+        const std::filesystem::path relative = canonicalPath.lexically_relative(canonicalRoot);
+        return relative.empty() || (*relative.begin() != "..");
     }
 
     // Writes a brand-new default `className` instance to "<directory>/<className>[ (N)].asset"
@@ -171,14 +186,56 @@ namespace Duality {
 
     ContentBrowserPanel::ContentBrowserPanel(const std::filesystem::path& rootDirectory)
         : m_RootDirectory(rootDirectory), m_CurrentDirectory(rootDirectory) {
+        if (auto project = Project::GetActive())
+            m_PackagesDirectory = project->GetPackagesDirectory();
     }
 
     void ContentBrowserPanel::SetRootDirectory(const std::filesystem::path& rootDirectory) {
         m_RootDirectory = rootDirectory;
         m_CurrentDirectory = rootDirectory;
+        if (auto project = Project::GetActive())
+            m_PackagesDirectory = project->GetPackagesDirectory();
+    }
+
+    bool ContentBrowserPanel::IsPackagesView(const std::filesystem::path& path) const {
+        return IsPathInside(path, m_PackagesDirectory);
+    }
+
+    std::filesystem::path ContentBrowserPanel::CurrentContentRoot() const {
+        return IsPackagesView(m_CurrentDirectory) ? m_PackagesDirectory : m_RootDirectory;
+    }
+
+    void ContentBrowserPanel::DrawDirectoryTree(const std::filesystem::path& directory, const char* label, int depth) {
+        if (depth > 24 || !std::filesystem::is_directory(directory))
+            return;
+
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (m_CurrentDirectory == directory)
+            flags |= ImGuiTreeNodeFlags_Selected;
+        if (depth == 0)
+            flags |= ImGuiTreeNodeFlags_DefaultOpen;
+
+        const bool open = ImGui::TreeNodeEx(directory.string().c_str(), flags, "%s", label);
+        if (ImGui::IsItemClicked())
+            m_CurrentDirectory = directory;
+        if (!open)
+            return;
+
+        std::vector<std::filesystem::path> children;
+        std::error_code error;
+        for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
+            if (!error && entry.is_directory(error))
+                children.push_back(entry.path());
+        }
+        std::sort(children.begin(), children.end());
+        for (const std::filesystem::path& child : children)
+            DrawDirectoryTree(child, child.filename().string().c_str(), depth + 1);
+        ImGui::TreePop();
     }
 
     void ContentBrowserPanel::BeginRename(const std::filesystem::path& path) {
+        if (IsPackagesView(path))
+            return;
         m_RenamingPath = path.string();
         std::string currentName = path.filename().string();
         std::snprintf(m_RenameBuffer, sizeof(m_RenameBuffer), "%s", currentName.c_str());
@@ -229,6 +286,8 @@ namespace Duality {
     }
 
     void ContentBrowserPanel::CreateFolder(const std::filesystem::path& parent) {
+        if (IsPackagesView(parent))
+            return;
         std::filesystem::path path = parent / "New Folder";
         for (int suffix = 1; std::filesystem::exists(path); suffix++)
             path = parent / ("New Folder (" + std::to_string(suffix) + ")");
@@ -243,11 +302,15 @@ namespace Duality {
     }
 
     void ContentBrowserPanel::RequestDelete(const std::filesystem::path& path, bool isDirectory) {
+        if (IsPackagesView(path))
+            return;
         m_PendingDeletePath = path.string();
         m_PendingDeleteIsDirectory = isDirectory;
     }
 
     void ContentBrowserPanel::MoveAssetInto(const std::string& guid, const std::filesystem::path& destDir) {
+        if (IsPackagesView(destDir))
+            return;
         std::string sourcePathStr = AssetDatabase::ResolvePath(guid);
         if (sourcePathStr.empty())
             return;
@@ -279,6 +342,10 @@ namespace Duality {
     void ContentBrowserPanel::ImportFile(const std::filesystem::path& sourceFile) {
         if (m_CurrentDirectory.empty())
             return;
+        if (IsPackagesView(m_CurrentDirectory)) {
+            Log::Warn("ContentBrowserPanel: packages are read-only here; use Package Manager to install or remove them");
+            return;
+        }
 
         std::filesystem::path destination = m_CurrentDirectory / sourceFile.filename();
         std::error_code error;
@@ -292,19 +359,48 @@ namespace Duality {
     void ContentBrowserPanel::OnImGuiRender(EditorContext& ctx) {
         ImGui::Begin("Content Browser");
 
-        if (m_CurrentDirectory != m_RootDirectory) {
+        // Unity-style Project tree: Assets and Packages are separate roots. Packages are shown
+        // here for discovery, but Package Manager owns install/enable/remove so browsing them
+        // cannot accidentally create .meta files beside third-party source or manifests.
+        ImGui::BeginChild("##ContentBrowserTree", ImVec2(190.0f, 0.0f), true);
+        ImGui::TextDisabled("PROJECT");
+        ImGui::Separator();
+        DrawDirectoryTree(m_RootDirectory, "Assets");
+        if (std::filesystem::is_directory(m_PackagesDirectory))
+            DrawDirectoryTree(m_PackagesDirectory, "Packages");
+        else
+            ImGui::TextDisabled("Packages (none)");
+        ImGui::EndChild();
+        ImGui::SameLine();
+        ImGui::BeginChild("##ContentBrowserGrid", ImVec2(0.0f, 0.0f), false);
+
+        if (!std::filesystem::is_directory(m_CurrentDirectory))
+            m_CurrentDirectory = m_RootDirectory;
+        const bool readOnlyPackages = IsPackagesView(m_CurrentDirectory);
+        const std::filesystem::path contentRoot = CurrentContentRoot();
+        if (m_CurrentDirectory != contentRoot) {
             if (ImGui::Button("Up"))
                 m_CurrentDirectory = m_CurrentDirectory.parent_path();
             ImGui::SameLine();
         }
-        ImGui::TextDisabled("%s", m_CurrentDirectory.string().c_str());
+        std::filesystem::path relativePath = m_CurrentDirectory.lexically_relative(contentRoot);
+        const char* rootLabel = readOnlyPackages ? "Packages" : "Assets";
+        if (relativePath.empty() || relativePath == ".")
+            ImGui::TextDisabled("%s", rootLabel);
+        else
+            ImGui::TextDisabled("%s / %s", rootLabel, relativePath.generic_string().c_str());
         ImGui::SameLine();
         ImGui::SetNextItemWidth(200.0f);
         ImGui::InputTextWithHint("##ContentBrowserSearch", "Search...", m_SearchBuffer, sizeof(m_SearchBuffer));
+        if (readOnlyPackages) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("Package files are read-only here");
+        }
         ImGui::Separator();
 
         if (!std::filesystem::exists(m_CurrentDirectory)) {
-            ImGui::TextDisabled("(Assets folder not found yet)");
+            ImGui::TextDisabled("(Folder not found yet)");
+            ImGui::EndChild();
             ImGui::End();
             return;
         }
@@ -331,7 +427,7 @@ namespace Duality {
                 continue;
 
             std::string guid;
-            if (!isDirectory) {
+            if (!isDirectory && !readOnlyPackages) {
                 guid = AssetMeta::EnsureMetaFile(path);
                 AssetDatabase::Register(guid, path.string());
             }
@@ -356,7 +452,7 @@ namespace Duality {
             bool pressed = ImGui::InvisibleButton("##thumb", ImVec2(thumbnailSize, thumbnailSize));
             bool doubleClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
 
-            if (!isDirectory && !guid.empty() && ImGui::BeginDragDropSource()) {
+            if (!readOnlyPackages && !isDirectory && !guid.empty() && ImGui::BeginDragDropSource()) {
                 ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
                 ImGui::Text("%s", name.c_str());
                 ImGui::EndDragDropSource();
@@ -398,7 +494,7 @@ namespace Duality {
             // attached to the whole group (icon+label) rather than just the thumbnail so the
             // entire cell is a valid drop target, matching how the selection highlight below
             // also reads the group's own combined bounds.
-            if (isDirectory && ImGui::BeginDragDropTarget()) {
+            if (!readOnlyPackages && isDirectory && ImGui::BeginDragDropTarget()) {
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
                     std::string draggedGuid(static_cast<const char*>(payload->Data));
                     MoveAssetInto(draggedGuid, path);
@@ -425,7 +521,7 @@ namespace Duality {
 
             // Per-item context menu -- takes precedence over the background one below thanks to
             // that popup's own ImGuiPopupFlags_NoOpenOverItems.
-            if (!renamingThis && ImGui::BeginPopupContextItem("ItemContextMenu")) {
+            if (!readOnlyPackages && !renamingThis && ImGui::BeginPopupContextItem("ItemContextMenu")) {
                 if (ImGui::MenuItem("Rename"))
                     BeginRename(path);
                 if (ImGui::MenuItem("Delete"))
@@ -443,7 +539,7 @@ namespace Duality {
         // precedence over a row) for Unity's "Create > ScriptableObject > <Type>" -- lists
         // whatever GameScripts currently has REGISTER_SCRIPTABLE_OBJECT'd; empty until GameScripts
         // has been (re)loaded at least once.
-        if (ImGui::BeginPopupContextWindow("ContentBrowserContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        if (!readOnlyPackages && ImGui::BeginPopupContextWindow("ContentBrowserContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
             if (ImGui::BeginMenu("Create")) {
                 if (ImGui::MenuItem("Folder"))
                     CreateFolder(m_CurrentDirectory);
@@ -471,6 +567,9 @@ namespace Duality {
 
         // Delete confirmation -- there's no Recycle Bin/undo here, so unlike Unity's own
         // immediate-delete Project window context menu, this asks first.
+        if (!m_PendingDeletePath.empty() && IsPackagesView(m_PendingDeletePath)) {
+            m_PendingDeletePath.clear(); // defensive: package removal belongs to Package Manager.
+        }
         if (!m_PendingDeletePath.empty()) {
             ImGui::OpenPopup("Delete Asset?");
             if (ImGui::BeginPopupModal("Delete Asset?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -506,6 +605,7 @@ namespace Duality {
             }
         }
 
+        ImGui::EndChild();
         ImGui::End();
     }
 

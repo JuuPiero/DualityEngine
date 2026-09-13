@@ -133,6 +133,7 @@ namespace Duality {
         // and can toggle back off itself via its own ImGui::Begin's close button.
         bool& ShowBuildSettings;
         bool& ShowProjectSettings;
+        bool& ShowPackageManager;
         bool& ShowPreferences;
     };
 

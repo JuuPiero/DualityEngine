@@ -214,11 +214,16 @@ namespace Duality {
             MakeColorField("Color", &LineRendererComponent::Color),
             MakeField("Width", &LineRendererComponent::Width),
             MakeField("Loop", &LineRendererComponent::Loop),
+            MakeField("Use World Space", &LineRendererComponent::UseWorldSpace),
             MakeField("Point Count", &LineRendererComponent::PointCount),
             MakeField("Point 0", &LineRendererComponent::Point0),
             MakeField("Point 1", &LineRendererComponent::Point1),
             MakeField("Point 2", &LineRendererComponent::Point2),
             MakeField("Point 3", &LineRendererComponent::Point3),
+            MakeField("Point 4", &LineRendererComponent::Point4),
+            MakeField("Point 5", &LineRendererComponent::Point5),
+            MakeField("Point 6", &LineRendererComponent::Point6),
+            MakeField("Point 7", &LineRendererComponent::Point7),
         });
 
         TypeRegistry::Register<FollowTargetComponent>("Follow Target", false, {

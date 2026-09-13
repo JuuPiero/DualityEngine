@@ -17,6 +17,10 @@ namespace Duality {
         // this project's own gameplay scripts live (compiled into GameScripts alongside the
         // engine's shared demo scripts, see GameScripts/CMakeLists.txt's DUALITY_PROJECT_SCRIPTS_DIR).
         std::string ScriptsDirectory = "Scripts";
+        // Project-local, opt-in gameplay extensions. Each child folder has a package.json
+        // manifest; only identifiers in EnabledPackages are compiled into GameScripts.
+        std::string PackagesDirectory = "Packages";
+        std::vector<std::string> EnabledPackages;
         std::string StartScene;
 
         // Build Settings (DualityEditor/Panels/BuildSettingsPanel.cpp): Assets-relative .scene
@@ -76,7 +80,12 @@ namespace Duality {
         const std::string& GetDirectory() const { return m_Directory; }
         std::string GetAssetsDirectory() const { return m_Directory + "/" + m_Config.AssetsDirectory; }
         std::string GetScriptsDirectory() const { return GetAssetsDirectory() + "/" + m_Config.ScriptsDirectory; }
+        std::string GetPackagesDirectory() const { return m_Directory + "/" + m_Config.PackagesDirectory; }
+        // CMake accepts this stable comma-separated form through a cache STRING. Package IDs
+        // themselves may not contain commas (enforced by Package Manager).
+        std::string GetEnabledPackagesCsv() const;
         ProjectConfig& GetConfig() { return m_Config; }
+        const ProjectConfig& GetConfig() const { return m_Config; }
 
     private:
         ProjectConfig m_Config;

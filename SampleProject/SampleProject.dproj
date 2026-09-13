@@ -1,15 +1,15 @@
 {
   "AssetsDirectory": "Assets",
   "CompanyName": "",
+  "EnabledPackages": [],
   "Gravity": 9.8100004196167,
   "IconPath": "",
-  "N3DSAntiAliasing": 2,
+  "N3DSAntiAliasing": 0,
   "Name": "SampleProject",
   "PPU": 100.0,
+  "PackagesDirectory": "Packages",
   "ProductName": "",
-  "ScenesInBuild": [
-    "Scenes/Platformer.scene"
-  ],
+  "ScenesInBuild": [],
   "ScriptsDirectory": "Scripts",
   "StartScene": "",
   "Version": "0.1.0",

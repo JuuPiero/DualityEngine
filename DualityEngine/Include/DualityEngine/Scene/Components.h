@@ -575,10 +575,15 @@ namespace Duality {
     };
 
     struct LineRendererComponent {
+        // Fixed eight-point polyline: bounded memory and at most eight quad draws are a
+        // deliberate 3DS budget, while still covering trails, ropes, aiming arcs and paths.
         bool Enabled = true;
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
         float Width = 0.02f;
         bool Loop = false;
+        // False matches Unity's default: points follow the entity (including parent transform).
+        // True treats Point0..Point7 as world coordinates, useful for trajectories/pathfinding.
+        bool UseWorldSpace = false;
         int PointCount = 2;
         glm::vec3 Point0{ 0.0f, 0.0f, 0.0f };
         glm::vec3 Point1{ 0.16f, 0.0f, 0.0f };
@@ -645,6 +650,19 @@ namespace Duality {
     }
 
     inline glm::vec3& GetLinePoint(LineRendererComponent& line, int index) {
+        switch (index) {
+            case 0: return line.Point0;
+            case 1: return line.Point1;
+            case 2: return line.Point2;
+            case 3: return line.Point3;
+            case 4: return line.Point4;
+            case 5: return line.Point5;
+            case 6: return line.Point6;
+            default: return line.Point7;
+        }
+    }
+
+    inline const glm::vec3& GetLinePoint(const LineRendererComponent& line, int index) {
         switch (index) {
             case 0: return line.Point0;
             case 1: return line.Point1;

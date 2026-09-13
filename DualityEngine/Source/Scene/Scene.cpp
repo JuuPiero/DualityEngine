@@ -120,6 +120,15 @@ namespace Duality {
     struct Physics2DWorld {
         b2World* World = nullptr;
         Box2DContactListener* Listener = nullptr;
+
+        // Collider-only entities are represented by internal static Box2D bodies.  They
+        // deliberately do not get a public Rigidbody2DComponent: a Collider in Unity is
+        // already queryable/collidable on its own, while Rigidbody opts into simulation.
+        struct StaticColliderBody {
+            entt::entity Entity = entt::null;
+            b2Body* Body = nullptr;
+        };
+        std::vector<StaticColliderBody> StaticColliderBodies;
     };
     static Physics2DWorld* PhysicsWorld2D(void* handle) { return static_cast<Physics2DWorld*>(handle); }
 
@@ -142,6 +151,15 @@ namespace Duality {
         // in Scene::OnRuntimeUpdate. Canonically ordered (lower entt::entity value first)
         // so a pair only ever appears one way regardless of manifold body0/body1 order.
         std::set<std::pair<entt::entity, entt::entity>> TouchingPairs;
+
+        // Same ownership model as the 2D counterpart above.  Bullet does not own rigid
+        // bodies or their shapes, so OnRuntimeStop explicitly releases these entries.
+        struct StaticColliderBody {
+            entt::entity Entity = entt::null;
+            btRigidBody* Body = nullptr;
+            btCollisionShape* CollisionShape = nullptr;
+        };
+        std::vector<StaticColliderBody> StaticColliderBodies;
     };
     static Physics3DWorld* PhysicsWorld3D(void* handle) { return static_cast<Physics3DWorld*>(handle); }
 
@@ -183,6 +201,155 @@ namespace Duality {
         float x = std::atan2(r[1][2], r[2][2]);
         float z = std::atan2(r[0][1], r[0][0]);
         return glm::degrees(glm::vec3(x, y, z));
+    }
+
+    static bool HasEnabledCollider2D(entt::registry& registry, entt::entity entity) {
+        return (registry.all_of<BoxCollider2DComponent>(entity) && registry.get<BoxCollider2DComponent>(entity).Enabled)
+            || (registry.all_of<CircleCollider2DComponent>(entity) && registry.get<CircleCollider2DComponent>(entity).Enabled)
+            || (registry.all_of<CapsuleCollider2DComponent>(entity) && registry.get<CapsuleCollider2DComponent>(entity).Enabled)
+            || (registry.all_of<PolygonCollider2DComponent>(entity) && registry.get<PolygonCollider2DComponent>(entity).Enabled);
+    }
+
+    static bool HasEnabledCollider3D(entt::registry& registry, entt::entity entity) {
+        return (registry.all_of<BoxCollider3DComponent>(entity) && registry.get<BoxCollider3DComponent>(entity).Enabled)
+            || (registry.all_of<SphereCollider3DComponent>(entity) && registry.get<SphereCollider3DComponent>(entity).Enabled)
+            || (registry.all_of<CapsuleCollider3DComponent>(entity) && registry.get<CapsuleCollider3DComponent>(entity).Enabled);
+    }
+
+    static void DeleteCollisionShape3D(btCollisionShape* shape) {
+        if (!shape)
+            return;
+        if (shape->isCompound()) {
+            btCompoundShape* compound = static_cast<btCompoundShape*>(shape);
+            for (int i = 0; i < compound->getNumChildShapes(); i++)
+                delete compound->getChildShape(i);
+        }
+        delete shape;
+    }
+
+    // Builds the one collision shape currently supported per 3D entity.  This mirrors
+    // the Rigidbody3D path below; keeping it here makes collider-only static geometry
+    // use exactly the same material, offset and trigger semantics.
+    static btCollisionShape* CreateColliderShape3D(Scene& scene, entt::entity entity,
+                                                     float& friction, float& restitution,
+                                                     bool& isTrigger) {
+        entt::registry& registry = scene.Registry();
+        btCollisionShape* baseShape = nullptr;
+        glm::vec3 offset{ 0.0f };
+        float unusedDensity = 1.0f;
+
+        if (registry.all_of<BoxCollider3DComponent>(entity) && registry.get<BoxCollider3DComponent>(entity).Enabled) {
+            auto& box = registry.get<BoxCollider3DComponent>(entity);
+            ApplyPhysicsMaterial(box.PhysicsMaterial, box.Friction, box.Restitution, box.Density);
+            baseShape = new btBoxShape(btVector3(PhysicsUnits::ToPhysics(box.Size.x), PhysicsUnits::ToPhysics(box.Size.y), PhysicsUnits::ToPhysics(box.Size.z)));
+            offset = box.Offset;
+            unusedDensity = box.Density;
+            friction = box.Friction;
+            restitution = box.Restitution;
+            isTrigger = box.IsTrigger;
+        } else if (registry.all_of<SphereCollider3DComponent>(entity) && registry.get<SphereCollider3DComponent>(entity).Enabled) {
+            auto& sphere = registry.get<SphereCollider3DComponent>(entity);
+            ApplyPhysicsMaterial(sphere.PhysicsMaterial, sphere.Friction, sphere.Restitution, sphere.Density);
+            baseShape = new btSphereShape(PhysicsUnits::ToPhysics(sphere.Radius));
+            offset = sphere.Offset;
+            unusedDensity = sphere.Density;
+            friction = sphere.Friction;
+            restitution = sphere.Restitution;
+            isTrigger = sphere.IsTrigger;
+        } else if (registry.all_of<CapsuleCollider3DComponent>(entity) && registry.get<CapsuleCollider3DComponent>(entity).Enabled) {
+            auto& cap = registry.get<CapsuleCollider3DComponent>(entity);
+            ApplyPhysicsMaterial(cap.PhysicsMaterial, cap.Friction, cap.Restitution, cap.Density);
+            baseShape = new btCapsuleShape(PhysicsUnits::ToPhysics(cap.Radius), PhysicsUnits::ToPhysics(cap.Height));
+            offset = cap.Offset;
+            unusedDensity = cap.Density;
+            friction = cap.Friction;
+            restitution = cap.Restitution;
+            isTrigger = cap.IsTrigger;
+        }
+
+        (void)unusedDensity; // material loading intentionally updates the serialized component.
+        if (!baseShape)
+            return nullptr;
+        if (offset.x == 0.0f && offset.y == 0.0f && offset.z == 0.0f)
+            return baseShape;
+
+        btCompoundShape* compound = new btCompoundShape();
+        btTransform localTransform;
+        localTransform.setIdentity();
+        localTransform.setOrigin(btVector3(offset.x, offset.y, offset.z));
+        compound->addChildShape(localTransform, baseShape);
+        return compound;
+    }
+
+    static void CreateColliderFixtures2D(Scene& scene, entt::entity entity, b2Body* body, float densityScale) {
+        entt::registry& registry = scene.Registry();
+        if (registry.all_of<BoxCollider2DComponent>(entity)) {
+            auto& box = registry.get<BoxCollider2DComponent>(entity);
+            if (box.Enabled) {
+                ApplyPhysicsMaterial(box.PhysicsMaterial, box.Friction, box.Restitution, box.Density);
+                b2PolygonShape shape;
+                shape.SetAsBox(PhysicsUnits::ToPhysics(box.Size.x), PhysicsUnits::ToPhysics(box.Size.y),
+                               b2Vec2(PhysicsUnits::ToPhysics(box.Offset.x), PhysicsUnits::ToPhysics(box.Offset.y)), 0.0f);
+                b2FixtureDef fixtureDef;
+                fixtureDef.shape = &shape;
+                fixtureDef.density = box.Density * densityScale;
+                fixtureDef.friction = box.Friction;
+                fixtureDef.restitution = box.Restitution;
+                fixtureDef.isSensor = box.IsTrigger;
+                box.RuntimeFixture = body->CreateFixture(&fixtureDef);
+            }
+        }
+        if (registry.all_of<CircleCollider2DComponent>(entity)) {
+            auto& circle = registry.get<CircleCollider2DComponent>(entity);
+            if (circle.Enabled) {
+                ApplyPhysicsMaterial(circle.PhysicsMaterial, circle.Friction, circle.Restitution, circle.Density);
+                b2CircleShape shape;
+                shape.m_p.Set(PhysicsUnits::ToPhysics(circle.Offset.x), PhysicsUnits::ToPhysics(circle.Offset.y));
+                shape.m_radius = PhysicsUnits::ToPhysics(circle.Radius);
+                b2FixtureDef fixtureDef;
+                fixtureDef.shape = &shape;
+                fixtureDef.density = circle.Density * densityScale;
+                fixtureDef.friction = circle.Friction;
+                fixtureDef.restitution = circle.Restitution;
+                fixtureDef.isSensor = circle.IsTrigger;
+                circle.RuntimeFixture = body->CreateFixture(&fixtureDef);
+            }
+        }
+        if (registry.all_of<CapsuleCollider2DComponent>(entity)) {
+            auto& cap = registry.get<CapsuleCollider2DComponent>(entity);
+            if (cap.Enabled) {
+                ApplyPhysicsMaterial(cap.PhysicsMaterial, cap.Friction, cap.Restitution, cap.Density);
+                b2PolygonShape shape = MakeCapsulePolygon2D(PhysicsUnits::ToPhysics(cap.Radius), PhysicsUnits::ToPhysics(cap.Height));
+                b2FixtureDef fixtureDef;
+                fixtureDef.shape = &shape;
+                fixtureDef.density = cap.Density * densityScale;
+                fixtureDef.friction = cap.Friction;
+                fixtureDef.restitution = cap.Restitution;
+                fixtureDef.isSensor = cap.IsTrigger;
+                cap.RuntimeFixture = body->CreateFixture(&fixtureDef);
+            }
+        }
+        if (registry.all_of<PolygonCollider2DComponent>(entity)) {
+            auto& poly = registry.get<PolygonCollider2DComponent>(entity);
+            if (poly.Enabled) {
+                ApplyPhysicsMaterial(poly.PhysicsMaterial, poly.Friction, poly.Restitution, poly.Density);
+                int count = std::clamp(poly.VertexCount, 3, 8);
+                b2Vec2 verts[8];
+                for (int i = 0; i < count; ++i) {
+                    glm::vec2 v = GetPolygonVertex2D(poly, i) + poly.Offset;
+                    verts[i].Set(PhysicsUnits::ToPhysics(v.x), PhysicsUnits::ToPhysics(v.y));
+                }
+                b2PolygonShape shape;
+                shape.Set(verts, count);
+                b2FixtureDef fixtureDef;
+                fixtureDef.shape = &shape;
+                fixtureDef.density = poly.Density * densityScale;
+                fixtureDef.friction = poly.Friction;
+                fixtureDef.restitution = poly.Restitution;
+                fixtureDef.isSensor = poly.IsTrigger;
+                poly.RuntimeFixture = body->CreateFixture(&fixtureDef);
+            }
+        }
     }
 
     // 2D affine compose: rotates+scales `local` (already itself a
@@ -883,8 +1050,6 @@ namespace Duality {
         if (!cameraEntity || !cameraEntity.HasComponent<CameraComponent>())
             return false;
         auto& cameraComponent = cameraEntity.GetComponent<CameraComponent>();
-        if (cameraComponent.Projection != ProjectionType::Perspective)
-            return false;
 
         TransformComponent camTransform = GetWorldTransform(cameraEntity);
         float screenWidth, screenHeight;
@@ -901,6 +1066,19 @@ namespace Duality {
 
         float ndcX = (2.0f * (screenPoint.x / screenWidth)) - 1.0f;
         float ndcY = 1.0f - (2.0f * (screenPoint.y / screenHeight));
+
+        if (cameraComponent.Projection == ProjectionType::Orthographic) {
+            // Keep this in lockstep with SceneRenderer/OpenGLRenderer3D's ortho
+            // projection: bottom is +halfHeight and top is -halfHeight, so NDC +Y
+            // is camera up.  Unlike 2D sprite coordinates, 3D orthographic size is
+            // expressed directly in world units and intentionally does not use PPU.
+            float halfHeight = screenHeight * 0.5f / std::max(cameraComponent.Zoom, 0.0001f);
+            float halfWidth = halfHeight * aspect;
+            outOrigin = camTransform.Translation + right * (ndcX * halfWidth) + up * (ndcY * halfHeight);
+            outDirection = glm::normalize(forward);
+            return true;
+        }
+
         float tanHalfFov = std::tan(glm::radians(cameraComponent.FovDegrees) * 0.5f);
 
         outOrigin = camTransform.Translation;
@@ -1087,6 +1265,27 @@ namespace Duality {
             }
         }
 
+        // Collider2D without Rigidbody2D is a static collider, just as in Unity.  It
+        // receives an internal body only; scripts still see exactly the components they
+        // authored and cannot accidentally apply forces to it through a Rigidbody API.
+        auto transform2DView = m_Registry.view<TransformComponent>();
+        for (auto handle : transform2DView) {
+            if (m_Registry.all_of<Rigidbody2DComponent>(handle)
+                || !HasEnabledCollider2D(m_Registry, handle)
+                || !IsEffectivelyActive(Entity(handle, this)))
+                continue;
+
+            TransformComponent worldTransform = GetWorldTransform(Entity(handle, this));
+            b2BodyDef bodyDef;
+            bodyDef.type = b2_staticBody;
+            bodyDef.position.Set(PhysicsUnits::ToPhysics(worldTransform.Translation.x), PhysicsUnits::ToPhysics(worldTransform.Translation.y));
+            bodyDef.angle = glm::radians(worldTransform.Rotation.z);
+            bodyDef.userData.pointer = static_cast<uintptr_t>(handle);
+            b2Body* body = world->CreateBody(&bodyDef);
+            CreateColliderFixtures2D(*this, handle, body, densityScale);
+            world2D->StaticColliderBodies.push_back({ handle, body });
+        }
+
         Physics3DWorld* world3D = new Physics3DWorld();
         world3D->CollisionConfig = new btDefaultCollisionConfiguration();
         world3D->Dispatcher = new btCollisionDispatcher(world3D->CollisionConfig);
@@ -1203,6 +1402,43 @@ namespace Duality {
             rb.RuntimeBody = body;
         }
 
+        // A collider alone is static world geometry; Rigidbody3D is only required for
+        // velocities, forces and other simulation state.  This also makes a plain 3D
+        // collider targetable by PhysicsRaycaster3D/pointer events.
+        auto transform3DView = m_Registry.view<TransformComponent>();
+        for (auto handle : transform3DView) {
+            if (m_Registry.all_of<Rigidbody3DComponent>(handle)
+                || !HasEnabledCollider3D(m_Registry, handle)
+                || !IsEffectivelyActive(Entity(handle, this)))
+                continue;
+
+            float friction = 0.5f;
+            float restitution = 0.0f;
+            bool isTrigger = false;
+            btCollisionShape* shape = CreateColliderShape3D(*this, handle, friction, restitution, isTrigger);
+            if (!shape)
+                continue;
+
+            TransformComponent worldTransform = GetWorldTransform(Entity(handle, this));
+            btTransform startTransform;
+            startTransform.setIdentity();
+            startTransform.setOrigin(btVector3(
+                PhysicsUnits::ToPhysics(worldTransform.Translation.x),
+                PhysicsUnits::ToPhysics(worldTransform.Translation.y),
+                PhysicsUnits::ToPhysics(worldTransform.Translation.z)));
+            startTransform.setRotation(EulerDegreesToBtQuaternion(worldTransform.Rotation));
+            btDefaultMotionState* motionState = new btDefaultMotionState(startTransform);
+            btRigidBody::btRigidBodyConstructionInfo bodyInfo(0.0f, motionState, shape);
+            bodyInfo.m_friction = friction;
+            bodyInfo.m_restitution = restitution;
+            btRigidBody* body = new btRigidBody(bodyInfo);
+            body->setUserPointer(reinterpret_cast<void*>(static_cast<uintptr_t>(handle)));
+            if (isTrigger)
+                body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_NO_CONTACT_RESPONSE);
+            world3D->World->addRigidBody(body);
+            world3D->StaticColliderBodies.push_back({ handle, body, shape });
+        }
+
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
             auto& bc = behaviourView.get<BehaviourComponent>(handle);
@@ -1293,6 +1529,24 @@ namespace Duality {
                     static_cast<b2Body*>(rb.RuntimeBody)->SetEnabled(enabled);
                 }
 
+                // Static collider bodies can be moved by a script, and Active/Enabled
+                // changes must affect queries immediately.  Updating these bodies is a
+                // little more expensive than keeping truly immutable static geometry,
+                // but is predictable and matches the component-centric editor workflow.
+                for (const auto& staticBody : world2D->StaticColliderBodies) {
+                    if (!m_Registry.valid(staticBody.Entity) || !staticBody.Body)
+                        continue;
+                    bool enabled = HasEnabledCollider2D(m_Registry, staticBody.Entity)
+                        && IsEffectivelyActive(Entity(staticBody.Entity, this));
+                    staticBody.Body->SetEnabled(enabled);
+                    if (!enabled || !m_Registry.all_of<TransformComponent>(staticBody.Entity))
+                        continue;
+                    TransformComponent worldTransform = GetWorldTransform(Entity(staticBody.Entity, this));
+                    staticBody.Body->SetTransform(
+                        b2Vec2(PhysicsUnits::ToPhysics(worldTransform.Translation.x), PhysicsUnits::ToPhysics(worldTransform.Translation.y)),
+                        glm::radians(worldTransform.Rotation.z));
+                }
+
                 // Kinematic bodies are moved by script/animation, not by Box2D's own solver (mass
                 // 0, same as Static) -- so unlike Dynamic, the ENTITY's current TransformComponent
                 // is the source of truth each frame, pushed into the body right before it steps.
@@ -1342,6 +1596,26 @@ namespace Duality {
                         body->setLinearVelocity(btVector3(0, 0, 0));
                         body->setAngularVelocity(btVector3(0, 0, 0));
                     }
+                }
+
+                for (const auto& staticBody : world3D->StaticColliderBodies) {
+                    if (!m_Registry.valid(staticBody.Entity) || !staticBody.Body)
+                        continue;
+                    bool enabled = HasEnabledCollider3D(m_Registry, staticBody.Entity)
+                        && IsEffectivelyActive(Entity(staticBody.Entity, this));
+                    staticBody.Body->forceActivationState(enabled ? ACTIVE_TAG : DISABLE_SIMULATION);
+                    if (!enabled || !m_Registry.all_of<TransformComponent>(staticBody.Entity))
+                        continue;
+                    TransformComponent worldTransform = GetWorldTransform(Entity(staticBody.Entity, this));
+                    btTransform transform;
+                    transform.setIdentity();
+                    transform.setOrigin(btVector3(
+                        PhysicsUnits::ToPhysics(worldTransform.Translation.x),
+                        PhysicsUnits::ToPhysics(worldTransform.Translation.y),
+                        PhysicsUnits::ToPhysics(worldTransform.Translation.z)));
+                    transform.setRotation(EulerDegreesToBtQuaternion(worldTransform.Rotation));
+                    staticBody.Body->setWorldTransform(transform);
+                    staticBody.Body->getMotionState()->setWorldTransform(transform);
                 }
 
                 // Same Kinematic push-before-step reasoning as the 2D world above -- Bullet's own
@@ -1626,17 +1900,20 @@ namespace Duality {
                 }
                 if (rb.RuntimeCollisionShape) {
                     auto* shape = static_cast<btCollisionShape*>(rb.RuntimeCollisionShape);
-                    if (shape->isCompound()) {
-                        // Only ever one child -- see the Offset-wrapping comment in
-                        // OnRuntimeStart -- but loop for correctness regardless.
-                        btCompoundShape* compound = static_cast<btCompoundShape*>(shape);
-                        for (int i = 0; i < compound->getNumChildShapes(); i++)
-                            delete compound->getChildShape(i);
-                    }
-                    delete shape;
+                    DeleteCollisionShape3D(shape);
                     rb.RuntimeCollisionShape = nullptr;
                 }
             }
+
+            for (const auto& staticBody : world3D->StaticColliderBodies) {
+                if (!staticBody.Body)
+                    continue;
+                world3D->World->removeRigidBody(staticBody.Body);
+                delete staticBody.Body->getMotionState();
+                delete staticBody.Body;
+                DeleteCollisionShape3D(staticBody.CollisionShape);
+            }
+            world3D->StaticColliderBodies.clear();
 
             delete world3D->World;
             delete world3D->Solver;

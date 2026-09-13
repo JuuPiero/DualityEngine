@@ -152,6 +152,33 @@ namespace Duality {
             return canvas;
         }
 
+        // Cameras created from Hierarchy are ready for the pointer system immediately.
+        // Keep one primary camera per physical screen by making additional cameras
+        // non-primary; the user can still promote one explicitly in the Inspector.
+        Entity CreateCamera(EditorContext& ctx, Screen screen, ProjectionType projection, Entity parent = {}) {
+            if (!parent)
+                parent = ctx.SceneRef.EnsureScreenRoot(screen);
+
+            const bool is3D = projection == ProjectionType::Perspective;
+            Entity camera = ctx.SceneRef.CreateEntity((screen == Screen::Top ? "Top " : "Bottom ")
+                + std::string(is3D ? "3D Camera" : "2D Camera"));
+            auto& component = camera.AddComponent<CameraComponent>();
+            component.Screen = screen;
+            component.Projection = projection;
+            component.Primary = !ctx.SceneRef.GetPrimaryCamera(screen);
+            if (is3D) {
+                // A practical 3D starting point for the engine's -Z-forward camera.
+                camera.GetComponent<TransformComponent>().Translation.z = 200.0f;
+                camera.AddComponent<PhysicsRaycaster3DComponent>();
+            } else {
+                camera.AddComponent<PhysicsRaycaster2DComponent>();
+            }
+            ctx.SceneRef.SetParent(camera, parent);
+            ctx.Selected = camera;
+            MarkSceneDirty(ctx);
+            return camera;
+        }
+
         Entity CreateEmpty(EditorContext& ctx, Entity parent = {}) {
             Entity entity = ctx.SceneRef.CreateEntity("Entity");
             if (parent)
@@ -169,6 +196,16 @@ namespace Duality {
             ctx.Selected = sprite;
             MarkSceneDirty(ctx);
             return sprite;
+        }
+
+        Entity CreateLineRenderer(EditorContext& ctx, Entity parent = {}) {
+            Entity line = ctx.SceneRef.CreateEntity("Line Renderer");
+            line.AddComponent<LineRendererComponent>();
+            if (parent)
+                ctx.SceneRef.SetParent(line, parent);
+            ctx.Selected = line;
+            MarkSceneDirty(ctx);
+            return line;
         }
 
         Entity CreatePrimitive(EditorContext& ctx, const char* name, MeshPrimitive primitive, Entity parent = {}) {
@@ -190,35 +227,83 @@ namespace Duality {
             return Entity{};
         }
 
+        Entity EnsureCanvasForUI(EditorContext& ctx, Screen screen, Entity parent) {
+            Entity canvas = FindCanvasAncestor(parent);
+            return canvas ? canvas : CreateCanvas(ctx, screen, parent);
+        }
+
+        Entity CreateUIElement(EditorContext& ctx, const char* name, Screen screen, Entity parent,
+                               bool image, const char* text = nullptr) {
+            Entity canvas = EnsureCanvasForUI(ctx, screen, parent);
+            Entity element = ctx.SceneRef.CreateEntity(name);
+            element.AddComponent<UIRectComponent>();
+            if (image)
+                element.AddComponent<UIImageComponent>();
+            if (text) {
+                auto& textComponent = element.AddComponent<UITextComponent>();
+                textComponent.Text = text;
+                textComponent.Alignment = TextAlignment::Center;
+            }
+            ctx.SceneRef.SetParent(element, canvas);
+            ctx.Selected = element;
+            MarkSceneDirty(ctx);
+            return element;
+        }
+
         // Creates Unity's familiar Button bundle in one action: RectTransform-equivalent,
         // Image, Button and Text. If the caller has not selected a Canvas subtree, make the
         // required Canvas first so no UI element is ever orphaned outside a physical 3DS screen.
         Entity CreateUIButton(EditorContext& ctx, Screen screen, Entity parent = {}) {
-            Entity canvas = FindCanvasAncestor(parent);
-            if (!canvas)
-                canvas = CreateCanvas(ctx, screen, parent);
-
-            Entity button = ctx.SceneRef.CreateEntity("Button");
-            auto& rect = button.AddComponent<UIRectComponent>();
+            Entity button = CreateUIElement(ctx, "Button", screen, parent, true, "Button");
+            auto& rect = button.GetComponent<UIRectComponent>();
             rect.SizeDelta = { 120.0f, 40.0f };
-            button.AddComponent<UIImageComponent>();
             button.AddComponent<UIButtonComponent>();
-            auto& text = button.AddComponent<UITextComponent>();
-            text.Text = "Button";
-            text.Alignment = TextAlignment::Center;
-            ctx.SceneRef.SetParent(button, canvas);
-            ctx.Selected = button;
-            MarkSceneDirty(ctx);
             return button;
+        }
+
+        Entity CreateUISlider(EditorContext& ctx, Screen screen, Entity parent = {}) {
+            Entity slider = CreateUIElement(ctx, "Slider", screen, parent, true);
+            slider.GetComponent<UIRectComponent>().SizeDelta = { 160.0f, 20.0f };
+            slider.AddComponent<UISliderComponent>();
+            return slider;
+        }
+
+        Entity CreateUIToggle(EditorContext& ctx, Screen screen, Entity parent = {}) {
+            Entity toggle = CreateUIElement(ctx, "Toggle", screen, parent, true);
+            toggle.GetComponent<UIRectComponent>().SizeDelta = { 24.0f, 24.0f };
+            toggle.AddComponent<UIToggleComponent>();
+            return toggle;
+        }
+
+        Entity CreateUIInputField(EditorContext& ctx, Screen screen, Entity parent = {}) {
+            Entity field = CreateUIElement(ctx, "Input Field", screen, parent, true);
+            field.GetComponent<UIRectComponent>().SizeDelta = { 160.0f, 28.0f };
+            field.AddComponent<UIInputFieldComponent>();
+            return field;
         }
 
         void DrawCreateObjectMenu(EditorContext& ctx, Entity parent = {}) {
             if (ImGui::MenuItem(parent ? "Create Empty Child" : "Create Empty"))
                 CreateEmpty(ctx, parent);
 
+            if (ImGui::BeginMenu("Camera")) {
+                if (ImGui::MenuItem("Top Screen 2D Camera"))
+                    CreateCamera(ctx, Screen::Top, ProjectionType::Orthographic, parent);
+                if (ImGui::MenuItem("Bottom Screen 2D Camera"))
+                    CreateCamera(ctx, Screen::Bottom, ProjectionType::Orthographic, parent);
+                ImGui::Separator();
+                if (ImGui::MenuItem("Top Screen 3D Camera"))
+                    CreateCamera(ctx, Screen::Top, ProjectionType::Perspective, parent);
+                if (ImGui::MenuItem("Bottom Screen 3D Camera"))
+                    CreateCamera(ctx, Screen::Bottom, ProjectionType::Perspective, parent);
+                ImGui::EndMenu();
+            }
+
             if (ImGui::BeginMenu("2D Object")) {
                 if (ImGui::MenuItem("Sprite"))
                     CreateSprite(ctx, parent);
+                if (ImGui::MenuItem("Line Renderer"))
+                    CreateLineRenderer(ctx, parent);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("3D Object")) {
@@ -236,10 +321,26 @@ namespace Duality {
                 if (ImGui::MenuItem("Canvas (Bottom Screen)"))
                     CreateCanvas(ctx, Screen::Bottom, parent);
                 ImGui::Separator();
-                if (ImGui::MenuItem("Button (Top Screen)"))
-                    CreateUIButton(ctx, Screen::Top, parent);
-                if (ImGui::MenuItem("Button (Bottom Screen)"))
-                    CreateUIButton(ctx, Screen::Bottom, parent);
+                if (ImGui::BeginMenu("Top Screen")) {
+                    if (ImGui::MenuItem("Panel")) CreateUIElement(ctx, "Panel", Screen::Top, parent, true);
+                    if (ImGui::MenuItem("Image")) CreateUIElement(ctx, "Image", Screen::Top, parent, true);
+                    if (ImGui::MenuItem("Text")) CreateUIElement(ctx, "Text", Screen::Top, parent, false, "Text");
+                    if (ImGui::MenuItem("Button")) CreateUIButton(ctx, Screen::Top, parent);
+                    if (ImGui::MenuItem("Slider")) CreateUISlider(ctx, Screen::Top, parent);
+                    if (ImGui::MenuItem("Toggle")) CreateUIToggle(ctx, Screen::Top, parent);
+                    if (ImGui::MenuItem("Input Field")) CreateUIInputField(ctx, Screen::Top, parent);
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("Bottom Screen")) {
+                    if (ImGui::MenuItem("Panel")) CreateUIElement(ctx, "Panel", Screen::Bottom, parent, true);
+                    if (ImGui::MenuItem("Image")) CreateUIElement(ctx, "Image", Screen::Bottom, parent, true);
+                    if (ImGui::MenuItem("Text")) CreateUIElement(ctx, "Text", Screen::Bottom, parent, false, "Text");
+                    if (ImGui::MenuItem("Button")) CreateUIButton(ctx, Screen::Bottom, parent);
+                    if (ImGui::MenuItem("Slider")) CreateUISlider(ctx, Screen::Bottom, parent);
+                    if (ImGui::MenuItem("Toggle")) CreateUIToggle(ctx, Screen::Bottom, parent);
+                    if (ImGui::MenuItem("Input Field")) CreateUIInputField(ctx, Screen::Bottom, parent);
+                    ImGui::EndMenu();
+                }
                 ImGui::EndMenu();
             }
             if (!parent && ImGui::BeginMenu("3DS Screen Roots")) {

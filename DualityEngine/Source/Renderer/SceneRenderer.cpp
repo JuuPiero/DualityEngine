@@ -1,6 +1,7 @@
 #include "DualityEngine/Renderer/SceneRenderer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
@@ -226,9 +227,22 @@ namespace Duality {
                     continue;
                 TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
                 glm::vec2 points[8];
-                int count = std::min(line.PointCount, 8);
+                int count = std::clamp(line.PointCount, 0, 8);
                 for (int i = 0; i < count; i++) {
-                    glm::vec3 p = GetLinePoint(line, i) + transform.Translation;
+                    glm::vec3 p = GetLinePoint(line, i);
+                    if (!line.UseWorldSpace) {
+                        // 2D LineRenderer follows the entity's complete world transform,
+                        // including parent scale/rotation, instead of the previous translation-
+                        // only approximation. Z remains present in the API for Unity-style data
+                        // compatibility but this 2D renderer intentionally projects onto XY.
+                        p.x *= transform.Scale.x;
+                        p.y *= transform.Scale.y;
+                        const float radians = glm::radians(transform.Rotation.z);
+                        const float x = p.x * std::cos(radians) - p.y * std::sin(radians);
+                        const float y = p.x * std::sin(radians) + p.y * std::cos(radians);
+                        p.x = x + transform.Translation.x;
+                        p.y = y + transform.Translation.y;
+                    }
                     points[i] = {
                         (p.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f,
                         (p.y - cameraTransform.Translation.y) * worldToPixels + screenHeight * 0.5f

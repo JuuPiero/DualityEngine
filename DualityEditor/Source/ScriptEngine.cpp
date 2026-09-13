@@ -77,9 +77,15 @@ namespace Duality {
         // own MSYS-mount-notation derivation for the 3DS build (see its own comments) matches on
         // a plain "F:/..." shape and would produce a broken result if fed backslashes instead.
         std::string projectScriptsDir;
-        if (auto project = Project::GetActive())
+        std::string projectPackagesDir;
+        std::string enabledPackages;
+        if (auto project = Project::GetActive()) {
             projectScriptsDir = std::filesystem::absolute(project->GetScriptsDirectory()).generic_string();
-        std::string configureCommand = "cmake -B \"" + buildDirectory + "\" -DDUALITY_PROJECT_SCRIPTS_DIR=\"" + projectScriptsDir + "\"";
+            projectPackagesDir = std::filesystem::absolute(project->GetPackagesDirectory()).generic_string();
+            enabledPackages = project->GetEnabledPackagesCsv();
+        }
+        std::string configureCommand = "cmake -B \"" + buildDirectory + "\" -DDUALITY_PROJECT_SCRIPTS_DIR=\"" + projectScriptsDir +
+            "\" -DDUALITY_PROJECT_PACKAGES_DIR=\"" + projectPackagesDir + "\" -DDUALITY_ENABLED_PACKAGES=\"" + enabledPackages + "\"";
         if (std::system(configureCommand.c_str()) != 0) {
             Log::Error("ScriptEngine: reconfigure failed");
             return false;

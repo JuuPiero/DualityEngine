@@ -654,7 +654,7 @@ namespace Duality {
                 m_Fps, m_GameDrawCallCount,
                 m_ScenePath, m_BuildDirectory, m_RepoRoot, m_PlaySnapshot,
                 m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog,
-                m_RequestBrowseExternalEditor, m_RequestBrowseIcon, m_ShowBuildSettings, m_ShowProjectSettings, m_ShowPreferences
+                m_RequestBrowseExternalEditor, m_RequestBrowseIcon, m_ShowBuildSettings, m_ShowProjectSettings, m_ShowPackageManager, m_ShowPreferences
             };
 
             m_MenuBarPanel.OnImGuiRender(ctx);
@@ -720,6 +720,7 @@ namespace Duality {
             m_ConsolePanel.OnImGuiRender();
             m_BuildSettingsPanel.OnImGuiRender(ctx);
             m_ProjectSettingsPanel.OnImGuiRender(ctx);
+            m_PackageManagerPanel.OnImGuiRender(ctx);
             m_PreferencesPanel.OnImGuiRender(ctx);
 
             m_Window.EndFrame();

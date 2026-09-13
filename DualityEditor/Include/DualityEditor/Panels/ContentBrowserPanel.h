@@ -9,8 +9,10 @@ namespace Duality {
 
     struct EditorContext;
 
-    // Assets folder browser, grid-of-icons style (Unity/Unreal/Cocos
-    // Creator-like): image assets show a real thumbnail, folders/other
+    // Unity-like Project browser: a folder/package tree on the left and an
+    // asset grid on the right. Assets are editable; Packages are intentionally
+    // browsable read-only here and are installed/enabled/removed by Package Manager.
+    // Image assets show a real thumbnail, folders/other
     // files show a simple procedurally-drawn icon. Double-click a folder to
     // navigate into it, "Up" to go back; double-click a ".scene" file to open
     // it as the active scene (SceneOps::OpenScene -- stops Play first if
@@ -59,8 +61,12 @@ namespace Duality {
         // Moves the asset `guid` resolves to (plus its ".meta") into `destDir` and
         // re-registers it -- the drag-a-file-onto-a-folder flow.
         void MoveAssetInto(const std::string& guid, const std::filesystem::path& destDir);
+        void DrawDirectoryTree(const std::filesystem::path& directory, const char* label, int depth = 0);
+        bool IsPackagesView(const std::filesystem::path& path) const;
+        std::filesystem::path CurrentContentRoot() const;
 
         std::filesystem::path m_RootDirectory;
+        std::filesystem::path m_PackagesDirectory;
         std::filesystem::path m_CurrentDirectory;
         ThumbnailCache m_Thumbnails;
         char m_SearchBuffer[128] = "";

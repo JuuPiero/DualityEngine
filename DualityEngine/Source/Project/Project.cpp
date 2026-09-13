@@ -61,6 +61,8 @@ namespace Duality {
         project->m_Config.Version = root.value("Version", "0.1.0");
         project->m_Config.AssetsDirectory = root.value("AssetsDirectory", "Assets");
         project->m_Config.ScriptsDirectory = root.value("ScriptsDirectory", "Scripts");
+        project->m_Config.PackagesDirectory = root.value("PackagesDirectory", "Packages");
+        project->m_Config.EnabledPackages = root.value("EnabledPackages", std::vector<std::string>{});
         project->m_Config.StartScene = root.value("StartScene", "");
         project->m_Config.ScenesInBuild = root.value("ScenesInBuild", std::vector<std::string>{});
         project->m_Config.N3DSAntiAliasing = root.value("N3DSAntiAliasing", 0);
@@ -87,6 +89,8 @@ namespace Duality {
         root["Version"] = m_Config.Version;
         root["AssetsDirectory"] = m_Config.AssetsDirectory;
         root["ScriptsDirectory"] = m_Config.ScriptsDirectory;
+        root["PackagesDirectory"] = m_Config.PackagesDirectory;
+        root["EnabledPackages"] = m_Config.EnabledPackages;
         root["StartScene"] = m_Config.StartScene;
         root["ScenesInBuild"] = m_Config.ScenesInBuild;
         root["N3DSAntiAliasing"] = m_Config.N3DSAntiAliasing;
@@ -103,6 +107,18 @@ namespace Duality {
         }
         file << root.dump(2);
         return true;
+    }
+
+    std::string Project::GetEnabledPackagesCsv() const {
+        std::string result;
+        for (const std::string& package : m_Config.EnabledPackages) {
+            if (package.empty())
+                continue;
+            if (!result.empty())
+                result += ',';
+            result += package;
+        }
+        return result;
     }
 
 }

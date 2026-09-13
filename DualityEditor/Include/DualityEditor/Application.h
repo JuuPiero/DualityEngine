@@ -15,6 +15,7 @@
 #include "DualityEditor/Panels/GamePanel.h"
 #include "DualityEditor/Panels/HierarchyPanel.h"
 #include "DualityEditor/Panels/MenuBarPanel.h"
+#include "DualityEditor/Panels/PackageManagerPanel.h"
 #include "DualityEditor/Panels/PreferencesPanel.h"
 #include "DualityEditor/Panels/ProjectSettingsPanel.h"
 #include "DualityEditor/Panels/PropertiesPanel.h"
@@ -100,6 +101,7 @@ namespace Duality {
         // a plain persistent bool (IsPlaying's convention), not a one-shot Request* flag.
         bool m_ShowBuildSettings = false;
         bool m_ShowProjectSettings = false;
+        bool m_ShowPackageManager = false;
         bool m_ShowPreferences = false;
 
         // Play->Stop scene-state snapshot -- see EditorContext::PlaySnapshot's own comment.
@@ -133,6 +135,7 @@ namespace Duality {
         ConsolePanel m_ConsolePanel;
         BuildSettingsPanel m_BuildSettingsPanel;
         ProjectSettingsPanel m_ProjectSettingsPanel;
+        PackageManagerPanel m_PackageManagerPanel;
         PreferencesPanel m_PreferencesPanel;
     };
 

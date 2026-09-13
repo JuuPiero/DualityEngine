@@ -22,6 +22,7 @@ add_executable(DualityEditor
     Source/Panels/ConsolePanel.cpp
     Source/Panels/BuildSettingsPanel.cpp
     Source/Panels/ProjectSettingsPanel.cpp
+    Source/Panels/PackageManagerPanel.cpp
     Source/Panels/PreferencesPanel.cpp
 )
 

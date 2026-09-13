@@ -64,6 +64,11 @@ endif()
 # and generate_fields.py) accept a plain Windows-style path directly, no normalization needed.
 set(DUALITY_PROJECT_SCRIPTS_DIR "" CACHE STRING "Active project's Assets/Scripts directory, compiled into GameScripts alongside the engine's own scripts")
 
+# Package code stays in the one GameScripts module: one hot-reload DLL on desktop and one
+# static script module on 3DS. CSV avoids CMake-list semicolon quoting issues across cmd/MSYS.
+set(DUALITY_PROJECT_PACKAGES_DIR "" CACHE STRING "Active project's Packages directory")
+set(DUALITY_ENABLED_PACKAGES "" CACHE STRING "Comma-separated enabled project package identifiers")
+
 # file(GLOB)/EXISTS under the MSYS-hosted cmake.exe the 3DS configure uses (see build-3ds.bat's
 # own comments on why it must be that one) use Cygwin/MSYS path semantics internally -- a
 # Windows-style drive-letter path ("F:/Workspace/...") isn't recognized as already-absolute
@@ -80,10 +85,38 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" AND DUALITY_PROJECT_SCRIPTS_GLOB_DIR
     set(DUALITY_PROJECT_SCRIPTS_GLOB_DIR "/${CMAKE_MATCH_1}${CMAKE_MATCH_2}")
 endif()
 
+set(DUALITY_PROJECT_PACKAGES_GLOB_DIR "${DUALITY_PROJECT_PACKAGES_DIR}")
+if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS" AND DUALITY_PROJECT_PACKAGES_GLOB_DIR MATCHES "^([A-Za-z]):(.*)$")
+    set(DUALITY_PROJECT_PACKAGES_GLOB_DIR "/${CMAKE_MATCH_1}${CMAKE_MATCH_2}")
+endif()
+
 set(DUALITY_PROJECT_SCRIPT_SOURCES "")
 if(DUALITY_PROJECT_SCRIPTS_GLOB_DIR AND EXISTS ${DUALITY_PROJECT_SCRIPTS_GLOB_DIR})
     file(GLOB_RECURSE DUALITY_PROJECT_SCRIPT_SOURCES ${DUALITY_PROJECT_SCRIPTS_GLOB_DIR}/*.cpp)
 endif()
+
+set(DUALITY_PACKAGE_SOURCES "")
+set(DUALITY_PACKAGE_INCLUDE_DIRS "")
+string(REPLACE "," ";" DUALITY_ENABLED_PACKAGE_IDS "${DUALITY_ENABLED_PACKAGES}")
+foreach(DUALITY_PACKAGE_ID IN LISTS DUALITY_ENABLED_PACKAGE_IDS)
+    if(DUALITY_PACKAGE_ID STREQUAL "")
+        continue()
+    endif()
+    if(NOT DUALITY_PACKAGE_ID MATCHES "^[A-Za-z0-9_.-]+$")
+        message(WARNING "GameScripts: ignoring unsafe package id '${DUALITY_PACKAGE_ID}'")
+        continue()
+    endif()
+    set(DUALITY_PACKAGE_DIR "${DUALITY_PROJECT_PACKAGES_GLOB_DIR}/${DUALITY_PACKAGE_ID}")
+    if(NOT DUALITY_PROJECT_PACKAGES_GLOB_DIR OR NOT EXISTS "${DUALITY_PACKAGE_DIR}")
+        message(WARNING "GameScripts: enabled package '${DUALITY_PACKAGE_ID}' was not found")
+        continue()
+    endif()
+    file(GLOB_RECURSE DUALITY_PACKAGE_CPP "${DUALITY_PACKAGE_DIR}/Source/*.cpp")
+    list(APPEND DUALITY_PACKAGE_SOURCES ${DUALITY_PACKAGE_CPP})
+    if(EXISTS "${DUALITY_PACKAGE_DIR}/Include")
+        list(APPEND DUALITY_PACKAGE_INCLUDE_DIRS "${DUALITY_PACKAGE_DIR}/Include")
+    endif()
+endforeach()
 
 # Run at CONFIGURE time (execute_process), NOT as a build-time add_custom_command(OUTPUT ...) --
 # deliberately, after hitting a real bug the other way: Make/Ninja's OUTPUT-vs-DEPENDS staleness
@@ -101,7 +134,7 @@ endif()
 set(DUALITY_GENERATED_FIELDS_CPP ${CMAKE_CURRENT_SOURCE_DIR}/Generated/ScriptFields.generated.cpp)
 execute_process(
     COMMAND ${DUALITY_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/CodeGen/generate_fields.py
-            ${DUALITY_GENERATED_FIELDS_CPP} ${CMAKE_CURRENT_SOURCE_DIR}/Include ${DUALITY_PROJECT_SCRIPTS_DIR}
+            ${DUALITY_GENERATED_FIELDS_CPP} ${CMAKE_CURRENT_SOURCE_DIR}/Include ${DUALITY_PROJECT_SCRIPTS_DIR} ${DUALITY_PACKAGE_INCLUDE_DIRS}
     RESULT_VARIABLE DUALITY_GENERATE_FIELDS_RESULT
     OUTPUT_VARIABLE DUALITY_GENERATE_FIELDS_OUTPUT
     ERROR_VARIABLE DUALITY_GENERATE_FIELDS_ERROR
@@ -126,6 +159,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         Source/ScriptModuleExports.cpp
         ${DUALITY_GENERATED_FIELDS_CPP}
         ${DUALITY_PROJECT_SCRIPT_SOURCES}
+        ${DUALITY_PACKAGE_SOURCES}
     )
 else()
     add_library(GameScripts SHARED
@@ -142,6 +176,7 @@ else()
         Source/ScriptModuleExports.cpp
         ${DUALITY_GENERATED_FIELDS_CPP}
         ${DUALITY_PROJECT_SCRIPT_SOURCES}
+        ${DUALITY_PACKAGE_SOURCES}
     )
     set_target_properties(GameScripts PROPERTIES PREFIX "")
 endif()
@@ -149,6 +184,7 @@ endif()
 target_include_directories(GameScripts PRIVATE
     Include
     ${CMAKE_SOURCE_DIR}/DualityEngine/Include
+    ${DUALITY_PACKAGE_INCLUDE_DIRS}
 )
 # nlohmann_json is header-only (no compiled symbols/global state) --
 # ApiShowcaseBehaviour.cpp uses DualityEngine/IO/SaveSystem.h, which needs
