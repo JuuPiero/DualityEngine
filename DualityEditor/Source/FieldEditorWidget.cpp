@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <entt.hpp>
@@ -217,6 +218,68 @@ namespace Duality {
                     v.erase(v.begin() + removeIndex);
                 if (ImGui::SmallButton("+ Add")) {
                     v.push_back(AssetRef{});
+                    changed = true;
+                }
+                ImGui::PopID();
+            } else if constexpr (std::is_same_v<T, std::vector<EntityRef>>) {
+                // Ordered Entity references, primarily for authoring paths/splines.  Each row
+                // accepts the existing Hierarchy drag payload; arrows make the order explicit
+                // without requiring a fragile drag-reorder widget in a narrow Inspector.
+                ImGui::PushID(name.c_str());
+                ImGui::Text("%s", name.c_str());
+                int removeIndex = -1;
+                for (int i = 0; i < static_cast<int>(v.size()); ++i) {
+                    ImGui::PushID(i);
+                    EntityRef& item = v[i];
+                    bool valid = item.Handle != EntityRef::Invalid;
+                    std::string label = "<none>";
+                    if (valid) {
+                        entt::entity handle = static_cast<entt::entity>(item.Handle);
+                        if (scene && scene->Registry().valid(handle) && scene->Registry().all_of<NameComponent>(handle))
+                            label = scene->Registry().get<NameComponent>(handle).Name;
+                        else if (scene)
+                            valid = false;
+                        else
+                            label = "<entity #" + std::to_string(item.Handle) + ">";
+                    }
+
+                    ImGui::Text("%d", i);
+                    ImGui::SameLine(FieldLabelOffset(indentDepth));
+                    ImGui::Button(label.c_str(), ImVec2(valid ? -112.0f : -80.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget()) {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
+                            entt::entity dropped = *static_cast<const entt::entity*>(payload->Data);
+                            item.Handle = static_cast<uint32_t>(dropped);
+                            changed = true;
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("X")) {
+                        item.Handle = EntityRef::Invalid;
+                        changed = true;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("^") && i > 0) {
+                        std::swap(v[i], v[i - 1]);
+                        changed = true;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("v") && i + 1 < static_cast<int>(v.size())) {
+                        std::swap(v[i], v[i + 1]);
+                        changed = true;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("-")) {
+                        removeIndex = i;
+                        changed = true;
+                    }
+                    ImGui::PopID();
+                }
+                if (removeIndex >= 0)
+                    v.erase(v.begin() + removeIndex);
+                if (ImGui::SmallButton("+ Add")) {
+                    v.push_back(EntityRef{});
                     changed = true;
                 }
                 ImGui::PopID();

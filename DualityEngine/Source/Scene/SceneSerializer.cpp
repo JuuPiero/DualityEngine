@@ -1,12 +1,16 @@
 #include "DualityEngine/Scene/SceneSerializer.h"
 
 #include <fstream>
+#include <any>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "DualityEngine/Core/Log.h"
+#include "DualityEngine/Reflection/Field.h"
+#include "DualityEngine/Reflection/TypeRegistry.h"
 #include "DualityEngine/Scene/Components.h"
 #include "EntitySerialization.h"
 
@@ -65,6 +69,73 @@ namespace Duality {
                     ScaleScalarFields(overrides, { "MoveSpeed" });
                 else if (className == "BounceBehaviour")
                     ScaleScalarFields(overrides, { "Amplitude" });
+            }
+        }
+
+        // FieldSerialization encodes an EntityRef as {"$entity": rawHandle}.  Raw EnTT
+        // handles are only valid for this Scene instance, so translate that marker to the
+        // compact entity-array index used by this scene file before it reaches disk.
+        void EncodeEntityReferenceIndices(json& value, const std::unordered_map<entt::entity, int>& indexOf) {
+            if (value.is_object()) {
+                if (value.size() == 1 && value.contains("$entity")) {
+                    entt::entity handle = static_cast<entt::entity>(value["$entity"].get<uint32_t>());
+                    auto it = indexOf.find(handle);
+                    value = it == indexOf.end() ? json(-1) : json(it->second);
+                    return;
+                }
+                for (auto& item : value.items())
+                    EncodeEntityReferenceIndices(item.value(), indexOf);
+            } else if (value.is_array()) {
+                for (json& item : value)
+                    EncodeEntityReferenceIndices(item, indexOf);
+            }
+        }
+
+        void ResolveEntityReferenceValue(FieldValue& value, const std::vector<Entity>& orderedEntities) {
+            std::visit([&](auto& item) {
+                using T = std::decay_t<decltype(item)>;
+                if constexpr (std::is_same_v<T, EntityRef>) {
+                    if (item.Handle == EntityRef::Invalid)
+                        return;
+                    item = item.Handle < orderedEntities.size()
+                        ? EntityRef{ static_cast<uint32_t>(orderedEntities[item.Handle].Handle()) }
+                        : EntityRef{};
+                } else if constexpr (std::is_same_v<T, std::vector<EntityRef>>) {
+                    for (EntityRef& reference : item) {
+                        if (reference.Handle == EntityRef::Invalid)
+                            continue;
+                        reference = reference.Handle < orderedEntities.size()
+                            ? EntityRef{ static_cast<uint32_t>(orderedEntities[reference.Handle].Handle()) }
+                            : EntityRef{};
+                    }
+                } else if constexpr (std::is_same_v<T, NestedFieldValue>) {
+                    auto& values = std::any_cast<std::vector<FieldValue>&>(item.Values);
+                    for (FieldValue& nested : values)
+                        ResolveEntityReferenceValue(nested, orderedEntities);
+                }
+            }, value);
+        }
+
+        void ResolveLoadedEntityReferences(Scene& scene, const std::vector<Entity>& orderedEntities) {
+            for (const auto& type : TypeRegistry::All()) {
+                for (Entity entity : orderedEntities) {
+                    if (!type.Has(entity))
+                        continue;
+                    void* component = type.GetPtr(entity);
+                    for (const FieldHandle& field : type.Fields) {
+                        FieldValue value = field.Get(component);
+                        ResolveEntityReferenceValue(value, orderedEntities);
+                        field.Set(component, value);
+                    }
+                }
+            }
+
+            for (Entity entity : orderedEntities) {
+                if (!entity.HasComponent<BehaviourComponent>())
+                    continue;
+                for (ScriptInstance& script : entity.GetComponent<BehaviourComponent>().Scripts)
+                    for (auto& override : script.PropertyOverrides)
+                        ResolveEntityReferenceValue(override.second, orderedEntities);
             }
         }
 
@@ -181,6 +252,7 @@ namespace Duality {
 
             Entity parent = entity.GetComponent<HierarchyComponent>().Parent;
             entityJson["Parent"] = parent ? indexOf[parent.Handle()] : -1;
+            EncodeEntityReferenceIndices(entityJson, indexOf);
 
             entities.push_back(entityJson);
         }
@@ -220,6 +292,10 @@ namespace Duality {
             if (parentIndex >= 0 && parentIndex < static_cast<int>(orderedEntities.size()))
                 m_Scene.SetParent(orderedEntities[i], orderedEntities[parentIndex], {}, /*preserveWorldPosition=*/false);
         }
+
+        // EntityRef fields initially hold the on-disk entity indices.  Now that every
+        // entity exists, resolve those indices to this freshly-created Scene's handles.
+        ResolveLoadedEntityReferences(m_Scene, orderedEntities);
 
         if (wasLegacyPixelScene)
             Log::Info("SceneSerializer: migrated legacy pixel scene to Unity-style world units (save to persist)");

@@ -178,7 +178,7 @@ TEST_CASE("An entity with no PropertyOverrides keeps the script's compiled-in de
     CHECK_SOFT(instance->Flag == false, "same for the bool field");
 }
 
-TEST_CASE("PropertyOverrides round-trip through SceneSerializer; EntityRef always reloads unset") {
+TEST_CASE("PropertyOverrides round-trip through SceneSerializer; EntityRef resolves its saved target") {
     EnsureRegistered();
     std::string path = TempScenePath();
 
@@ -213,8 +213,10 @@ TEST_CASE("PropertyOverrides round-trip through SceneSerializer; EntityRef alway
 
     auto targetIt = loadedScript.PropertyOverrides.find("Target");
     CHECK(targetIt != loadedScript.PropertyOverrides.end());
-    CHECK_SOFT(std::get<EntityRef>(targetIt->second).Handle == EntityRef::Invalid,
-        "EntityRef never round-trips -- a raw handle isn't stable across reload, so it always reloads as unset rather than resolving to the wrong entity");
+    Entity loadedTarget = loadedScene.FindEntityInScreen(Screen::Top, "Target");
+    CHECK(loadedTarget);
+    CHECK_SOFT(std::get<EntityRef>(targetIt->second).Handle == static_cast<uint32_t>(loadedTarget.Handle()),
+        "EntityRef resolves to the same named target after the scene recreates its entities");
 
     std::filesystem::remove(path);
 }

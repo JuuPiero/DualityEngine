@@ -39,12 +39,10 @@ namespace Duality {
     // A reference to another entity in the same Scene, by its raw entt handle (kept as a
     // plain uint32_t rather than entt::entity so this header doesn't need <entt.hpp> --
     // Behaviour::ResolveEntityRef/MakeEntityRef do the entt::entity cast). Invalid = "no
-    // entity assigned". Unlike AssetRef, this is NOT stable across a scene save/load: a
-    // reloaded scene's entities get freshly assigned handles in creation order, so a raw
-    // handle from a previous session would silently resolve to the wrong entity (or none) --
-    // FieldValueToJson/JsonToFieldValue deliberately never round-trip this value, always
-    // saving/restoring it as "unset" instead. Usable directly with MakeField<C,T>() like any
-    // other field type.
+    // entity assigned". SceneSerializer converts the raw handle to that scene file's entity
+    // index while saving, then resolves it after every entity has been recreated while loading.
+    // This keeps individual references and ordered reference lists valid across save/load
+    // without exposing a scene GUID system to gameplay code.
     struct EntityRef {
         static constexpr uint32_t Invalid = 0xFFFFFFFF;
         uint32_t Handle = Invalid;
@@ -84,15 +82,16 @@ namespace Duality {
         std::vector<std::string> Options;
     };
 
-    // std::vector<AssetRef> and NestedFieldValue are the two compound alternatives here (the
-    // former added for MeshRendererComponent::Materials, the latter for DUALITY_SERIALIZABLE()
-    // nested structs -- see their own comments) -- deliberately not a generic "any field type/
+    // std::vector<AssetRef>, std::vector<EntityRef> and NestedFieldValue are the compound
+    // alternatives here.  Entity-reference lists are useful for ordered scene data such as a
+    // spline's knots; their Inspector widget accepts Hierarchy drag/drop one row at a time.
+    // This is deliberately not a generic "any field type/
     // any struct" mechanism, just these two concrete cases. Each real std::visit dispatch site
     // (FieldEditorWidget.cpp's DrawFieldValueWidget, FieldSerialization.cpp's
     // FieldValueToJson/JsonToFieldValue) needs exactly one new `if constexpr` branch per case --
     // TypeRegistry/MakeField/EntitySerialization.cpp need no changes at all, already fully
     // generic over whatever alternatives this variant holds.
-    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef, ProjectionType, MeshPrimitive, UIAnchor, BodyType, Layer, uint32_t, EntityRef, CanvasRenderMode, UILayoutType, TextAlignment, EnumFieldValue, std::vector<AssetRef>, NestedFieldValue>;
+    using FieldValue = std::variant<int, float, bool, std::string, glm::vec2, glm::vec3, glm::vec4, Color4, Screen, AssetRef, ProjectionType, MeshPrimitive, UIAnchor, BodyType, Layer, uint32_t, EntityRef, CanvasRenderMode, UILayoutType, TextAlignment, EnumFieldValue, std::vector<AssetRef>, std::vector<EntityRef>, NestedFieldValue>;
 
     // A named, type-erased accessor for one field of a component/script
     // instance. Reflection is only ever walked from the Properties panel

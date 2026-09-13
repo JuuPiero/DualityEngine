@@ -147,15 +147,16 @@ def parse_enum_values(body):
 def scan_enums(scan_dirs):
     enums = {}
     for scan_dir in scan_dirs:
-        for header in sorted(f for f in os.listdir(scan_dir) if f.endswith(".h")):
-            full_path = os.path.join(scan_dir, header)
-            with open(full_path, "r", encoding="utf-8") as f:
-                text = f.read()
-            for match in ENUM_CLASS_RE.finditer(text):
-                enum_name = match.group(1)
-                values = parse_enum_values(match.group(2))
-                if values:
-                    enums[enum_name] = values
+        for root, _, files in os.walk(scan_dir):
+            for header in sorted(f for f in files if f.endswith(".h")):
+                full_path = os.path.join(root, header)
+                with open(full_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+                for match in ENUM_CLASS_RE.finditer(text):
+                    enum_name = match.group(1)
+                    values = parse_enum_values(match.group(2))
+                    if values:
+                        enums[enum_name] = values
     return enums
 
 
@@ -181,10 +182,11 @@ def main():
 
     all_classes = []  # (full_header_path, class_name, [(field_name, field_type), ...])
     for scan_dir in scan_dirs:
-        for header in sorted(f for f in os.listdir(scan_dir) if f.endswith(".h")):
-            full_path = os.path.join(scan_dir, header)
-            for class_name, fields in scan_header(full_path):
-                all_classes.append((full_path, class_name, fields))
+        for root, _, files in os.walk(scan_dir):
+            for header in sorted(f for f in files if f.endswith(".h")):
+                full_path = os.path.join(root, header)
+                for class_name, fields in scan_header(full_path):
+                    all_classes.append((full_path, class_name, fields))
 
     # Every Fields()-generated type name, project-wide, collected BEFORE any field is emitted --
     # a nested struct can be defined in one header and used as a field in another. See this

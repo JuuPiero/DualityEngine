@@ -32,6 +32,15 @@ namespace Duality {
                 for (const AssetRef& item : v)
                     array.push_back(item.Guid);
                 return array;
+            } else if constexpr (std::is_same_v<T, std::vector<EntityRef>>) {
+                json array = json::array();
+                for (const EntityRef& item : v) {
+                    if (item.Handle == EntityRef::Invalid)
+                        array.push_back(nullptr);
+                    else
+                        array.push_back(json{ { "$entity", item.Handle } });
+                }
+                return array;
             } else if constexpr (std::is_same_v<T, BodyType>) {
                 const char* names[] = { "Static", "Kinematic", "Dynamic" };
                 return names[static_cast<int>(v)];
@@ -62,8 +71,7 @@ namespace Duality {
                     obj[fields[i].Name] = FieldValueToJson(values[i]);
                 return obj;
             } else if constexpr (std::is_same_v<T, EntityRef>) {
-                // Never round-tripped -- see EntityRef's own comment in Field.h.
-                return nullptr;
+                return v.Handle == EntityRef::Invalid ? json(nullptr) : json{ { "$entity", v.Handle } };
             } else {
                 return v; // int, float, bool, std::string
             }
@@ -103,6 +111,21 @@ namespace Duality {
                 std::vector<AssetRef> result;
                 for (const auto& guid : j)
                     result.push_back(AssetRef{ guid.get<std::string>() });
+                return result;
+            } else if constexpr (std::is_same_v<T, std::vector<EntityRef>>) {
+                std::vector<EntityRef> result;
+                if (!j.is_array())
+                    return result;
+                for (const auto& item : j) {
+                    if (item.is_null()) {
+                        result.push_back(EntityRef{});
+                    } else if (item.is_number_integer() || item.is_number_unsigned()) {
+                        int64_t index = item.get<int64_t>();
+                        result.push_back(index < 0 ? EntityRef{} : EntityRef{ static_cast<uint32_t>(index) });
+                    } else if (item.is_object() && item.contains("$entity")) {
+                        result.push_back(EntityRef{ item["$entity"].get<uint32_t>() });
+                    }
+                }
                 return result;
             } else if constexpr (std::is_same_v<T, BodyType>) {
                 std::string name = j.get<std::string>();
@@ -151,7 +174,14 @@ namespace Duality {
                     values.push_back(j.contains(fields[i].Name) ? JsonToFieldValue(j.at(fields[i].Name), protoValues[i]) : protoValues[i]);
                 return NestedFieldValue{ std::any(std::move(values)), proto.FieldsFn };
             } else if constexpr (std::is_same_v<T, EntityRef>) {
-                // Never round-tripped -- see EntityRef's own comment in Field.h.
+                if (j.is_null())
+                    return EntityRef{};
+                if (j.is_number_integer() || j.is_number_unsigned()) {
+                    int64_t index = j.get<int64_t>();
+                    return index < 0 ? EntityRef{} : EntityRef{ static_cast<uint32_t>(index) };
+                }
+                if (j.is_object() && j.contains("$entity"))
+                    return EntityRef{ j["$entity"].get<uint32_t>() };
                 return EntityRef{};
             } else {
                 return j.get<T>(); // int, float, bool, std::string
