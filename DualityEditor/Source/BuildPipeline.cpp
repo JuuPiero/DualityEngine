@@ -236,6 +236,12 @@ namespace Duality {
             if (auto project = Project::GetActive(); project && !project->GetConfig().ScenesInBuild.empty()) {
                 for (const std::string& scenePath : project->GetConfig().ScenesInBuild)
                     rootScenes.push_back(assetsDir / scenePath);
+                // StartScene is intentionally allowed to be selected before being added to the
+                // optional build list. It must still be a dependency root because it is what the
+                // player boots, even in that configuration.
+                const std::filesystem::path startScene = assetsDir / project->GetStartScenePath();
+                if (std::find(rootScenes.begin(), rootScenes.end(), startScene) == rootScenes.end())
+                    rootScenes.push_back(startScene);
             } else if (!mainScenePath.empty()) {
                 rootScenes.emplace_back(mainScenePath);
             }
@@ -507,15 +513,13 @@ namespace Duality {
             ? activeProject->GetAssetsDirectory()
             : std::filesystem::path(sceneJsonPath).parent_path().string(); // no active project -- best-effort fallback
 
-        // Build Settings' own Start Scene (ScenesInBuild[0], see ProjectConfig's own comment)
-        // wins once configured -- read straight off disk (NOT ctx.SceneRef/sceneJsonPath's live
-        // in-memory state, since the Start Scene may not be whatever's currently open in the
-        // Editor). Falls back to sceneJsonPath (today's "package whatever's open" behavior) for a
-        // project that hasn't configured Build Settings yet -- empty ScenesInBuild is always a
-        // no-op fallback, never an error, matching CookAssets' own filter below.
+        // The explicit Start Scene setting wins over the scene currently open in the Editor. This
+        // lets a developer edit Level2 while reliably building MainMenu as the boot scene.
+        // GetStartScenePath also preserves old .dproj files: build-list first entry, then
+        // Assets/Scene.scene are the compatibility fallbacks.
         std::string mainScenePath = sceneJsonPath;
-        if (activeProject && !activeProject->GetConfig().ScenesInBuild.empty())
-            mainScenePath = assetsDirectory + "/" + activeProject->GetConfig().ScenesInBuild[0];
+        if (activeProject)
+            mainScenePath = assetsDirectory + "/" + activeProject->GetStartScenePath();
 
         std::string sceneDest = repoRoot + "\\DualityPlayer\\romfs\\Scene.scene";
         if (!CopyFileA(mainScenePath.c_str(), sceneDest.c_str(), FALSE)) {

@@ -704,6 +704,42 @@ namespace Duality {
         return AudioEngine::IsPlaying(src.RuntimeHandle);
     }
 
+    static bool EngineServices_GetParentEntity(void* scenePtr, unsigned int entityHandle, unsigned int* outHandle) {
+        if (!scenePtr || !outHandle)
+            return false;
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        Entity parent = scene->GetParent(EntityFromSceneHandle(scene, entityHandle));
+        if (!parent)
+            return false;
+        *outHandle = static_cast<unsigned int>(parent.Handle());
+        return true;
+    }
+
+    static int EngineServices_GetChildCount(void* scenePtr, unsigned int entityHandle) {
+        if (!scenePtr)
+            return 0;
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        return static_cast<int>(scene->GetChildren(EntityFromSceneHandle(scene, entityHandle)).size());
+    }
+
+    static bool EngineServices_GetChildAt(void* scenePtr, unsigned int entityHandle, int index, unsigned int* outHandle) {
+        if (!scenePtr || !outHandle || index < 0)
+            return false;
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        std::vector<Entity> children = scene->GetChildren(EntityFromSceneHandle(scene, entityHandle));
+        if (static_cast<size_t>(index) >= children.size() || !children[static_cast<size_t>(index)])
+            return false;
+        *outHandle = static_cast<unsigned int>(children[static_cast<size_t>(index)].Handle());
+        return true;
+    }
+
+    static void EngineServices_ClearEntityChildren(void* scenePtr, unsigned int entityHandle) {
+        if (!scenePtr)
+            return;
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        scene->ClearChildren(EntityFromSceneHandle(scene, entityHandle));
+    }
+
     static const EngineServices s_EngineServices = {
         &EngineServices_GetKey,
         &EngineServices_GetKeyDown,
@@ -738,6 +774,10 @@ namespace Duality {
         &EngineServices_AudioSourceSetPaused,
         &EngineServices_AudioSourceSetVolume,
         &EngineServices_AudioSourceIsPlaying,
+        &EngineServices_GetParentEntity,
+        &EngineServices_GetChildCount,
+        &EngineServices_GetChildAt,
+        &EngineServices_ClearEntityChildren,
     };
 
     namespace {

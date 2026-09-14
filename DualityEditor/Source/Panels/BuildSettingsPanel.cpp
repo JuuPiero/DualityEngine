@@ -34,6 +34,7 @@ namespace Duality {
         }
 
         std::vector<std::string>& scenesInBuild = project->GetConfig().ScenesInBuild;
+        std::string& startScene = project->GetConfig().StartScene;
         bool changed = false;
 
         ImGui::TextUnformatted("Nintendo 3DS");
@@ -46,7 +47,11 @@ namespace Duality {
         ImGui::Separator();
 
         ImGui::TextUnformatted("Scenes In Build");
-        ImGui::TextDisabled("Drag to reorder -- the top scene is the Start Scene.");
+        ImGui::TextDisabled("Choose one scene as Start Scene; drag only changes build order.");
+        if (startScene.empty())
+            ImGui::TextDisabled("Start Scene: <not set -- first build scene is used for legacy projects>");
+        else
+            ImGui::Text("Start Scene: %s", startScene.c_str());
         ImGui::Separator();
 
         // Standard ImGui "drag to reorder" idiom (see Dear ImGui's own demo) -- every row here
@@ -55,9 +60,11 @@ namespace Duality {
         int removeIndex = -1;
         for (int i = 0; i < static_cast<int>(scenesInBuild.size()); i++) {
             ImGui::PushID(i);
-            std::string label = (i == 0 ? "[Main] " : "") + scenesInBuild[i];
+            const bool isStartScene = scenesInBuild[i] == startScene;
+            std::string label = (isStartScene ? "[Start] " : "") + scenesInBuild[i];
             const float removeButtonWidth = 24.0f;
-            const float rowWidth = ImGui::GetContentRegionAvail().x - removeButtonWidth - ImGui::GetStyle().ItemInnerSpacing.x;
+            const float startButtonWidth = 72.0f;
+            const float rowWidth = ImGui::GetContentRegionAvail().x - startButtonWidth - removeButtonWidth - ImGui::GetStyle().ItemInnerSpacing.x * 2.0f;
             // Reserve a real, non-overlapping column for the remove button. The old
             // SameLine(GetContentRegionAvail...) call interpreted "available width" as an
             // absolute cursor coordinate, allowing the row's drag/select item to cover the x
@@ -74,13 +81,21 @@ namespace Duality {
             }
 
             ImGui::SameLine();
+            if (ImGui::Button(isStartScene ? "Start##SetStart" : "Set Start##SetStart", ImVec2(startButtonWidth, 0.0f)) && !isStartScene) {
+                startScene = scenesInBuild[i];
+                changed = true;
+            }
+            ImGui::SameLine();
             if (ImGui::Button("x##RemoveScene", ImVec2(removeButtonWidth, 0.0f)))
                 removeIndex = i;
             ImGui::PopID();
         }
 
         if (removeIndex >= 0) {
+            const bool removedStartScene = scenesInBuild[removeIndex] == startScene;
             scenesInBuild.erase(scenesInBuild.begin() + removeIndex);
+            if (removedStartScene)
+                startScene = scenesInBuild.empty() ? "" : scenesInBuild.front();
             changed = true;
         }
         if (scenesInBuild.empty())
@@ -105,6 +120,8 @@ namespace Duality {
                     continue; // already listed above
                 if (ImGui::Selectable(relPath.c_str())) {
                     scenesInBuild.push_back(relPath);
+                    if (startScene.empty())
+                        startScene = relPath;
                     changed = true;
                 }
             }

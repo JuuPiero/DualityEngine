@@ -80,26 +80,60 @@ namespace Duality {
         // default, traverse children depth-first / parents nearest-first, and return borrowed
         // component pointers valid until the next structural ECS change.
         template<typename T>
-        T* GetComponentInChildren(bool includeSelf = true) { return m_Entity.GetComponentInChildren<T>(includeSelf); }
+        T* GetComponentInChildren(bool includeSelf = true) { return FindComponentInChildren<T>(m_Entity, includeSelf); }
         template<typename T>
-        const T* GetComponentInChildren(bool includeSelf = true) const { return m_Entity.GetComponentInChildren<T>(includeSelf); }
+        const T* GetComponentInChildren(bool includeSelf = true) const { return FindComponentInChildrenConst<T>(m_Entity, includeSelf); }
         template<typename T>
-        std::vector<T*> GetComponentsInChildren(bool includeSelf = true) { return m_Entity.GetComponentsInChildren<T>(includeSelf); }
+        std::vector<T*> GetComponentsInChildren(bool includeSelf = true) {
+            std::vector<T*> result;
+            CollectComponentsInChildren<T>(m_Entity, includeSelf, result);
+            return result;
+        }
         template<typename T>
-        std::vector<const T*> GetComponentsInChildren(bool includeSelf = true) const { return m_Entity.GetComponentsInChildren<T>(includeSelf); }
+        std::vector<const T*> GetComponentsInChildren(bool includeSelf = true) const {
+            std::vector<const T*> result;
+            CollectComponentsInChildrenConst<T>(m_Entity, includeSelf, result);
+            return result;
+        }
 
         template<typename T>
-        T* GetComponentInParent(bool includeSelf = true) { return m_Entity.GetComponentInParent<T>(includeSelf); }
+        T* GetComponentInParent(bool includeSelf = true) {
+            for (Entity current = includeSelf ? m_Entity : GetParent(); current; current = GetParentOf(current))
+                if (T* component = current.TryGetComponent<T>()) return component;
+            return nullptr;
+        }
         template<typename T>
-        const T* GetComponentInParent(bool includeSelf = true) const { return m_Entity.GetComponentInParent<T>(includeSelf); }
+        const T* GetComponentInParent(bool includeSelf = true) const {
+            for (Entity current = includeSelf ? m_Entity : GetParent(); current; current = GetParentOf(current)) {
+                const Entity constCurrent = current;
+                if (const T* component = constCurrent.TryGetComponent<T>()) return component;
+            }
+            return nullptr;
+        }
         template<typename T>
-        std::vector<T*> GetComponentsInParent(bool includeSelf = true) { return m_Entity.GetComponentsInParent<T>(includeSelf); }
+        std::vector<T*> GetComponentsInParent(bool includeSelf = true) {
+            std::vector<T*> result;
+            for (Entity current = includeSelf ? m_Entity : GetParent(); current; current = GetParentOf(current))
+                if (T* component = current.TryGetComponent<T>()) result.push_back(component);
+            return result;
+        }
         template<typename T>
-        std::vector<const T*> GetComponentsInParent(bool includeSelf = true) const { return m_Entity.GetComponentsInParent<T>(includeSelf); }
+        std::vector<const T*> GetComponentsInParent(bool includeSelf = true) const {
+            std::vector<const T*> result;
+            for (Entity current = includeSelf ? m_Entity : GetParent(); current; current = GetParentOf(current)) {
+                const Entity constCurrent = current;
+                if (const T* component = constCurrent.TryGetComponent<T>()) result.push_back(component);
+            }
+            return result;
+        }
 
-        Entity GetParent() const { return m_Entity.GetParent(); }
-        std::vector<Entity> GetChildren() const { return m_Entity.GetChildren(); }
-        void ClearChildren() { m_Entity.ClearChildren(); }
+        Entity GetParent() const { return GetParentOf(m_Entity); }
+        std::vector<Entity> GetChildren() const { return GetChildrenOf(m_Entity); }
+        void ClearChildren() {
+            const EngineServices* services = ScriptContext::Services();
+            if (m_Entity && services && services->ClearEntityChildren)
+                services->ClearEntityChildren(m_Entity.GetScene(), static_cast<unsigned int>(m_Entity.Handle()));
+        }
 
         Entity GetEntity() const { return m_Entity; }
         bool IsEntityValid() const { return m_Entity.IsValid(); }
@@ -186,6 +220,64 @@ namespace Duality {
         }
 
     private:
+        Entity GetParentOf(Entity entity) const {
+            const EngineServices* services = ScriptContext::Services();
+            unsigned int handle = 0;
+            if (!entity || !services || !services->GetParentEntity ||
+                !services->GetParentEntity(entity.GetScene(), static_cast<unsigned int>(entity.Handle()), &handle))
+                return {};
+            return Entity(static_cast<entt::entity>(handle), entity.GetScene());
+        }
+
+        std::vector<Entity> GetChildrenOf(Entity entity) const {
+            std::vector<Entity> result;
+            const EngineServices* services = ScriptContext::Services();
+            if (!entity || !services || !services->GetChildCount || !services->GetChildAt)
+                return result;
+            const int count = services->GetChildCount(entity.GetScene(), static_cast<unsigned int>(entity.Handle()));
+            result.reserve(count > 0 ? static_cast<size_t>(count) : 0);
+            for (int index = 0; index < count; ++index) {
+                unsigned int handle = 0;
+                if (services->GetChildAt(entity.GetScene(), static_cast<unsigned int>(entity.Handle()), index, &handle))
+                    result.emplace_back(static_cast<entt::entity>(handle), entity.GetScene());
+            }
+            return result;
+        }
+
+        template<typename T>
+        T* FindComponentInChildren(Entity entity, bool includeSelf) {
+            if (!entity) return nullptr;
+            if (includeSelf && entity.TryGetComponent<T>()) return entity.TryGetComponent<T>();
+            for (Entity child : GetChildrenOf(entity))
+                if (T* component = FindComponentInChildren<T>(child, true)) return component;
+            return nullptr;
+        }
+
+        template<typename T>
+        const T* FindComponentInChildrenConst(Entity entity, bool includeSelf) const {
+            if (!entity) return nullptr;
+            const Entity constEntity = entity;
+            if (includeSelf && constEntity.TryGetComponent<T>()) return constEntity.TryGetComponent<T>();
+            for (Entity child : GetChildrenOf(entity))
+                if (const T* component = FindComponentInChildrenConst<T>(child, true)) return component;
+            return nullptr;
+        }
+
+        template<typename T>
+        void CollectComponentsInChildren(Entity entity, bool includeSelf, std::vector<T*>& result) {
+            if (!entity) return;
+            if (includeSelf && entity.TryGetComponent<T>()) result.push_back(entity.TryGetComponent<T>());
+            for (Entity child : GetChildrenOf(entity)) CollectComponentsInChildren<T>(child, true, result);
+        }
+
+        template<typename T>
+        void CollectComponentsInChildrenConst(Entity entity, bool includeSelf, std::vector<const T*>& result) const {
+            if (!entity) return;
+            const Entity constEntity = entity;
+            if (includeSelf && constEntity.TryGetComponent<T>()) result.push_back(constEntity.TryGetComponent<T>());
+            for (Entity child : GetChildrenOf(entity)) CollectComponentsInChildrenConst<T>(child, true, result);
+        }
+
         Entity m_Entity;
         // Points at the owning ScriptInstance::Enabled for the lifetime of this instance
         // (set by Scene::OnRuntimeStart). Null outside Play.

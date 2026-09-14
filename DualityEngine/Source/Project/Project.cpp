@@ -27,6 +27,7 @@ namespace Duality {
         auto project = std::make_shared<Project>();
         project->m_Directory = directory;
         project->m_Config.Name = name;
+        project->m_Config.StartScene = "Scene.scene";
         project->m_ProjectFilePath = directory + "/" + name + ".dproj";
 
         MakeDirectory(directory);
@@ -119,6 +120,14 @@ namespace Duality {
             result += package;
         }
         return result;
+    }
+
+    std::string Project::GetStartScenePath() const {
+        if (!m_Config.StartScene.empty())
+            return m_Config.StartScene;
+        if (!m_Config.ScenesInBuild.empty())
+            return m_Config.ScenesInBuild.front();
+        return "Scene.scene";
     }
 
 }

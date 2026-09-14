@@ -118,6 +118,14 @@ namespace Duality {
         void (*AudioSourceSetVolume)(void* scene, unsigned int entityHandle, float volume);
         bool (*AudioSourceIsPlaying)(void* scene, unsigned int entityHandle);
 
+        // Hierarchy operations cross the desktop GameScripts DLL boundary too.  Keep the
+        // handles plain here; Behaviour reconstructs Entity values on the script side.
+        // GetParent/GetChildAt return false when there is no corresponding live entity.
+        bool (*GetParentEntity)(void* scene, unsigned int entityHandle, unsigned int* outHandle);
+        int (*GetChildCount)(void* scene, unsigned int entityHandle);
+        bool (*GetChildAt)(void* scene, unsigned int entityHandle, int index, unsigned int* outHandle);
+        void (*ClearEntityChildren)(void* scene, unsigned int entityHandle);
+
         // Per-callback context for ScriptContext (Bind/Clear/Scene/EntityHandle) -- lives HERE,
         // as mutable fields on this one process-wide struct instance, deliberately NOT as
         // ScriptContext's own `static`/`inline static` variables. A plain header-only static

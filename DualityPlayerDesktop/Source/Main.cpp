@@ -195,11 +195,9 @@ int main() {
     AssetDatabase::Refresh(project->GetAssetsDirectory());
 
     Scene scene;
-    // Build Settings' own Start Scene (ScenesInBuild[0]) once a project has configured it --
-    // falls back to the literal "Scene.scene" (today's hardcoded behavior) for a project that
-    // hasn't, same empty-list-is-a-no-op convention BuildPipeline's own BuildFor3DS/CookAssets use.
-    const std::vector<std::string>& scenesInBuild = project->GetConfig().ScenesInBuild;
-    std::string startScenePath = scenesInBuild.empty() ? "Scene.scene" : scenesInBuild[0];
+    // Same explicit .dproj setting the Editor and 3DS BuildPipeline use. Old projects retain
+    // their build-list-first and Assets/Scene.scene fallbacks through Project::GetStartScenePath.
+    std::string startScenePath = project->GetStartScenePath();
     SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/" + startScenePath);
     scene.OnRuntimeStart();
 

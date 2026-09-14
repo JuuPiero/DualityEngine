@@ -24,13 +24,9 @@ namespace Duality {
         std::string StartScene;
 
         // Build Settings (DualityEditor/Panels/BuildSettingsPanel.cpp): Assets-relative .scene
-        // paths, in build order -- index 0 is the Start Scene (the one BuildPipeline packages as
-        // the device build's boot Scene.scene, and DualityPlayerDesktop's own launch reads),
-        // matching Unity's own "topmost enabled scene in Build Settings" convention rather than
-        // a separate start-scene picker that could desync from this list's own order. Empty means
-        // "Build Settings not configured yet" -- every consumer (BuildPipeline::BuildFor3DS/
-        // CookAssets, DualityPlayerDesktop/Source/Main.cpp) treats that as a no-op fallback to
-        // whatever they did before this field existed, not an error.
+        // paths included in a device build, in user-controlled order. StartScene above selects
+        // the boot scene independently; the first entry is only the migration fallback for an
+        // older .dproj where StartScene was not yet written. An empty list is valid.
         std::vector<std::string> ScenesInBuild;
 
         // Nintendo 3DS output resolve quality, selected in Build Settings and baked into
@@ -81,6 +77,10 @@ namespace Duality {
         std::string GetAssetsDirectory() const { return m_Directory + "/" + m_Config.AssetsDirectory; }
         std::string GetScriptsDirectory() const { return GetAssetsDirectory() + "/" + m_Config.ScriptsDirectory; }
         std::string GetPackagesDirectory() const { return m_Directory + "/" + m_Config.PackagesDirectory; }
+        // Assets-relative boot scene. StartScene is the explicit project setting; the build-list
+        // first entry remains a compatibility fallback for projects written before that picker.
+        // The final Scene.scene fallback keeps old/new empty projects usable without migration.
+        std::string GetStartScenePath() const;
         // CMake accepts this stable comma-separated form through a cache STRING. Package IDs
         // themselves may not contain commas (enforced by Package Manager).
         std::string GetEnabledPackagesCsv() const;

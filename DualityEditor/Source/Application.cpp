@@ -45,9 +45,22 @@ namespace Duality {
         return exePath;
     }
 
+    static std::shared_ptr<Project> LoadDefaultProject() {
+        constexpr const char* DefaultProjectPath = "SampleProject/SampleProject.dproj";
+        if (std::filesystem::exists(DefaultProjectPath)) {
+            if (auto project = Project::Load(DefaultProjectPath))
+                return project;
+        }
+        return Project::New("SampleProject", "SampleProject");
+    }
+
+    static std::string GetStartupScenePath(const std::shared_ptr<Project>& project) {
+        return project->GetAssetsDirectory() + "/" + project->GetStartScenePath();
+    }
+
     Application::Application()
         : m_Window(1280, 800, "DualityEditor")
-        , m_Project(Project::New("SampleProject", "SampleProject"))
+        , m_Project(LoadDefaultProject())
         , m_TopFramebuffer(TopScreenWidth, TopScreenHeight)
         , m_BottomFramebuffer(BottomScreenWidth, BottomScreenHeight)
         , m_TopSceneFramebuffer(480, 540) // resized every frame to match its Scene view pane -- see ScenePanel
@@ -75,12 +88,15 @@ namespace Duality {
         m_Renderer3D.Init();
         AudioEngine::Init();
 
-        m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.scene";
+        m_ScenePath = GetStartupScenePath(m_Project);
         // m_TopSceneView/m_BottomSceneView start unseeded -- ScenePanel seeds each
         // from that screen's real primary CameraComponent on its first render.
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
 
-        SetupDemoScene();
+        if (std::filesystem::exists(m_ScenePath))
+            SceneSerializer(m_Scene).Deserialize(m_ScenePath);
+        else
+            SetupDemoScene();
         m_SceneHistory.Reset(m_Scene);
     }
 
@@ -511,7 +527,7 @@ namespace Duality {
         m_BottomSceneView = SceneViewCamera();    // instead of keeping the old project's pan/zoom
         m_TopSceneView3D = SceneViewCamera3D();   // same reasoning, 3D orbit cameras
         m_BottomSceneView3D = SceneViewCamera3D();
-        m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.scene";
+        m_ScenePath = GetStartupScenePath(m_Project);
         m_ContentBrowserPanel.SetRootDirectory(m_Project->GetAssetsDirectory());
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
         // Compiles+loads THIS project's own Assets/Scripts (see GameScripts/CMakeLists.txt's
@@ -521,7 +537,7 @@ namespace Duality {
         // ScriptRegistry to already know the class until Play actually starts.
         ScriptEngine::ReloadAsync(m_BuildDirectory);
 
-        // A brand new project has no Scene.scene yet -- Deserialize logs an
+        // A brand new project has no configured start scene yet -- Deserialize logs an
         // error and leaves m_Scene empty in that case, same as clicking
         // "Load Scene" against a project that hasn't saved one yet.
         SceneSerializer(m_Scene).Deserialize(m_ScenePath);
@@ -567,7 +583,7 @@ namespace Duality {
         m_BottomSceneView = SceneViewCamera();    // instead of keeping the old project's pan/zoom
         m_TopSceneView3D = SceneViewCamera3D();   // same reasoning, 3D orbit cameras
         m_BottomSceneView3D = SceneViewCamera3D();
-        m_ScenePath = m_Project->GetAssetsDirectory() + "/Scene.scene";
+        m_ScenePath = GetStartupScenePath(m_Project);
         m_ContentBrowserPanel.SetRootDirectory(m_Project->GetAssetsDirectory());
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
         // Same reasoning as OpenProjectFromDialog's own call -- compiles+loads this brand new

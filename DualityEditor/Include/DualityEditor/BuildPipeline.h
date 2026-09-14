@@ -62,9 +62,9 @@ namespace Duality {
         static int RunCommand(const std::string& command);
 
     private:
-        // Cooks only assets reachable from the enabled build scenes (images to .t3x, everything
-        // else copied verbatim) and writes the guid->romfs-path manifest the player consumes.
-        // `mainScenePath` is the fallback root when Build Settings has no explicit scene list.
+        // Cooks only assets reachable from build scenes and the explicit Start Scene (images to
+        // .t3x, everything else copied verbatim), then writes the guid->romfs-path manifest.
+        // `mainScenePath` is the compatibility fallback when no project is active.
         static bool CookAssets(const std::string& repoRoot, const std::string& assetsDirectory,
             const std::string& mainScenePath);
 
