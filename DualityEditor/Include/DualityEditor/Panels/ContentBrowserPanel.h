@@ -9,7 +9,7 @@ namespace Duality {
 
     struct EditorContext;
 
-    // Unity-like Project browser: a folder/package tree on the left and an
+    // Unity-like Project browser: a resizable full asset tree on the left and an
     // asset grid on the right. Assets are editable; Packages are intentionally
     // browsable read-only here and are installed/enabled/removed by Package Manager.
     // Image assets show a real thumbnail, folders/other
@@ -74,7 +74,7 @@ namespace Duality {
         // Moves the asset `guid` resolves to (plus its ".meta") into `destDir` and
         // re-registers it -- the drag-a-file-onto-a-folder flow.
         void MoveAssetInto(const std::string& guid, const std::filesystem::path& destDir);
-        void DrawDirectoryTree(const std::filesystem::path& directory, const char* label, int depth = 0);
+        void DrawDirectoryTree(EditorContext& ctx, const std::filesystem::path& directory, const char* label, int depth = 0);
         bool IsPackagesView(const std::filesystem::path& path) const;
         std::filesystem::path CurrentContentRoot() const;
 
@@ -82,6 +82,10 @@ namespace Duality {
         std::filesystem::path m_PackagesDirectory;
         std::filesystem::path m_CurrentDirectory;
         ThumbnailCache m_Thumbnails;
+        // Width of the left Project tree. It is intentionally panel-local (rather than a global
+        // preference): each Content Browser dock can keep the amount of path/file detail its
+        // author needs without affecting the scene/inspector layout.
+        float m_ProjectTreeWidth = 190.0f;
         char m_SearchBuffer[128] = "";
 
         // Empty = nothing being renamed; otherwise the path (path.string()) of the item whose

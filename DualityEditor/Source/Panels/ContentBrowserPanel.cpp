@@ -307,7 +307,7 @@ namespace Duality {
         return IsPackagesView(m_CurrentDirectory) ? m_PackagesDirectory : m_RootDirectory;
     }
 
-    void ContentBrowserPanel::DrawDirectoryTree(const std::filesystem::path& directory, const char* label, int depth) {
+    void ContentBrowserPanel::DrawDirectoryTree(EditorContext& ctx, const std::filesystem::path& directory, const char* label, int depth) {
         if (depth > 24 || !std::filesystem::is_directory(directory))
             return;
 
@@ -327,12 +327,65 @@ namespace Duality {
         std::vector<std::filesystem::path> children;
         std::error_code error;
         for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
-            if (!error && entry.is_directory(error))
+            if (error)
+                break;
+            // Meta sidecars are database bookkeeping, never project assets in their own right.
+            if (!entry.is_directory(error) && entry.path().extension() == ".meta")
+                continue;
+            if (!error)
                 children.push_back(entry.path());
         }
-        std::sort(children.begin(), children.end());
-        for (const std::filesystem::path& child : children)
-            DrawDirectoryTree(child, child.filename().string().c_str(), depth + 1);
+        std::sort(children.begin(), children.end(), [](const std::filesystem::path& left, const std::filesystem::path& right) {
+            const bool leftDirectory = std::filesystem::is_directory(left);
+            const bool rightDirectory = std::filesystem::is_directory(right);
+            if (leftDirectory != rightDirectory)
+                return leftDirectory > rightDirectory;
+            return left.filename().string() < right.filename().string();
+        });
+
+        for (const std::filesystem::path& child : children) {
+            std::error_code childError;
+            const bool isDirectory = std::filesystem::is_directory(child, childError);
+            if (childError)
+                continue;
+            if (isDirectory) {
+                DrawDirectoryTree(ctx, child, child.filename().string().c_str(), depth + 1);
+                continue;
+            }
+
+            const bool selected = std::find(ctx.SelectedAssetPaths.begin(), ctx.SelectedAssetPaths.end(), child.string()) !=
+                ctx.SelectedAssetPaths.end();
+            ImGuiTreeNodeFlags fileFlags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                ImGuiTreeNodeFlags_SpanAvailWidth;
+            if (selected)
+                fileFlags |= ImGuiTreeNodeFlags_Selected;
+            const FileIconInfo icon = GetFileIconInfo(child);
+            const std::string fileLabel = std::string(icon.Glyph) + " " + child.filename().string();
+            ImGui::TreeNodeEx(child.string().c_str(), fileFlags, "%s", fileLabel.c_str());
+
+            const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+            const bool doubleClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+            if (!IsPackagesView(child) && ImGui::BeginDragDropSource()) {
+                const std::string guid = AssetMeta::EnsureMetaFile(child);
+                AssetDatabase::Register(guid, child.string());
+                ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
+                ImGui::TextUnformatted(child.filename().string().c_str());
+                ImGui::EndDragDropSource();
+            }
+
+            if (clicked) {
+                // Range selection is local to the directory displayed in the grid. Move the
+                // grid there first so Shift-click behaves the same from either Project view.
+                m_CurrentDirectory = child.parent_path();
+                SelectAsset(ctx, child, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
+            }
+            if (doubleClicked && child.extension() == ".scene") {
+                if (!ctx.IsEditingPrefab)
+                    OpenScene(ctx, child.string());
+            } else if (doubleClicked && child.extension() == ".prefab") {
+                ctx.RequestOpenPrefabPath = child.string();
+            }
+        }
         ImGui::TreePop();
     }
 
@@ -610,20 +663,31 @@ namespace Duality {
         ImGui::Begin("Content Browser");
         NormalizeAssetSelection(ctx);
 
-        // Unity-style Project tree: Assets and Packages are separate roots. Packages are shown
-        // here for discovery, but Package Manager owns install/enable/remove so browsing them
-        // cannot accidentally create .meta files beside third-party source or manifests.
-        ImGui::BeginChild("##ContentBrowserTree", ImVec2(190.0f, 0.0f), true);
+        // Unity-style Project tree: Assets and Packages are separate roots. The divider is a
+        // real drag handle rather than a fixed-width child, important for deeply nested package
+        // IDs and for script filenames that would otherwise be impossible to distinguish.
+        const ImVec2 browserSize = ImGui::GetContentRegionAvail();
+        const float minTreeWidth = 140.0f;
+        const float splitterWidth = 5.0f;
+        const float maxTreeWidth = std::max(minTreeWidth, browserSize.x - 220.0f);
+        m_ProjectTreeWidth = std::clamp(m_ProjectTreeWidth, minTreeWidth, maxTreeWidth);
+        ImGui::BeginChild("##ContentBrowserTree", ImVec2(m_ProjectTreeWidth, browserSize.y), true);
         ImGui::TextDisabled("PROJECT");
         ImGui::Separator();
-        DrawDirectoryTree(m_RootDirectory, "Assets");
+        DrawDirectoryTree(ctx, m_RootDirectory, "Assets");
         if (std::filesystem::is_directory(m_PackagesDirectory))
-            DrawDirectoryTree(m_PackagesDirectory, "Packages");
+            DrawDirectoryTree(ctx, m_PackagesDirectory, "Packages");
         else
             ImGui::TextDisabled("Packages (none)");
         ImGui::EndChild();
-        ImGui::SameLine();
-        ImGui::BeginChild("##ContentBrowserGrid", ImVec2(0.0f, 0.0f), false);
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::InvisibleButton("##ContentBrowserTreeSplitter", ImVec2(splitterWidth, browserSize.y));
+        if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        if (ImGui::IsItemActive())
+            m_ProjectTreeWidth = std::clamp(m_ProjectTreeWidth + ImGui::GetIO().MouseDelta.x, minTreeWidth, maxTreeWidth);
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::BeginChild("##ContentBrowserGrid", ImVec2(0.0f, browserSize.y), false);
 
         if (!std::filesystem::is_directory(m_CurrentDirectory))
             m_CurrentDirectory = m_RootDirectory;
