@@ -39,9 +39,10 @@ namespace Duality {
         // must be able to inspect them closer than the old 10-unit floor.
         constexpr float MinSceneViewDistance3D = 0.25f;
 
-        // Content Browser uses one generic ASSET_GUID drag payload for every asset type.  Scene
-        // dropping deliberately accepts only raster image assets: a mesh/material/prefab has a
-        // different useful creation workflow and must never silently become a SpriteRenderer.
+        // Content Browser uses one generic ASSET_GUID drag payload for every asset type. Map
+        // each spawnable asset to its natural component rather than treating all files as a
+        // texture: images create Sprite/UI Image, mesh/material create Mesh Renderer, audio
+        // creates Audio Source, and prefab creates a linked prefab instance.
         bool IsImageAsset(const std::string& guid) {
             const std::string path = AssetDatabase::ResolvePath(guid);
             if (path.empty())
@@ -62,6 +63,25 @@ namespace Duality {
             std::transform(extension.begin(), extension.end(), extension.begin(),
                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             return extension == ".prefab";
+        }
+
+        std::string AssetExtension(const std::string& guid) {
+            const std::string path = AssetDatabase::ResolvePath(guid);
+            std::string extension = std::filesystem::path(path).extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(),
+                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return extension;
+        }
+
+        bool IsMeshAsset(const std::string& guid) {
+            const std::string extension = AssetExtension(guid);
+            return extension == ".obj" || extension == ".mesh";
+        }
+
+        bool IsMaterialAsset(const std::string& guid) { return AssetExtension(guid) == ".mat"; }
+        bool IsAudioAsset(const std::string& guid) {
+            const std::string extension = AssetExtension(guid);
+            return extension == ".wav" || extension == ".ogg" || extension == ".mp3";
         }
 
         std::string EntityNameFromAsset(const std::string& guid) {
@@ -142,6 +162,27 @@ namespace Duality {
             MarkSceneDirty(ctx);
         }
 
+        void CreateDroppedWorldResource(EditorContext& ctx, Screen screen, const std::string& guid,
+            const glm::vec3& worldPosition) {
+            const std::string name = EntityNameFromAsset(guid);
+            Entity entity = ctx.SceneRef.CreateEntity(name);
+            entity.GetComponent<TransformComponent>().Translation = worldPosition;
+            if (IsMeshAsset(guid)) {
+                entity.AddComponent<MeshRendererComponent>().Mesh = AssetRef{ guid };
+            } else if (IsMaterialAsset(guid)) {
+                entity.AddComponent<MeshRendererComponent>().Materials = { AssetRef{ guid } };
+            } else if (IsAudioAsset(guid)) {
+                entity.AddComponent<AudioSourceComponent>().Clip = AssetRef{ guid };
+            } else {
+                ctx.SceneRef.DestroyEntity(entity);
+                return;
+            }
+            ctx.SceneRef.SetParent(entity, ctx.SceneRef.EnsureScreenRoot(screen), {}, true);
+            ctx.Selected = entity;
+            ctx.SelectedEntities = { entity };
+            MarkSceneDirty(ctx);
+        }
+
         // Called directly after a Scene framebuffer Image(), while that image is still ImGui's
         // active drop target. `worldPosition` and `canvasPosition` are each precomputed in the
         // coordinate system relevant to the possible entity type.
@@ -152,12 +193,17 @@ namespace Duality {
             const bool willCreateUI = SelectedCanvasForScreen(ctx, screen);
             const std::string activeGuid = draggingAsset ? static_cast<const char*>(activePayload->Data) : std::string{};
             const bool draggingPrefab = draggingAsset && IsPrefabAsset(activeGuid);
-            if (draggingAsset && (draggingPrefab || IsImageAsset(activeGuid))) {
+            const bool draggingWorldResource = draggingAsset &&
+                (IsMeshAsset(activeGuid) || IsMaterialAsset(activeGuid) || IsAudioAsset(activeGuid));
+            if (draggingAsset && (draggingPrefab || IsImageAsset(activeGuid) || draggingWorldResource)) {
                 ImDrawList* drawList = ImGui::GetWindowDrawList();
                 const ImU32 border = willCreateUI ? IM_COL32(84, 210, 170, 255) : IM_COL32(85, 160, 255, 255);
                 drawList->AddRect(imagePos, ImVec2(imagePos.x + imageSize.x, imagePos.y + imageSize.y), border, 2.0f, 0, 2.0f);
                 const char* hint = draggingPrefab ? "Drop prefab: instantiate"
-                    : (willCreateUI ? "Drop image: create UI Image" : "Drop image: create Sprite");
+                    : (IsMeshAsset(activeGuid) ? "Drop mesh: create Mesh Renderer"
+                    : (IsMaterialAsset(activeGuid) ? "Drop material: create Mesh Renderer"
+                    : (IsAudioAsset(activeGuid) ? "Drop audio: create Audio Source"
+                    : (willCreateUI ? "Drop image: create UI Image" : "Drop image: create Sprite"))));
                 const ImVec2 textSize = ImGui::CalcTextSize(hint);
                 const ImVec2 textPos{ imagePos.x + (imageSize.x - textSize.x) * 0.5f, imagePos.y + 10.0f };
                 drawList->AddRectFilled(ImVec2(textPos.x - 6.0f, textPos.y - 3.0f),
@@ -173,6 +219,8 @@ namespace Duality {
                     CreateDroppedImage(ctx, screen, guid, worldPosition, canvasPosition);
                 else if (IsPrefabAsset(guid))
                     CreateDroppedPrefab(ctx, screen, guid, worldPosition, canvasPosition);
+                else
+                    CreateDroppedWorldResource(ctx, screen, guid, worldPosition);
             }
             ImGui::EndDragDropTarget();
         }

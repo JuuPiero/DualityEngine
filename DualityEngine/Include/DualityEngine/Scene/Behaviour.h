@@ -76,6 +76,31 @@ namespace Duality {
         template<typename T>
         const T* TryGetComponent() const { return m_Entity.TryGetComponent<T>(); }
 
+        // Hierarchy lookups mirror Unity's MonoBehaviour helpers. They include this Entity by
+        // default, traverse children depth-first / parents nearest-first, and return borrowed
+        // component pointers valid until the next structural ECS change.
+        template<typename T>
+        T* GetComponentInChildren(bool includeSelf = true) { return m_Entity.GetComponentInChildren<T>(includeSelf); }
+        template<typename T>
+        const T* GetComponentInChildren(bool includeSelf = true) const { return m_Entity.GetComponentInChildren<T>(includeSelf); }
+        template<typename T>
+        std::vector<T*> GetComponentsInChildren(bool includeSelf = true) { return m_Entity.GetComponentsInChildren<T>(includeSelf); }
+        template<typename T>
+        std::vector<const T*> GetComponentsInChildren(bool includeSelf = true) const { return m_Entity.GetComponentsInChildren<T>(includeSelf); }
+
+        template<typename T>
+        T* GetComponentInParent(bool includeSelf = true) { return m_Entity.GetComponentInParent<T>(includeSelf); }
+        template<typename T>
+        const T* GetComponentInParent(bool includeSelf = true) const { return m_Entity.GetComponentInParent<T>(includeSelf); }
+        template<typename T>
+        std::vector<T*> GetComponentsInParent(bool includeSelf = true) { return m_Entity.GetComponentsInParent<T>(includeSelf); }
+        template<typename T>
+        std::vector<const T*> GetComponentsInParent(bool includeSelf = true) const { return m_Entity.GetComponentsInParent<T>(includeSelf); }
+
+        Entity GetParent() const { return m_Entity.GetParent(); }
+        std::vector<Entity> GetChildren() const { return m_Entity.GetChildren(); }
+        void ClearChildren() { m_Entity.ClearChildren(); }
+
         Entity GetEntity() const { return m_Entity; }
         bool IsEntityValid() const { return m_Entity.IsValid(); }
 

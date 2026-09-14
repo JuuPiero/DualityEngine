@@ -20,6 +20,8 @@
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Scene/Scene.h"
+#include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/PrefabSerializer.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 #include "DualityEngine/Scripting/ScriptableObjectRegistry.h"
 
@@ -175,6 +177,42 @@ namespace Duality {
             "REGISTER_BEHAVIOUR(" << className << ")\n";
         source.close();
         return true;
+    }
+
+    // Turns an existing scene subtree into a reusable asset at the exact Content Browser
+    // directory the user dropped it onto. This mirrors Hierarchy's Create Prefab command but
+    // avoids forcing a detour through Assets/Prefabs when an author has selected a different
+    // project folder deliberately.
+    static void CreatePrefabFromDroppedEntity(EditorContext& ctx, Entity entity,
+        const std::filesystem::path& directory) {
+        if (!entity || entity.GetScene() != &ctx.SceneRef)
+            return;
+        std::error_code error;
+        std::filesystem::create_directories(directory, error);
+        if (error) {
+            Log::Error("ContentBrowserPanel: could not create prefab directory: " + error.message());
+            return;
+        }
+
+        std::string name = entity.GetComponent<NameComponent>().Name;
+        if (name.empty())
+            name = "NewPrefab";
+        std::filesystem::path path = directory / (name + ".prefab");
+        for (int suffix = 1; std::filesystem::exists(path); ++suffix)
+            path = directory / (name + " (" + std::to_string(suffix) + ").prefab");
+
+        if (!PrefabSerializer::Save(entity, path.string()))
+            return;
+        const std::string guid = AssetMeta::EnsureMetaFile(path);
+        AssetDatabase::Register(guid, path.string());
+        if (entity.HasComponent<PrefabInstanceComponent>())
+            entity.GetComponent<PrefabInstanceComponent>().Prefab = AssetRef{ guid };
+        else
+            entity.AddComponent<PrefabInstanceComponent>(PrefabInstanceComponent{ AssetRef{ guid } });
+        ctx.Selected = entity;
+        ctx.SelectedEntities = { entity };
+        MarkSceneDirty(ctx);
+        Log::Info("Created prefab from Hierarchy drop: '" + path.string() + "'");
     }
 
     static void DrawFolderIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max) {
@@ -507,7 +545,10 @@ namespace Duality {
         const std::string defaultName = DefaultScriptClassName(m_CurrentDirectory);
         std::snprintf(m_NewScriptName, sizeof(m_NewScriptName), "%s", defaultName.c_str());
         m_FocusNewScriptName = true;
-        ImGui::OpenPopup("Create C++ Behaviour");
+        // This method is called from the nested Create context menu. Defer OpenPopup until
+        // that popup has ended; otherwise ImGui records the modal at the menu's popup depth
+        // and the root-level BeginPopupModal below can never find it.
+        m_RequestCreateScriptDialog = true;
     }
 
     void ContentBrowserPanel::RequestDelete(const std::filesystem::path& path, bool isDirectory) {
@@ -606,6 +647,19 @@ namespace Duality {
         if (readOnlyPackages) {
             ImGui::SameLine();
             ImGui::TextDisabled("Package files are read-only here");
+        } else {
+            ImGui::SameLine();
+            ImGui::TextDisabled("Drop Entity here → Prefab");
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
+                    if (payload->DataSize == sizeof(entt::entity)) {
+                        const entt::entity handle = *static_cast<const entt::entity*>(payload->Data);
+                        if (ctx.SceneRef.Registry().valid(handle))
+                            CreatePrefabFromDroppedEntity(ctx, Entity(handle, &ctx.SceneRef), m_CurrentDirectory);
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
         }
         ImGui::Separator();
 
@@ -721,6 +775,13 @@ namespace Duality {
                     std::string draggedGuid(static_cast<const char*>(payload->Data));
                     MoveAssetInto(draggedGuid, path);
                 }
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
+                    if (payload->DataSize == sizeof(entt::entity)) {
+                        const entt::entity handle = *static_cast<const entt::entity*>(payload->Data);
+                        if (ctx.SceneRef.Registry().valid(handle))
+                            CreatePrefabFromDroppedEntity(ctx, Entity(handle, &ctx.SceneRef), path);
+                    }
+                }
                 ImGui::EndDragDropTarget();
             }
 
@@ -800,6 +861,10 @@ namespace Duality {
         // Name the C++ type before writing either file. A Behaviour's filename, class name,
         // include and REGISTER_BEHAVIOUR argument must agree, so a single pre-create dialog is
         // safer and much faster than two ordinary file renames after a NewBehaviour pair exists.
+        if (m_RequestCreateScriptDialog) {
+            ImGui::OpenPopup("Create C++ Behaviour");
+            m_RequestCreateScriptDialog = false;
+        }
         if (ImGui::BeginPopupModal("Create C++ Behaviour", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             if (m_FocusNewScriptName) {
                 ImGui::SetKeyboardFocusHere();

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include <entt.hpp>
 
 namespace Duality {
@@ -39,6 +41,31 @@ namespace Duality {
 
         template<typename T>
         void RemoveComponent();
+
+        // Hierarchy convenience APIs, equivalent in intent to Unity's GameObject helpers.
+        // Component pointers are borrowed ECS storage: use them immediately and reacquire after
+        // structural changes (DestroyEntity, scene reload, component add/remove).
+        Entity GetParent() const;
+        std::vector<Entity> GetChildren() const;
+        void ClearChildren(); // destroys every direct child and its whole descendant subtree
+
+        template<typename T>
+        T* GetComponentInChildren(bool includeSelf = true);
+        template<typename T>
+        const T* GetComponentInChildren(bool includeSelf = true) const;
+        template<typename T>
+        std::vector<T*> GetComponentsInChildren(bool includeSelf = true);
+        template<typename T>
+        std::vector<const T*> GetComponentsInChildren(bool includeSelf = true) const;
+
+        template<typename T>
+        T* GetComponentInParent(bool includeSelf = true);
+        template<typename T>
+        const T* GetComponentInParent(bool includeSelf = true) const;
+        template<typename T>
+        std::vector<T*> GetComponentsInParent(bool includeSelf = true);
+        template<typename T>
+        std::vector<const T*> GetComponentsInParent(bool includeSelf = true) const;
 
         entt::entity Handle() const { return m_Handle; }
         Scene* GetScene() const { return m_Scene; }

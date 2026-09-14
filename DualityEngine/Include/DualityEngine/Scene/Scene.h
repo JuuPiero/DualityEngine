@@ -40,6 +40,13 @@ namespace Duality {
         // serialization order -- what HierarchyPanel iterates at the top of its tree.
         const std::vector<Entity>& GetRootEntities() const { return m_RootEntities; }
 
+        // Safe copy-returning hierarchy queries for gameplay/editor helpers. The returned list
+        // is deliberately not a mutable reference to HierarchyComponent::Children; parenting
+        // must continue through SetParent/SetSiblingIndex to preserve invariants.
+        Entity GetParent(Entity entity) const;
+        std::vector<Entity> GetChildren(Entity entity) const;
+        void ClearChildren(Entity parent);
+
         // Depth-first Hierarchy order (each root, then its children in sibling order). This is
         // the canonical visual order for equal Sort Order: later entries render later/on top,
         // so the last sibling in Hierarchy is visibly on top of its earlier siblings.
@@ -224,6 +231,118 @@ namespace Duality {
     template<typename T>
     void Entity::RemoveComponent() {
         m_Scene->Registry().remove<T>(m_Handle);
+    }
+
+    inline Entity Entity::GetParent() const {
+        return IsValid() ? m_Scene->GetParent(*this) : Entity{};
+    }
+
+    inline std::vector<Entity> Entity::GetChildren() const {
+        return IsValid() ? m_Scene->GetChildren(*this) : std::vector<Entity>{};
+    }
+
+    inline void Entity::ClearChildren() {
+        if (IsValid())
+            m_Scene->ClearChildren(*this);
+    }
+
+    template<typename T>
+    T* Entity::GetComponentInChildren(bool includeSelf) {
+        if (!IsValid())
+            return nullptr;
+        if (includeSelf && TryGetComponent<T>())
+            return TryGetComponent<T>();
+        for (Entity child : GetChildren()) {
+            if (T* component = child.GetComponentInChildren<T>(true))
+                return component;
+        }
+        return nullptr;
+    }
+
+    template<typename T>
+    const T* Entity::GetComponentInChildren(bool includeSelf) const {
+        if (!IsValid())
+            return nullptr;
+        if (includeSelf && TryGetComponent<T>())
+            return TryGetComponent<T>();
+        for (Entity child : GetChildren()) {
+            if (const T* component = child.GetComponentInChildren<T>(true))
+                return component;
+        }
+        return nullptr;
+    }
+
+    template<typename T>
+    std::vector<T*> Entity::GetComponentsInChildren(bool includeSelf) {
+        std::vector<T*> result;
+        if (!IsValid())
+            return result;
+        if (includeSelf) {
+            if (T* component = TryGetComponent<T>())
+                result.push_back(component);
+        }
+        for (Entity child : GetChildren()) {
+            std::vector<T*> descendants = child.GetComponentsInChildren<T>(true);
+            result.insert(result.end(), descendants.begin(), descendants.end());
+        }
+        return result;
+    }
+
+    template<typename T>
+    std::vector<const T*> Entity::GetComponentsInChildren(bool includeSelf) const {
+        std::vector<const T*> result;
+        if (!IsValid())
+            return result;
+        if (includeSelf) {
+            if (const T* component = TryGetComponent<T>())
+                result.push_back(component);
+        }
+        for (Entity child : GetChildren()) {
+            const Entity constChild = child;
+            std::vector<const T*> descendants = constChild.GetComponentsInChildren<T>(true);
+            result.insert(result.end(), descendants.begin(), descendants.end());
+        }
+        return result;
+    }
+
+    template<typename T>
+    T* Entity::GetComponentInParent(bool includeSelf) {
+        for (Entity current = includeSelf ? *this : GetParent(); current; current = current.GetParent()) {
+            if (T* component = current.TryGetComponent<T>())
+                return component;
+        }
+        return nullptr;
+    }
+
+    template<typename T>
+    const T* Entity::GetComponentInParent(bool includeSelf) const {
+        for (Entity current = includeSelf ? *this : GetParent(); current; current = current.GetParent()) {
+            const Entity constCurrent = current;
+            if (const T* component = constCurrent.TryGetComponent<T>())
+                return component;
+        }
+        return nullptr;
+    }
+
+    template<typename T>
+    std::vector<T*> Entity::GetComponentsInParent(bool includeSelf) {
+        std::vector<T*> result;
+        for (Entity current = includeSelf ? *this : GetParent(); current; current = current.GetParent()) {
+            if (T* component = current.TryGetComponent<T>())
+                result.push_back(component);
+        }
+        return result;
+    }
+
+    template<typename T>
+    std::vector<const T*> Entity::GetComponentsInParent(bool includeSelf) const {
+        std::vector<const T*> result;
+        for (Entity current = includeSelf ? *this : GetParent(); current; current = current.GetParent()) {
+            const Entity constCurrent = current;
+            if (const T* component = constCurrent.TryGetComponent<T>())
+                result.push_back(component);
+        }
+        return result;
     }
 
 }

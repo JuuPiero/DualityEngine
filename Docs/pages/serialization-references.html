@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serialization & References — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="serialization-references">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">Scripting Guide</div>
+                <h1>Serialization &amp; References</h1>
+                <p class="lede">Quy tắc lưu dữ liệu game an toàn qua Save/Load Scene, duplicate prefab, Play/Stop và script reload. Dùng reference ổn định; không giữ raw pointer của ECS hay asset.</p>
+
+                <div class="callout note">
+                    <span class="callout-title">Quy tắc ngắn gọn</span>
+                    Nếu dữ liệu sống trong Project/Assets, dùng <code>AssetRef</code>. Nếu nó sống trong Scene, dùng <code>EntityRef</code>. Component và Behaviour luôn được tìm lại từ Entity ở runtime.
+                </div>
+
+                <h2>Chọn đúng kiểu field</h2>
+                <table>
+                    <tr><th>Muốn giữ tham chiếu tới</th><th>Khai báo property</th><th>Cách dùng lúc chạy</th></tr>
+                    <tr><td>Texture, audio, material, font, mesh, prefab, ScriptableObject</td><td><code>Duality::AssetRef</code></td><td>Resolve/Load từ GUID.</td></tr>
+                    <tr><td>Một Entity trong cùng scene</td><td><code>Duality::EntityRef</code></td><td><code>ResolveEntityRef(ref)</code>.</td></tr>
+                    <tr><td>Component của Entity khác</td><td><code>Duality::EntityRef</code></td><td><code>ResolveEntityRef(ref).TryGetComponent&lt;T&gt;()</code>.</td></tr>
+                    <tr><td>Behaviour/script khác</td><td><code>Duality::EntityRef</code></td><td>Resolve entity trước; giao tiếp qua component/data API thay vì giữ pointer script.</td></tr>
+                    <tr><td>Dữ liệu nhỏ thuộc riêng một Behaviour</td><td>Kiểu hỗ trợ bởi <code>DUALITY_PROPERTY()</code></td><td>Được lưu trong <code>PropertyOverrides</code> của script slot.</td></tr>
+                    <tr><td>Dữ liệu dùng chung giữa nhiều scene/entity</td><td><code>AssetRef</code> trỏ tới <code>.asset</code></td><td><code>ScriptScene::LoadScriptableObject&lt;T&gt;(...)</code>.</td></tr>
+                </table>
+
+                <h2>Ví dụ: FruitConfigSO trong GameManager</h2>
+                <p>Không khai báo <code>FruitConfigSO</code> theo value. Điều đó vừa không nằm trong danh sách kiểu field reflection, vừa tạo một bản copy dữ liệu vào từng instance GameManager. Config là một asset dùng chung nên script chỉ lưu GUID của asset.</p>
+                <pre><code><span class="tok-kw">#include</span> <span class="tok-str">"DualityEngine/Scene/Behaviour.h"</span>
+<span class="tok-kw">#include</span> <span class="tok-str">"DualityEngine/Scripting/ScriptScene.h"</span>
+<span class="tok-kw">#include</span> <span class="tok-str">"FruitConfigSO.h"</span>
+
+<span class="tok-kw">class</span> GameManager : <span class="tok-kw">public</span> Duality::Behaviour {
+<span class="tok-kw">public</span>:
+    DUALITY_PROPERTY() Duality::AssetRef FruitConfig;
+    DUALITY_PROPERTIES_AUTO()
+
+<span class="tok-kw">private</span>:
+    FruitConfigSO* m_FruitConfig = <span class="tok-kw">nullptr</span>;
+
+<span class="tok-kw">public</span>:
+    <span class="tok-kw">void</span> OnCreate() <span class="tok-kw">override</span> {
+        m_FruitConfig = Duality::ScriptScene::LoadScriptableObject&lt;FruitConfigSO&gt;(FruitConfig.Guid);
+        <span class="tok-kw">if</span> (!m_FruitConfig) {
+            LogError(<span class="tok-str">"GameManager: FruitConfig asset is not assigned or cannot load"</span>);
+            <span class="tok-kw">return</span>;
+        }
+    }
+};</code></pre>
+                <ol>
+                    <li>Tạo <code>FruitConfigSO.asset</code> từ Content Browser → Create → ScriptableObject → FruitConfigSO.</li>
+                    <li>Gắn <code>GameManager</code> vào Entity.</li>
+                    <li>Kéo file <code>.asset</code> vào field <strong>Fruit Config</strong> trong Inspector.</li>
+                    <li>Ở runtime, kiểm tra <code>m_FruitConfig</code> trước khi đọc <code>NormalSprites</code> hoặc <code>OutlineSprites</code>.</li>
+                </ol>
+                <div class="callout warn">Không cache <code>FruitConfigSO*</code> qua Reload Scripts. Nhận lại pointer trong <code>OnCreate()</code>; field <code>AssetRef</code> mới là dữ liệu bền vững được serialize.</div>
+
+                <h2>Entity, component và script</h2>
+                <p>Một component không có GUID riêng và địa chỉ/pointer của nó sẽ thay đổi khi scene được load lại. Vì vậy Inspector kéo thả Entity, không kéo thả raw component.</p>
+                <pre><code><span class="tok-kw">class</span> Fruit : <span class="tok-kw">public</span> Duality::Behaviour {
+<span class="tok-kw">public</span>:
+    DUALITY_PROPERTY() Duality::EntityRef Tree;
+    DUALITY_PROPERTIES_AUTO()
+
+    <span class="tok-kw">void</span> OnUpdate(<span class="tok-type">float</span> dt) <span class="tok-kw">override</span> {
+        Duality::Entity tree = ResolveEntityRef(Tree);
+        <span class="tok-kw">if</span> (!tree) <span class="tok-kw">return</span>;
+
+        <span class="tok-kw">if</span> (<span class="tok-kw">auto</span>* transform = tree.TryGetComponent&lt;Duality::TransformComponent&gt;()) {
+            <span class="tok-com">// Đọc component an toàn sau khi entity được resolve.</span>
+        }
+    }
+};</code></pre>
+                <p><code>EntityRef</code> được serializer đổi sang index trong file scene khi save, sau đó đổi lại Entity handle mới sau khi toàn bộ scene được tạo lại. Một reference rỗng hoặc entity đã bị xoá sẽ resolve thành Entity rỗng, vì vậy luôn kiểm tra <code>if (entity)</code>.</p>
+
+                <h2>Những gì engine tự serialize</h2>
+                <table>
+                    <tr><th>Loại</th><th>Nơi lưu</th><th>Cơ chế</th></tr>
+                    <tr><td>Entity core + built-in components</td><td><code>.scene</code> / <code>.prefab</code></td><td><code>TypeRegistry</code> + <code>EntitySerialization</code>.</td></tr>
+                    <tr><td>Hierarchy</td><td><code>.scene</code> / <code>.prefab</code></td><td>Parent index và sibling order chuyên biệt.</td></tr>
+                    <tr><td>Behaviour slot, class name, Enabled</td><td><code>.scene</code> / <code>.prefab</code></td><td><code>BehaviourComponent</code> được serialize riêng.</td></tr>
+                    <tr><td><code>DUALITY_PROPERTY</code> của Behaviour</td><td><code>PropertyOverrides</code></td><td>Code generator sinh <code>Fields()</code>; Inspector và serializer dùng cùng FieldValue.</td></tr>
+                    <tr><td>ScriptableObject</td><td><code>.asset</code></td><td><code>static Fields()</code> + <code>ScriptableObjectLoader</code>.</td></tr>
+                    <tr><td>Prefab instance link</td><td>root trong <code>.scene</code></td><td><code>PrefabInstanceComponent</code> giữ GUID source; dùng Apply/Revert/Unpack trong Inspector.</td></tr>
+                </table>
+
+                <h2>Kiểu được DUALITY_PROPERTY hỗ trợ</h2>
+                <p>Hiện có scalar (<code>int</code>, <code>float</code>, <code>bool</code>, <code>std::string</code>), <code>glm::vec2/vec3/vec4</code>, màu, engine enum, <code>AssetRef</code>, <code>EntityRef</code>, list <code>std::vector&lt;AssetRef&gt;</code>/<code>std::vector&lt;EntityRef&gt;</code> và struct với <code>DUALITY_SERIALIZABLE()</code>. Type C++ bất kỳ, raw pointer, <code>Entity</code> hoặc <code>Component*</code> không phải field type hợp lệ.</p>
+
+                <h2>Vòng đời và an toàn trên 3DS</h2>
+                <ul>
+                    <li>Chỉ giữ raw pointer SO/component trong một lượt runtime; lấy lại từ reference ở <code>OnCreate()</code> sau mỗi Play hoặc reload script.</li>
+                    <li>Giữ config lớn trong ScriptableObject để không nhân bản dữ liệu theo từng entity, giảm RAM/VRAM pressure trên 3DS.</li>
+                    <li>Không lưu path vào scene. <code>AssetRef.Guid</code> sống sót khi asset được rename hoặc move vì <code>.meta</code> giữ GUID.</li>
+                    <li>Không dùng entity reference để liên kết sang scene khác; chỉ reference asset mới phù hợp xuyên scene.</li>
+                </ul>
+
+                <div class="page-nav">
+                    <a class="prev" href="scripting-api.html"><span class="dir">← Trước</span>Scripting API</a>
+                    <a class="next" href="assets.html"><span class="dir">Tiếp →</span>Assets &amp; Packages</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

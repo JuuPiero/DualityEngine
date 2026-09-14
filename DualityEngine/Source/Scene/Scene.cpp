@@ -821,6 +821,31 @@ namespace Duality {
         return ordered;
     }
 
+    Entity Scene::GetParent(Entity entity) const {
+        if (!entity || entity.GetScene() != this || !m_Registry.valid(entity.Handle()) ||
+            !m_Registry.all_of<HierarchyComponent>(entity.Handle()))
+            return Entity{};
+        return m_Registry.get<HierarchyComponent>(entity.Handle()).Parent;
+    }
+
+    std::vector<Entity> Scene::GetChildren(Entity entity) const {
+        if (!entity || entity.GetScene() != this || !m_Registry.valid(entity.Handle()) ||
+            !m_Registry.all_of<HierarchyComponent>(entity.Handle()))
+            return {};
+        return m_Registry.get<HierarchyComponent>(entity.Handle()).Children;
+    }
+
+    void Scene::ClearChildren(Entity parent) {
+        if (!parent || parent.GetScene() != this || !m_Registry.valid(parent.Handle()) ||
+            !m_Registry.all_of<HierarchyComponent>(parent.Handle()))
+            return;
+        const std::vector<Entity> children = m_Registry.get<HierarchyComponent>(parent.Handle()).Children;
+        for (Entity child : children) {
+            if (child && child.GetScene() == this && m_Registry.valid(child.Handle()))
+                DestroyEntity(child);
+        }
+    }
+
     void Scene::DestroyEntity(Entity entity) {
         auto& hierarchy = entity.GetComponent<HierarchyComponent>();
 

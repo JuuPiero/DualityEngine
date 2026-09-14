@@ -265,10 +265,11 @@ Không có kiểu field riêng cho "tham chiếu đến component khác" -- gi�
 `Duality::EntityRef` rồi gọi `ResolveEntityRef(ref).GetComponent<T>()` để lấy
 đúng component cần trên entity đó. Sửa field lúc đang Edit (không Play) sẽ
 lưu cùng scene; sửa lúc đang Play chỉ ảnh hưởng object đang sống và mất khi
-bấm Stop . Một giới hạn: field `EntityRef` KHÔNG sống sót qua
-một lần Save/Load scene -- nó luôn về "chưa gán" sau khi load lại, vì handle
-thô của entity không ổn định qua một lần reload (xem mục "Known limitations"
-trong README.md).
+bấm Stop. `SceneSerializer` lưu `EntityRef` theo index trong file scene rồi
+resolve lại handle mới sau khi tất cả entity đã được tạo, nên reference sống
+sót qua Save/Load trong **cùng scene**. Entity bị xoá hoặc field chưa gán sẽ
+resolve thành Entity rỗng. Với config/asset dùng chung, dùng `AssetRef` (GUID)
+thay vì EntityRef; xem [Serialization & References](Docs/pages/serialization-references.html).
 
 `GameScripts/Source/ApiShowcaseBehaviour.cpp` là một ví dụ hoàn chỉnh có thể chạy,
 bao quát các API Input/Audio/Save/DateTime trong một script -- nên đọc từ đầu

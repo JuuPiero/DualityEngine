@@ -48,7 +48,7 @@
                     <tr><th>Extension</th><th>Loại</th><th>Editable trong Properties?</th></tr>
                     <tr><td><code>.mat</code></td><td>Material (Color + Texture)</td><td>Có, đầy đủ, auto-save mỗi lần sửa</td></tr>
                     <tr><td><code>.asset</code></td><td>ScriptableObject</td><td>Có, đầy đủ, auto-save</td></tr>
-                    <tr><td><code>.prefab</code></td><td>Prefab</td><td>Chỉ tóm tắt read-only (số entity, tên root)</td></tr>
+                    <tr><td><code>.prefab</code></td><td>Prefab</td><td>Open Prefab Mode + tóm tắt root</td></tr>
                     <tr><td><code>.scene</code></td><td>Scene</td><td>Chỉ tóm tắt read-only + nút "Open Scene"</td></tr>
                     <tr><td><code>.png</code>/<code>.jpg</code>/... </td><td>Texture</td><td>Import Settings (Filter/Wrap/Mipmap)</td></tr>
                     <tr><td><code>.wav</code></td><td>Audio Clip</td><td>Import Settings (Volume)</td></tr>
@@ -64,9 +64,22 @@
                 <p>Unity's Prefab — một entity + toàn bộ subtree con, lưu thành file <code>.prefab</code> tái dùng được.</p>
                 <ul>
                     <li>Tạo: chuột phải một entity trong Hierarchy → <strong>Create Prefab from Selection</strong> (ghi ra <code>Assets/Prefabs/&lt;Tên&gt;.prefab</code>).</li>
-                    <li>Đặt vào scene: kéo file <code>.prefab</code> từ Content Browser thả vào khoảng trống Hierarchy, hoặc gọi <code>Behaviour::Instantiate(guid)</code> từ script.</li>
+                    <li>Tạo bằng kéo-thả: kéo Entity từ Hierarchy lên dòng <strong>Drop Entity here → Prefab</strong> trong Content Browser, hoặc thả trực tiếp lên icon folder trong lưới Project. Prefab được lưu vào folder đó và Entity gốc trở thành linked instance.</li>
+                    <li>Đặt vào scene: kéo file <code>.prefab</code> từ Content Browser thả vào Scene hoặc khoảng trống Hierarchy, hoặc gọi <code>Behaviour::Instantiate(guid)</code> từ script.</li>
                 </ul>
-                <div class="callout warn">Chưa có link ngược về prefab gốc — một bản instantiate là entity độc lập hoàn toàn sau đó, không có Apply/Revert như Unity.</div>
+                <div class="callout note">Prefab instance giữ link GUID tới prefab source. Chọn root instance trong Inspector để <strong>Open</strong>, <strong>Apply</strong>, <strong>Revert</strong> hoặc <strong>Unpack</strong>; double-click asset mở Prefab Mode riêng, không làm bẩn scene đang edit.</div>
+                <p>Xem quy tắc serialize reference và vòng đời prefab tại <a href="serialization-references.html">Serialization &amp; References</a>.</p>
+
+                <h2>Asset drag &amp; drop vào Scene</h2>
+                <table>
+                    <tr><th>Asset kéo vào Scene</th><th>Entity tự tạo</th></tr>
+                    <tr><td>PNG/JPG/BMP/TGA…</td><td><code>SpriteRendererComponent</code>; nếu Canvas phù hợp đang được chọn thì tạo <code>UIRectComponent</code> + <code>UIImageComponent</code>.</td></tr>
+                    <tr><td><code>.prefab</code></td><td>Linked prefab instance tại vị trí thả.</td></tr>
+                    <tr><td><code>.obj</code>/<code>.mesh</code></td><td><code>MeshRendererComponent.Mesh</code> được gán asset.</td></tr>
+                    <tr><td><code>.mat</code></td><td><code>MeshRendererComponent</code> (Cube mặc định) với material ở slot đầu.</td></tr>
+                    <tr><td><code>.wav</code>/<code>.ogg</code>/<code>.mp3</code></td><td><code>AudioSourceComponent.Clip</code> được gán asset; bật Play On Awake nếu muốn phát ngay.</td></tr>
+                </table>
+                <p>ScriptableObject, script source và file dữ liệu không tự biến thành Entity vì không có component đích duy nhất; kéo chúng vào field <code>AssetRef</code> hoặc script property phù hợp trong Inspector.</p>
 
                 <h2>ScriptableObject</h2>
                 <p>Data asset tái dùng, không gắn Entity nào — giống Unity's <code>ScriptableObject</code>.</p>

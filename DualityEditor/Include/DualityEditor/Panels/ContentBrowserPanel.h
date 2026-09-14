@@ -93,6 +93,10 @@ namespace Duality {
         bool m_FocusRenameField = false;
         char m_NewScriptName[128] = "NewBehaviour";
         bool m_FocusNewScriptName = false;
+        // Create > Script is clicked inside ImGui's nested context-menu popup. Opening a modal
+        // at that nesting level makes BeginPopupModal at the root level miss it, so defer the
+        // actual OpenPopup until after that menu has closed.
+        bool m_RequestCreateScriptDialog = false;
         std::string m_RangeAnchorPath;
 
         // Empty = no delete confirmation open; otherwise the path awaiting a Yes/Cancel

@@ -129,7 +129,29 @@ transform.Rotation.z += <span class="tok-num">90.0f</span> * deltaTime; <span cl
                     <tr><td><code>Duality::Layer</code>, <code>Duality::BodyType</code></td><td>Dropdown engine enum</td></tr>
                     <tr><td>Struct <code>DUALITY_SERIALIZABLE()</code></td><td>Foldout nested (vd <code>BounceWobble</code>)</td></tr>
                 </table>
-                <p>Demo đầy đủ: gắn <code>FeatureShowcaseBehaviour</code> — enum <code>ShowcaseMotion</code>, Layer, BodyType, nested <code>Tuning</code>, raycast, audio.</p>
+                <p>Demo đầy đủ: gắn <code>FeatureShowcaseBehaviour</code> — enum <code>ShowcaseMotion</code>, Layer, BodyType, nested <code>Tuning</code>, raycast, audio. Quy tắc chọn <code>AssetRef</code>/<code>EntityRef</code>, reference ScriptableObject và component: <a href="serialization-references.html">Serialization &amp; References</a>.</p>
+
+                <h2>Hierarchy helpers</h2>
+                <p>Các helper này có trên cả <code>Behaviour</code> và <code>Entity</code>. Children được duyệt depth-first theo thứ tự Hierarchy; parent được duyệt từ gần tới xa. Tham số <code>includeSelf</code> mặc định là <code>true</code>.</p>
+                <table>
+                    <tr><th>API</th><th>Kết quả</th></tr>
+                    <tr><td><code>GetComponentInChildren&lt;T&gt;()</code></td><td>Component <code>T</code> đầu tiên trong self/subtree, hoặc <code>nullptr</code>.</td></tr>
+                    <tr><td><code>GetComponentsInChildren&lt;T&gt;()</code></td><td>Toàn bộ component <code>T</code> trong self/subtree.</td></tr>
+                    <tr><td><code>GetComponentInParent&lt;T&gt;()</code></td><td>Component <code>T</code> đầu tiên khi đi từ self lên root.</td></tr>
+                    <tr><td><code>GetComponentsInParent&lt;T&gt;()</code></td><td>Toàn bộ component <code>T</code> từ self tới root.</td></tr>
+                    <tr><td><code>GetParent()</code> / <code>GetChildren()</code></td><td>Entity parent hoặc bản copy danh sách child trực tiếp.</td></tr>
+                    <tr><td><code>ClearChildren()</code></td><td>Destroy mọi child trực tiếp và toàn bộ subtree của chúng.</td></tr>
+                </table>
+                <pre><code><span class="tok-kw">if</span> (<span class="tok-kw">auto</span>* sprite = GetComponentInChildren&lt;Duality::SpriteRendererComponent&gt;()) {
+    sprite-&gt;Color.a = <span class="tok-num">0.5f</span>;
+}
+
+<span class="tok-kw">for</span> (<span class="tok-kw">auto</span>* collider : GetComponentsInChildren&lt;Duality::BoxCollider2DComponent&gt;())
+    collider-&gt;Enabled = <span class="tok-kw">false</span>;
+
+<span class="tok-com">// Destroy toàn bộ fruit entity đã spawn bên dưới object này.</span>
+ClearChildren();</code></pre>
+                <div class="callout warn">Các hàm tìm component trả pointer mượn từ ECS. Không giữ pointer đó sau <code>ClearChildren()</code>, <code>DestroyEntity()</code>, scene reload hoặc thay đổi cấu trúc component; hãy query lại khi cần.</div>
 
                 <h2>Trạng thái Active</h2>
                 <div class="api">
@@ -275,12 +297,7 @@ transform.Rotation.z += <span class="tok-num">90.0f</span> * deltaTime; <span cl
                             component cần, giống cách Unity's <code>[SerializeField] GameObject</code>
                             hoạt động.
                         </p>
-                        <div class="callout warn">
-                            <code>EntityRef</code> <strong>không</strong> sống sót qua một lần
-                            Save/Load scene — luôn về "chưa gán" sau khi load lại, vì handle thô
-                            không ổn định qua reload (entity nhận handle mới theo thứ tự tạo).
-                            Hoạt động đúng trong một phiên Editor/Play.
-                        </div>
+                        <div class="callout note"><code>SceneSerializer</code> lưu EntityRef theo index entity rồi resolve lại handle mới sau khi load. Reference chỉ có ý nghĩa trong cùng scene; entity bị xoá hoặc field rỗng sẽ resolve thành Entity rỗng.</div>
                     </div>
                 </div>
 

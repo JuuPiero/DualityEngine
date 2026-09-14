@@ -17,6 +17,7 @@
         ]},
         { group: "Hệ thống", items: [
             { id: "scripting-api", label: "Scripting", href: pages + "scripting-api.html", icon: "Code" },
+            { id: "serialization-references", label: "Serialization & References", href: pages + "serialization-references.html", icon: "Ref" },
             { id: "physics", label: "Physics 2D / 3D", href: pages + "physics.html", icon: "Physics" },
             { id: "rendering", label: "Rendering & UI", href: pages + "rendering.html", icon: "Render" },
             { id: "assets", label: "Assets & Packages", href: pages + "assets.html", icon: "Assets" },

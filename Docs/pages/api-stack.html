@@ -54,9 +54,10 @@
                     <tr><td><code>MakeField</code> / <code>MakeNestedField</code> / <code>MakeEnumField</code></td><td>Đăng ký field component hoặc script property</td><td><code>Field.h</code></td></tr>
                     <tr><td><code>TypeRegistry</code></td><td>Danh sách component + field cho Properties panel</td><td><code>Reflection/TypeRegistry.h</code>, <code>Reflection.cpp</code></td></tr>
                     <tr><td><code>SceneSerializer</code></td><td>Đọc/ghi <code>.scene</code> JSON</td><td><code>Scene/SceneSerializer.h</code></td></tr>
-                    <tr><td><code>AssetRef</code> / <code>EntityRef</code></td><td>GUID asset; handle entity (EntityRef không round-trip save/load)</td><td><code>Field.h</code></td></tr>
+                    <tr><td><code>AssetRef</code> / <code>EntityRef</code></td><td>GUID asset; entity reference được remap qua save/load trong cùng scene</td><td><code>Field.h</code></td></tr>
                     <tr><td><code>EnumFieldValue</code></td><td>Dropdown cho <code>enum class</code> trong <code>DUALITY_PROPERTY</code></td><td><code>Field.h</code>, <code>generate_fields.py</code></td></tr>
                 </table>
+                <p>Hướng dẫn lựa chọn reference, ScriptableObject và vòng đời runtime: <a href="serialization-references.html">Serialization &amp; References</a>.</p>
 
                 <h2>Tầng 3 — Components (data)</h2>
                 <p>Toàn bộ struct trong <code>Scene/Components.h</code> — bảng field đầy đủ: <a href="components.html">Components Reference</a>.</p>

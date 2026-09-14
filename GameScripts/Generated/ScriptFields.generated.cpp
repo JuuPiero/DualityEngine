@@ -7,6 +7,7 @@
 #include "F:/Workspace/CPP/DualityEngine/GameScripts/Include/FeatureShowcaseBehaviour.h"
 #include "F:/Workspace/CPP/DualityEngine/GameScripts/Include/PatrolEnemyBehaviour.h"
 #include "F:/Workspace/CPP/DualityEngine/GameScripts/Include/PlayerController.h"
+#include "F:/Workspace/CPP/DualityEngine/SampleProject/Assets/Scripts/ProjectDemoBehaviour.h"
 
 std::vector<::Duality::FieldHandle> BounceWobble::Fields() {
     return {
@@ -62,6 +63,12 @@ std::vector<::Duality::FieldHandle> PlayerController::Fields() {
         ::Duality::MakeField("LeftButtonName", &PlayerController::LeftButtonName),
         ::Duality::MakeField("RightButtonName", &PlayerController::RightButtonName),
         ::Duality::MakeField("JumpButtonName", &PlayerController::JumpButtonName),
+    };
+}
+
+std::vector<::Duality::FieldHandle> ProjectDemoBehaviour::Fields() {
+    return {
+        ::Duality::MakeField("Speed", &ProjectDemoBehaviour::Speed),
     };
 }
 
