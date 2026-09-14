@@ -19,12 +19,14 @@
 #include "DualityEngine/Asset/MaterialLoader.h"
 #include "DualityEngine/Asset/PhysicsMaterialLoader.h"
 #include "DualityEngine/Audio/AudioEngine.h"
+#include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/PhysicsRaycaster.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/SceneManager.h"
+#include "DualityEngine/Scene/PrefabSerializer.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 
 namespace Duality {
@@ -80,6 +82,72 @@ namespace Duality {
 
         SetupDemoScene();
         m_SceneHistory.Reset(m_Scene);
+    }
+
+    void Application::EnterPrefabMode(const std::string& prefabPath) {
+        if (m_IsPlaying || prefabPath.empty())
+            return;
+        if (m_IsEditingPrefab)
+            ExitPrefabMode();
+
+        m_PrefabModeSceneSnapshot = SceneSerializer(m_Scene).SerializeToJson().dump();
+        m_PrefabModeOriginalScenePath = m_ScenePath;
+        m_PrefabModeOriginalDirty = m_SceneDirty;
+        m_Scene.Clear();
+        m_Selected = Entity{};
+        m_SelectedEntities.clear();
+        m_SelectedAssetPath.clear();
+        m_SelectedAssetPaths.clear();
+        m_TopSceneView = SceneViewCamera();
+        m_BottomSceneView = SceneViewCamera();
+        m_TopSceneView3D = SceneViewCamera3D();
+        m_BottomSceneView3D = SceneViewCamera3D();
+
+        const std::string guid = AssetMeta::EnsureMetaFile(prefabPath);
+        AssetDatabase::Register(guid, prefabPath);
+        Entity root = PrefabSerializer::Instantiate(m_Scene, prefabPath, {}, AssetRef{ guid });
+        if (!root) {
+            // Do not strand the user in an empty editor if a corrupt prefab was opened.
+            SceneSerializer(m_Scene).DeserializeFromJson(nlohmann::json::parse(m_PrefabModeSceneSnapshot));
+            m_ScenePath = m_PrefabModeOriginalScenePath;
+            m_SceneDirty = m_PrefabModeOriginalDirty;
+            return;
+        }
+
+        m_IsEditingPrefab = true;
+        m_EditingPrefabPath = prefabPath;
+        m_Selected = root;
+        m_SelectedEntities = { root };
+        m_SceneDirty = false;
+        m_SceneHistory.Reset(m_Scene);
+        m_CapturedSceneChangeSerial = m_SceneChangeSerial;
+        Log::Info("Entered Prefab Mode: '" + prefabPath + "'");
+    }
+
+    void Application::ExitPrefabMode() {
+        if (!m_IsEditingPrefab)
+            return;
+
+        if (m_SceneDirty && !m_Scene.GetRootEntities().empty())
+            PrefabSerializer::Save(m_Scene.GetRootEntities().front(), m_EditingPrefabPath);
+
+        m_Scene.Clear();
+        try {
+            SceneSerializer(m_Scene).DeserializeFromJson(nlohmann::json::parse(m_PrefabModeSceneSnapshot));
+        } catch (const nlohmann::json::exception& e) {
+            Log::Error(std::string("Could not restore scene after Prefab Mode: ") + e.what());
+        }
+        m_ScenePath = m_PrefabModeOriginalScenePath;
+        m_SceneDirty = m_PrefabModeOriginalDirty;
+        m_IsEditingPrefab = false;
+        m_EditingPrefabPath.clear();
+        m_Selected = Entity{};
+        m_SelectedEntities.clear();
+        m_SelectedAssetPath.clear();
+        m_SelectedAssetPaths.clear();
+        m_SceneHistory.Reset(m_Scene);
+        m_CapturedSceneChangeSerial = m_SceneChangeSerial;
+        Log::Info("Exited Prefab Mode");
     }
 
     // One clean showcase scene demonstrating every engine technology/component, replacing what
@@ -667,7 +735,8 @@ namespace Duality {
                 m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
                 m_Fps, m_GameDrawCallCount,
-                m_ScenePath, m_BuildDirectory, m_RepoRoot, m_PlaySnapshot,
+                m_ScenePath, m_IsEditingPrefab, m_EditingPrefabPath, m_RequestOpenPrefabPath, m_RequestExitPrefabMode,
+                m_BuildDirectory, m_RepoRoot, m_PlaySnapshot,
                 m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog,
                 m_RequestBrowseExternalEditor, m_RequestBrowseIcon, m_ShowBuildSettings, m_ShowProjectSettings, m_ShowPackageManager, m_ShowPreferences
             };
@@ -705,6 +774,15 @@ namespace Duality {
             if (m_RequestSaveSceneAs) {
                 m_RequestSaveSceneAs = false;
                 SaveSceneAsFromDialog();
+            }
+            if (!m_RequestOpenPrefabPath.empty()) {
+                const std::string path = m_RequestOpenPrefabPath;
+                m_RequestOpenPrefabPath.clear();
+                EnterPrefabMode(path);
+            }
+            if (m_RequestExitPrefabMode) {
+                m_RequestExitPrefabMode = false;
+                ExitPrefabMode();
             }
             // Inlined rather than a separate Application method (unlike OpenProjectFromDialog/
             // SaveSceneAsFromDialog above) -- this is the one action that both needs

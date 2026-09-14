@@ -737,7 +737,10 @@ namespace Duality {
             if (doubleClicked && isDirectory) {
                 m_CurrentDirectory = path;
             } else if (doubleClicked && !isDirectory && path.extension() == ".scene") {
-                OpenScene(ctx, path.string());
+                if (!ctx.IsEditingPrefab)
+                    OpenScene(ctx, path.string());
+            } else if (doubleClicked && !isDirectory && path.extension() == ".prefab") {
+                ctx.RequestOpenPrefabPath = path.string();
             } else if (pressed && !isDirectory && !renamingThis) {
                 SelectAsset(ctx, path, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
             }

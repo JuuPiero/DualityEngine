@@ -119,7 +119,7 @@ namespace Duality {
         void CreateDroppedPrefab(EditorContext& ctx, Screen screen, const std::string& guid,
             const glm::vec3& worldPosition, const glm::vec2& canvasPosition) {
             const std::string path = AssetDatabase::ResolvePath(guid);
-            Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path);
+            Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path, {}, AssetRef{ guid });
             if (!instance)
                 return;
 

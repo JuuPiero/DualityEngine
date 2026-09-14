@@ -20,29 +20,30 @@ namespace Duality {
 
         if (ImGui::BeginMenuBar()) {
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("New Project..."))
+                if (ImGui::MenuItem("New Project...", nullptr, false, !ctx.IsEditingPrefab))
                     ctx.RequestNewProject = true;
-                if (ImGui::MenuItem("Open Project..."))
+                if (ImGui::MenuItem("Open Project...", nullptr, false, !ctx.IsEditingPrefab))
                     ctx.RequestOpenProject = true;
                 ImGui::Separator();
-                if (ImGui::MenuItem((std::string(EditorIcons::Save) + " Save Scene").c_str(), "Ctrl+S"))
+                const char* saveLabel = ctx.IsEditingPrefab ? " Save Prefab" : " Save Scene";
+                if (ImGui::MenuItem((std::string(EditorIcons::Save) + saveLabel).c_str(), "Ctrl+S"))
                     SaveScene(ctx);
                 // Reloads ctx.ScenePath from disk, discarding unsaved in-memory edits --
                 // routed through SceneOps::OpenScene (clears the scene first) rather than a
                 // raw Deserialize straight onto the live scene, which used to just ADD every
                 // loaded entity alongside whatever was already there (a real reported bug).
-                if (ImGui::MenuItem("Load Scene"))
+                if (ImGui::MenuItem("Load Scene", nullptr, false, !ctx.IsEditingPrefab))
                     OpenScene(ctx, ctx.ScenePath);
                 // Same clear-then-load, but browses to an arbitrary .scene file first --
                 // Unity's own "Open Scene", unlike "Load Scene" which always targets whatever
                 // ctx.ScenePath currently is.
-                if (ImGui::MenuItem("Open Scene..."))
+                if (ImGui::MenuItem("Open Scene...", nullptr, false, !ctx.IsEditingPrefab))
                     ctx.RequestOpenSceneDialog = true;
                 // Writes a SNAPSHOT of the current scene to a new file the user picks --
                 // does not change which scene "Save Scene"/"Load Scene" above operate on.
                 // See Application::SaveSceneAsFromDialog's own comment for why -- this is
                 // how a project gets a second scene file for Behaviour::LoadScene to target.
-                if (ImGui::MenuItem("Save Scene As..."))
+                if (ImGui::MenuItem("Save Scene As...", nullptr, false, !ctx.IsEditingPrefab))
                     ctx.RequestSaveSceneAs = true;
                 ImGui::Separator();
                 // Async so the Editor's UI thread never blocks on a clean 3DS
@@ -56,7 +57,7 @@ namespace Duality {
                     (ScriptEngine::GetStatus() == ReloadStatus::Running);
                 const std::string build3DSLabel = std::string(EditorIcons::Package) +
                     (building ? " Build for 3DS (building...)" : " Build for 3DS");
-                if (ImGui::MenuItem(build3DSLabel.c_str(), nullptr, false, !building)) {
+                if (ImGui::MenuItem(build3DSLabel.c_str(), nullptr, false, !building && !ctx.IsEditingPrefab)) {
                     if (ValidateSceneForRuntime(ctx, "Build")) {
                         SaveScene(ctx);
                         BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
@@ -69,7 +70,7 @@ namespace Duality {
                 // launch time (no romfs/manifest cook step like the 3DS build), so this is just
                 // an incremental rebuild of that one target -- saving the scene first still
                 // matters, so the next launch sees the latest edits.
-                if (ImGui::MenuItem(building ? "Build for PC (building...)" : "Build for PC", nullptr, false, !building)) {
+                if (ImGui::MenuItem(building ? "Build for PC (building...)" : "Build for PC", nullptr, false, !building && !ctx.IsEditingPrefab)) {
                     SaveScene(ctx);
                     BuildPipeline::BuildForPCAsync(ctx.BuildDirectory);
                 }
@@ -102,10 +103,17 @@ namespace Duality {
             // once "Open Scene..."/Content Browser double-click/the Scene asset inspector's
             // "Open Scene" button can all change it; a plain menu bar Text widget (ImGui allows
             // arbitrary widgets between BeginMenuBar/EndMenuBar, not just BeginMenu blocks).
-            std::string sceneLabel = std::filesystem::path(ctx.ScenePath).filename().string();
+            std::string sceneLabel = ctx.IsEditingPrefab
+                ? ("Prefab: " + std::filesystem::path(ctx.EditingPrefabPath).filename().string())
+                : ("Scene: " + std::filesystem::path(ctx.ScenePath).filename().string());
             if (ctx.SceneDirty)
                 sceneLabel += "*";
-            ImGui::TextDisabled("  Scene: %s", sceneLabel.c_str());
+            ImGui::TextDisabled("  %s", sceneLabel.c_str());
+            if (ctx.IsEditingPrefab) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Exit Prefab"))
+                    ctx.RequestExitPrefabMode = true;
+            }
 
             ImGui::EndMenuBar();
         }

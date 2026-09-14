@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 
 #include "DualityEngine/Core/Log.h"
+#include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Scene/Components.h"
 #include "EntitySerialization.h"
 
@@ -216,6 +217,10 @@ namespace Duality {
             json entityJson;
             SerializeEntityComponents(entity, entityJson);
 
+            // A prefab asset is its own source of truth; serializing an instance link into
+            // it would make every newly-created root point back at itself.
+            entityJson.erase("Prefab Instance");
+
             // root's real parent in the live scene is deliberately not recorded -- a
             // prefab has no scene context of its own (see Instantiate). Every other
             // entity in the subtree is guaranteed to have its own parent already indexed,
@@ -243,7 +248,8 @@ namespace Duality {
         return true;
     }
 
-    Entity PrefabSerializer::Instantiate(Scene& scene, const std::string& path, Entity parent) {
+    Entity PrefabSerializer::Instantiate(Scene& scene, const std::string& path, Entity parent,
+        const AssetRef& sourcePrefab) {
         std::ifstream file(path);
         if (!file.is_open()) {
             Log::Error("PrefabSerializer: could not open '" + path + "' for reading");
@@ -286,11 +292,60 @@ namespace Duality {
         // before any descendant.
         Entity subtreeRoot = orderedEntities[0];
         scene.SetParent(subtreeRoot, parent);
+        if (!sourcePrefab.Guid.empty()) {
+            if (subtreeRoot.HasComponent<PrefabInstanceComponent>())
+                subtreeRoot.GetComponent<PrefabInstanceComponent>().Prefab = sourcePrefab;
+            else
+                subtreeRoot.AddComponent<PrefabInstanceComponent>(PrefabInstanceComponent{ sourcePrefab });
+        }
 
         if (wasLegacyPixelPrefab)
             Log::Info("PrefabSerializer: migrated legacy pixel prefab to Unity-style world units");
         Log::Info("Prefab instantiated from '" + path + "'");
         return subtreeRoot;
+    }
+
+    bool PrefabSerializer::Apply(Entity instanceRoot) {
+        if (!instanceRoot || !instanceRoot.HasComponent<PrefabInstanceComponent>())
+            return false;
+        const std::string path = AssetDatabase::ResolvePath(
+            instanceRoot.GetComponent<PrefabInstanceComponent>().Prefab.Guid);
+        if (path.empty()) {
+            Log::Error("Prefab apply failed: source asset cannot be resolved");
+            return false;
+        }
+        return Save(instanceRoot, path);
+    }
+
+    Entity PrefabSerializer::Revert(Scene& scene, Entity instanceRoot) {
+        if (!instanceRoot || instanceRoot.GetScene() != &scene ||
+            !instanceRoot.HasComponent<PrefabInstanceComponent>())
+            return Entity{};
+
+        const AssetRef source = instanceRoot.GetComponent<PrefabInstanceComponent>().Prefab;
+        const std::string path = AssetDatabase::ResolvePath(source.Guid);
+        if (path.empty()) {
+            Log::Error("Prefab revert failed: source asset cannot be resolved");
+            return Entity{};
+        }
+
+        const Entity parent = instanceRoot.GetComponent<HierarchyComponent>().Parent;
+        const auto& siblings = parent ? parent.GetComponent<HierarchyComponent>().Children : scene.GetRootEntities();
+        const auto it = std::find(siblings.begin(), siblings.end(), instanceRoot);
+        const std::size_t siblingIndex = it == siblings.end() ? siblings.size()
+            : static_cast<std::size_t>(std::distance(siblings.begin(), it));
+        scene.DestroyEntity(instanceRoot);
+        Entity replacement = Instantiate(scene, path, parent, source);
+        if (replacement)
+            scene.SetSiblingIndex(replacement, parent, siblingIndex, false);
+        return replacement;
+    }
+
+    bool PrefabSerializer::Unpack(Entity instanceRoot) {
+        if (!instanceRoot || !instanceRoot.HasComponent<PrefabInstanceComponent>())
+            return false;
+        instanceRoot.RemoveComponent<PrefabInstanceComponent>();
+        return true;
     }
 
     Entity PrefabSerializer::Duplicate(Scene& scene, Entity source) {

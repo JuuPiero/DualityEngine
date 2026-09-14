@@ -3,6 +3,7 @@
 #include <string>
 
 #include "DualityEngine/ECS/Entity.h"
+#include "DualityEngine/Reflection/Field.h"
 #include "DualityEngine/Scene/Scene.h"
 
 namespace Duality {
@@ -13,8 +14,6 @@ namespace Duality {
     // serialize/deserialize logic (see EntitySerialization.h) rather than duplicating it,
     // just scoped to one subtree instead of the whole scene.
     //
-    // Scope cut: no prefab-instance link -- an instantiated copy is a fully independent
-    // set of entities afterward, with no "apply changes back to the prefab" support.
     class PrefabSerializer {
     public:
         // Collects `root` and every descendant (via HierarchyComponent::Children,
@@ -27,7 +26,15 @@ namespace Duality {
         // subtree, then attaches the subtree's root under `parent` (Entity{} = scene
         // root) via Scene::SetParent. Returns the new root Entity, or an empty Entity if
         // the file couldn't be loaded/parsed.
-        static Entity Instantiate(Scene& scene, const std::string& path, Entity parent = {});
+        static Entity Instantiate(Scene& scene, const std::string& path, Entity parent = {},
+            const AssetRef& sourcePrefab = {});
+
+        // Writes an instance's current subtree back to its source prefab, recreates an
+        // instance from that source while retaining its parent/sibling position, or breaks
+        // the connection.  Apply/Revert intentionally operate on the selected instance root.
+        static bool Apply(Entity instanceRoot);
+        static Entity Revert(Scene& scene, Entity instanceRoot);
+        static bool Unpack(Entity instanceRoot);
 
         // Editor/runtime-safe in-memory duplicate of `source` and every descendant. The copy is
         // inserted immediately after source in the same sibling list, keeps authored component

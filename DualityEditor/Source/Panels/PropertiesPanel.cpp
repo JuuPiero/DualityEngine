@@ -13,6 +13,8 @@
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Reflection/TypeRegistry.h"
 #include "DualityEngine/Scene/Components.h"
+#include "DualityEngine/Scene/PrefabSerializer.h"
+#include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
 
 namespace Duality {
@@ -168,6 +170,43 @@ namespace Duality {
                 MarkSceneDirty(ctx);
             }
         }
+
+        // Prefab links are intentionally a bespoke Inspector card rather than a generic
+        // AssetRef field: breaking the link or replacing the whole subtree are structural
+        // operations, not ordinary component-field edits.
+        void DrawPrefabInstanceSection(Entity selected, EditorContext& ctx) {
+            if (!ImGui::CollapsingHeader("Prefab Instance", ImGuiTreeNodeFlags_DefaultOpen))
+                return;
+            PrefabInstanceComponent& instance = selected.GetComponent<PrefabInstanceComponent>();
+            const std::string path = AssetDatabase::ResolvePath(instance.Prefab.Guid);
+            if (path.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "Missing prefab asset");
+            else
+                ImGui::Text("%s", std::filesystem::path(path).filename().string().c_str());
+
+            if (ImGui::Button("Open")) {
+                if (!path.empty())
+                    ctx.RequestOpenPrefabPath = path;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Apply", ImVec2(70.0f, 0.0f)))
+                PrefabSerializer::Apply(selected);
+            ImGui::SameLine();
+            if (ImGui::Button("Revert", ImVec2(70.0f, 0.0f))) {
+                Entity replacement = PrefabSerializer::Revert(ctx.SceneRef, selected);
+                if (replacement) {
+                    ctx.Selected = replacement;
+                    ctx.SelectedEntities = { replacement };
+                    MarkSceneDirty(ctx);
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Unpack")) {
+                if (PrefabSerializer::Unpack(selected))
+                    MarkSceneDirty(ctx);
+            }
+            ImGui::TextDisabled("Apply writes this instance to the asset. Revert discards instance changes.");
+        }
     }
 
     void PropertiesPanel::OnImGuiRender(EditorContext& ctx) {
@@ -248,6 +287,11 @@ namespace Duality {
             // comment for why.
             if (type.DisplayName == "Scripts") {
                 DrawScriptsSection(selected, *static_cast<BehaviourComponent*>(component), ctx);
+                ImGui::PopID();
+                continue;
+            }
+            if (type.DisplayName == "Prefab Instance") {
+                DrawPrefabInstanceSection(selected, ctx);
                 ImGui::PopID();
                 continue;
             }

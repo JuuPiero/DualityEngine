@@ -29,6 +29,8 @@ namespace Duality {
         int EntityId(Entity entity) { return static_cast<int>(static_cast<uint32_t>(entity.Handle())); }
 
         const char* IconForEntity(Entity entity) {
+            if (entity.HasComponent<PrefabInstanceComponent>())
+                return EditorIcons::Link;
             if (entity.HasComponent<CameraComponent>())
                 return EditorIcons::Camera;
             if (entity.HasComponent<CanvasComponent>())
@@ -243,6 +245,11 @@ namespace Duality {
                 return;
             std::string guid = AssetMeta::EnsureMetaFile(prefabPath);
             AssetDatabase::Register(guid, prefabPath.string());
+            if (entity.HasComponent<PrefabInstanceComponent>())
+                entity.GetComponent<PrefabInstanceComponent>().Prefab = AssetRef{ guid };
+            else
+                entity.AddComponent<PrefabInstanceComponent>(PrefabInstanceComponent{ AssetRef{ guid } });
+            MarkSceneDirty(ctx);
         }
 
         Entity CreateCanvas(EditorContext& ctx, Screen screen, Entity parent = {}) {
@@ -732,7 +739,7 @@ namespace Duality {
                 std::string guid = static_cast<const char*>(payload->Data);
                 std::string path = AssetDatabase::ResolvePath(guid);
                 if (!path.empty()) {
-                    Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path);
+                    Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path, {}, AssetRef{ guid });
                     if (instance) {
                         SelectEntity(ctx, instance, m_RangeAnchor, false, false);
                         MarkSceneDirty(ctx);

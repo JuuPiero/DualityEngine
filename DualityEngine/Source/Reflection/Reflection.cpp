@@ -27,6 +27,10 @@ namespace Duality {
             MakeField("Scale", &TransformComponent::Scale),
         });
 
+        TypeRegistry::Register<PrefabInstanceComponent>("Prefab Instance", false, {
+            MakeField("Prefab", &PrefabInstanceComponent::Prefab),
+        });
+
         TypeRegistry::Register<SpriteRendererComponent>("Sprite Renderer", false, {
             MakeField("Enabled", &SpriteRendererComponent::Enabled),
             MakeColorField("Color", &SpriteRendererComponent::Color),

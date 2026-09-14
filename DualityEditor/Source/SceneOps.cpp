@@ -3,6 +3,7 @@
 #include "DualityEditor/EditorContext.h"
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
+#include "DualityEngine/Scene/PrefabSerializer.h"
 #include "DualityEngine/Scene/SceneValidator.h"
 
 namespace Duality {
@@ -15,6 +16,15 @@ namespace Duality {
     }
 
     void SaveScene(EditorContext& ctx) {
+        if (ctx.IsEditingPrefab) {
+            if (ctx.SceneRef.GetRootEntities().empty())
+                return;
+            if (PrefabSerializer::Save(ctx.SceneRef.GetRootEntities().front(), ctx.EditingPrefabPath)) {
+                ctx.History.MarkSaved(ctx.SceneRef);
+                ctx.SceneDirty = false;
+            }
+            return;
+        }
         if (ctx.ScenePath.empty())
             return;
         SceneSerializer(ctx.SceneRef).Serialize(ctx.ScenePath);

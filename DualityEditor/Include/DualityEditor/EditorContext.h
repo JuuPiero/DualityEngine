@@ -90,6 +90,12 @@ namespace Duality {
         // other plain-data fields below, this used to be const) since SceneOps.h's
         // OpenScene() updates it directly when switching to a different scene.
         std::string& ScenePath;
+        // Prefab Mode uses an isolated temporary Scene.  The regular open Scene is retained
+        // as an in-memory snapshot by Application until the user exits this mode.
+        bool& IsEditingPrefab;
+        std::string& EditingPrefabPath;
+        std::string& RequestOpenPrefabPath;
+        bool& RequestExitPrefabMode;
         const std::string& BuildDirectory;
         const std::string& RepoRoot;
 

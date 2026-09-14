@@ -511,7 +511,7 @@ namespace Duality {
         std::string path = AssetDatabase::ResolvePath(prefabAssetGuid);
         if (path.empty())
             return false;
-        Entity result = PrefabSerializer::Instantiate(*static_cast<Scene*>(scenePtr), path);
+        Entity result = PrefabSerializer::Instantiate(*static_cast<Scene*>(scenePtr), path, {}, AssetRef{ prefabAssetGuid });
         if (!result)
             return false;
         *outHandle = static_cast<unsigned int>(result.Handle());

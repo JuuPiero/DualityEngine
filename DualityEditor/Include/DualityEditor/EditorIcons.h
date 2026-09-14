@@ -12,6 +12,7 @@ namespace Duality::EditorIcons {
     inline constexpr const char* File = "\xEF\x85\x9B";       // file
     inline constexpr const char* Folder = "\xEF\x81\xBB";     // folder
     inline constexpr const char* Image = "\xEF\x80\xBE";      // image
+    inline constexpr const char* Link = "\xEF\x83\x81";       // link
     inline constexpr const char* Map = "\xEF\x89\xB9";        // map
     inline constexpr const char* Material = "\xEF\x94\xBF";   // palette
     inline constexpr const char* Music = "\xEF\x80\x81";      // music

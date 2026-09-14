@@ -402,6 +402,13 @@ namespace Duality {
         std::vector<Entity> Children;  // order = sibling display/serialization order
     };
 
+    // Marks the root of an instantiated prefab.  Only the root carries this component:
+    // its descendants are part of the same instance by virtue of the hierarchy.  The
+    // AssetRef keeps the connection stable when a prefab is renamed or moved.
+    struct PrefabInstanceComponent {
+        AssetRef Prefab;
+    };
+
     // Unity-style render layer tag -- replaces the old ScreenGroupComponent. TOP and BOTTOM
     // are the built-in layers mapping to the 3DS's two physical screens; Default means
     // ungrouped (visible wherever a camera actually sees the entity by position). Cameras

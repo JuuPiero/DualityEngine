@@ -52,6 +52,8 @@ namespace Duality {
         void OpenProjectFromDialog();
         void NewProjectFromDialog();
         void SaveSceneAsFromDialog();
+        void EnterPrefabMode(const std::string& prefabPath);
+        void ExitPrefabMode();
 
         // Declaration order matters here: m_Window must exist before any
         // GL-dependent member (m_Renderer, the Framebuffers) is
@@ -72,6 +74,13 @@ namespace Duality {
         std::string m_BuildDirectory;
         std::string m_RepoRoot;
         std::string m_ScenePath;
+        bool m_IsEditingPrefab = false;
+        std::string m_EditingPrefabPath;
+        std::string m_RequestOpenPrefabPath;
+        bool m_RequestExitPrefabMode = false;
+        std::string m_PrefabModeSceneSnapshot;
+        std::string m_PrefabModeOriginalScenePath;
+        bool m_PrefabModeOriginalDirty = false;
 
         Entity m_Selected;
         std::vector<Entity> m_SelectedEntities;

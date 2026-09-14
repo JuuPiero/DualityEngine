@@ -82,12 +82,12 @@ namespace Duality {
             return true;
         }
 
-        // Read-only summary -- editing a Prefab asset's fields in place (outside any live
-        // Scene) would need either a hidden Scene to instantiate into or generalizing
-        // EntitySerialization to work off raw JSON without an Entity at all; both are bigger
-        // features than "show something useful when selected," left for later (see
-        // ROADMAP.md).
-        void DrawPrefabAsset(const std::string& path, EditorContext&) {
+        void DrawPrefabAsset(const std::string& path, EditorContext& ctx) {
+            if (ImGui::Button("Open Prefab"))
+                ctx.RequestOpenPrefabPath = path;
+            ImGui::SameLine();
+            ImGui::TextDisabled("Edit in isolated Prefab Mode");
+            ImGui::Separator();
             json entities;
             if (!TryReadEntities(path, entities) || entities.empty())
                 return;
@@ -117,8 +117,10 @@ namespace Duality {
         // OpenScene) -- offered here too since a file already selected (this Inspector showing)
         // is one click away from opening, instead of needing to go find and double-click it again.
         void DrawSceneAsset(const std::string& path, EditorContext& ctx) {
-            if (ImGui::Button("Open Scene"))
+            if (ImGui::Button("Open Scene") && !ctx.IsEditingPrefab)
                 OpenScene(ctx, path);
+            if (ctx.IsEditingPrefab)
+                ImGui::TextDisabled("Exit Prefab Mode to open a scene.");
             ImGui::Separator();
 
             json entities;
