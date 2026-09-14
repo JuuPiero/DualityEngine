@@ -105,6 +105,13 @@ namespace Duality {
         m_DrawCallCount = 0;
 
         glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        // The 3D Scene view uses this renderer for SpriteRenderer's world-space quad
+        // preview too. Without alpha blending, transparent texels write their black RGB
+        // values directly into the framebuffer, appearing as rectangular borders around
+        // sprites. The Game's 2D renderer uses this same straight-alpha convention.
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         // Color is only cleared when nothing else will (see IRenderer3D.h's own doc comment on
         // this parameter) -- but the depth buffer always needs a fresh clear regardless, for
         // this renderer's own meshes to depth-test correctly against each other;
@@ -146,8 +153,13 @@ namespace Duality {
         // view's 2D panes showing 3D-shaded garbage) before this fix, the desktop-side analog
         // of Citro3DRenderer's own "re-bind everything, assume nothing persists" coexistence
         // rule, just in the opposite direction (3D must clean up after itself instead of before).
+        glDepthMask(GL_TRUE);
         glDisable(GL_DEPTH_TEST);
         m_Shader.Unbind();
+    }
+
+    void OpenGLRenderer3D::SetDepthWriteEnabled(bool enabled) {
+        glDepthMask(enabled ? GL_TRUE : GL_FALSE);
     }
 
     void OpenGLRenderer3D::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {

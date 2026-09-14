@@ -8,6 +8,7 @@
 
 #include "DualityEditor/Framebuffer.h"
 #include "DualityEditor/SceneGizmo.h"
+#include "DualityEditor/SceneHistory.h"
 #include "DualityEditor/SceneViewCamera.h"
 #include "DualityEditor/SceneViewCamera3D.h"
 #include "DualityEngine/ECS/Entity.h"
@@ -47,6 +48,8 @@ namespace Duality {
         std::vector<std::string>& SelectedAssetPaths;
         bool& IsPlaying;
         bool& SceneDirty;
+        SceneHistory& History;
+        uint64_t& SceneChangeSerial;
 
         // Split Scene view: one free-roam edit camera per screen (see
         // SceneViewCamera.h) -- replaces the old single SceneCameraPos/SceneZoom

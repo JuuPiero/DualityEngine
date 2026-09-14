@@ -238,9 +238,12 @@ namespace Duality {
         // Entity to that index, written as a plain "Parent" integer below. This is
         // bespoke (not routed through SerializeEntityComponents/TypeRegistry), matching
         // how HierarchyComponent itself is never TypeRegistry::Register'd.
-        std::vector<Entity> orderedEntities;
-        for (auto handle : m_Scene.Registry().view<NameComponent>())
-            orderedEntities.emplace_back(handle, &m_Scene);
+        // Component views are intentionally storage-order based; EnTT may repack that storage
+        // whenever an entity/component is added or removed. Serializing from such a view made
+        // the on-disk array (and therefore siblings rebuilt by Deserialize) drift between
+        // saves. Hierarchy traversal is the user-authored order, and parents are emitted before
+        // their children so it is also the natural stable order for Parent indices.
+        const std::vector<Entity> orderedEntities = m_Scene.GetHierarchyTraversalOrder();
 
         std::unordered_map<entt::entity, int> indexOf;
         for (size_t i = 0; i < orderedEntities.size(); i++)

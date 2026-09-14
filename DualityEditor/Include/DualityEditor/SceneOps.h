@@ -14,6 +14,12 @@ namespace Duality {
     // Writes ctx.ScenePath and clears the dirty flag. No-op if path is empty.
     void SaveScene(EditorContext& ctx);
 
+    // Restores the preceding/following Editor scene snapshot. These are deliberately Scene
+    // operations (not file-system operations): Ctrl+Z while editing an AssetRef text field is
+    // still owned by ImGui's text widget, while Ctrl+Z elsewhere invokes these helpers.
+    bool UndoScene(EditorContext& ctx);
+    bool RedoScene(EditorContext& ctx);
+
     // Runs authored-scene checks before Play or Build. Diagnostics are written
     // to the Console panel; returns false when an error makes the operation
     // unsafe to start.

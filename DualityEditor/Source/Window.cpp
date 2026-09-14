@@ -1,6 +1,8 @@
 #include "DualityEditor/Window.h"
 
+#include <array>
 #include <cstdlib>
+#include <filesystem>
 #include <utility>
 
 #include <GL/glew.h>
@@ -94,7 +96,50 @@ namespace Duality {
         ImFontConfig fontConfig;
         fontConfig.SizePixels = 13.0f * UiScale;
         io.Fonts->AddFontDefault(&fontConfig);
+
+        // Editor-only icon font. It is merged into the default UI font, so normal text and
+        // icons share one ImGui font stack and every existing project continues to work if an
+        // editor binary is moved without its Assets directory (missing glyphs are harmless and
+        // never prevent the editor from starting).
+        static const ImWchar iconRanges[] = { 0xf000, 0xf8ff, 0 };
+        const std::array<std::filesystem::path, 2> iconFontCandidates = {
+            std::filesystem::path("Assets/Fonts/fa-solid-900.ttf"),
+            std::filesystem::path("DualityEditor/Assets/Fonts/fa-solid-900.ttf")
+        };
+        for (const std::filesystem::path& iconFontPath : iconFontCandidates) {
+            if (!std::filesystem::exists(iconFontPath))
+                continue;
+            ImFontConfig iconConfig;
+            iconConfig.MergeMode = true;
+            iconConfig.PixelSnapH = true;
+            iconConfig.GlyphMinAdvanceX = 13.0f * UiScale;
+            iconConfig.GlyphOffset.y = 1.0f;
+            io.Fonts->AddFontFromFileTTF(iconFontPath.string().c_str(), 13.0f * UiScale, &iconConfig, iconRanges);
+            break;
+        }
         ImGui::GetStyle().ScaleAllSizes(UiScale);
+
+        // A calmer, higher-contrast blue-gray editor theme. The 3DS Game/Scene framebuffers
+        // are rendered independently, so these colors affect desktop tooling only.
+        ImGuiStyle& style = ImGui::GetStyle();
+        style.WindowRounding = 5.0f;
+        style.ChildRounding = 4.0f;
+        style.FrameRounding = 3.0f;
+        style.GrabRounding = 3.0f;
+        style.TabRounding = 4.0f;
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.055f, 0.065f, 0.09f, 1.0f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.070f, 0.080f, 0.11f, 1.0f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.105f, 0.125f, 0.17f, 1.0f);
+        style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.145f, 0.185f, 0.25f, 1.0f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.105f, 0.24f, 0.42f, 1.0f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.14f, 0.34f, 0.58f, 1.0f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.09f, 0.20f, 0.36f, 1.0f);
+        style.Colors[ImGuiCol_Header] = ImVec4(0.10f, 0.25f, 0.45f, 0.75f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.14f, 0.34f, 0.58f, 0.85f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.12f, 0.30f, 0.53f, 1.0f);
+        style.Colors[ImGuiCol_Tab] = ImVec4(0.08f, 0.11f, 0.16f, 1.0f);
+        style.Colors[ImGuiCol_TabActive] = ImVec4(0.11f, 0.25f, 0.44f, 1.0f);
+        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.14f, 0.34f, 0.58f, 1.0f);
 
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;

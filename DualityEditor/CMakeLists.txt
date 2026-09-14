@@ -8,6 +8,7 @@ add_executable(DualityEditor
     Source/ScriptEngine.cpp
     Source/BuildPipeline.cpp
     Source/SceneGizmo.cpp
+    Source/SceneHistory.cpp
     Source/FieldEditorWidget.cpp
     Source/AssetInspectorRegistry.cpp
     Source/AssetInspectors.cpp
@@ -35,3 +36,11 @@ find_package(GLEW REQUIRED)
 
 target_include_directories(DualityEditor PRIVATE Include)
 target_link_libraries(DualityEditor PRIVATE DualityEngine glfw GLEW::GLEW opengl32 comdlg32 ImGui stb)
+
+# Keep editor-only visual assets next to the executable for both IDE launches and a copied
+# desktop editor folder. They are never included by DualityPlayer / the 3DS build.
+add_custom_command(TARGET DualityEditor POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/Assets"
+        "$<TARGET_FILE_DIR:DualityEditor>/Assets"
+)

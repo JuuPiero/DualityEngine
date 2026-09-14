@@ -21,6 +21,7 @@
 #include "DualityEditor/Panels/PropertiesPanel.h"
 #include "DualityEditor/Panels/ScenePanel.h"
 #include "DualityEditor/SceneGizmo.h"
+#include "DualityEditor/SceneHistory.h"
 #include "DualityEditor/SceneViewCamera.h"
 #include "DualityEditor/SceneViewCamera3D.h"
 #include "DualityEditor/Window.h"
@@ -59,6 +60,7 @@ namespace Duality {
         Window m_Window;
         std::shared_ptr<Project> m_Project;
         Scene m_Scene;
+        SceneHistory m_SceneHistory;
         OpenGLRenderer2D m_Renderer;
         OpenGLRenderer3D m_Renderer3D;
 
@@ -79,6 +81,11 @@ namespace Duality {
         std::vector<std::string> m_SelectedAssetPaths;
         bool m_IsPlaying = false;
         bool m_SceneDirty = false;
+        // Incremented by MarkSceneDirty after an editor mutation. Application snapshots the
+        // scene once per changed UI frame, grouping multiple controls/actions in that frame
+        // into one Ctrl+Z step instead of serializing continuously while idle.
+        uint64_t m_SceneChangeSerial = 0;
+        uint64_t m_CapturedSceneChangeSerial = 0;
         bool m_Running = true;
         bool m_DockLayoutInitialized = false;
         bool m_RequestOpenProject = false;

@@ -6,11 +6,13 @@
 #include <cstring>
 #include <cstdio>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 #include <imgui.h>
 
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
@@ -25,6 +27,20 @@ namespace Duality {
         // plain int -- used both for ImGui::PushID (needs an int/ptr, not an enum
         // class) and as the drag-drop payload value.
         int EntityId(Entity entity) { return static_cast<int>(static_cast<uint32_t>(entity.Handle())); }
+
+        const char* IconForEntity(Entity entity) {
+            if (entity.HasComponent<CameraComponent>())
+                return EditorIcons::Camera;
+            if (entity.HasComponent<CanvasComponent>())
+                return EditorIcons::Package;
+            if (entity.HasComponent<SpriteRendererComponent>() || entity.HasComponent<UIImageComponent>())
+                return EditorIcons::Image;
+            if (entity.HasComponent<MeshRendererComponent>())
+                return EditorIcons::Cube;
+            if (entity.HasComponent<BehaviourComponent>())
+                return EditorIcons::Code;
+            return EditorIcons::File;
+        }
 
         Entity DraggedHierarchyEntity(EditorContext& ctx) {
             const ImGuiPayload* payload = ImGui::GetDragDropPayload();
@@ -562,16 +578,17 @@ namespace Duality {
 
                 ImGui::PushID(EntityId(entity));
                 bool selected = IsSelected(ctx, entity);
-                if (ImGui::Selectable(name.c_str(), selected))
+                const std::string labelledName = std::string(IconForEntity(entity)) + " " + name;
+                if (ImGui::Selectable(labelledName.c_str(), selected))
                     SelectEntity(ctx, entity, rangeAnchor, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
                 if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected)
                     SelectEntity(ctx, entity, rangeAnchor, false, false);
                 if (ImGui::BeginPopupContextItem()) {
                     DrawCreateObjectMenu(ctx, entity);
                     ImGui::Separator();
-                    if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
+                    if (ImGui::MenuItem((std::string(EditorIcons::Copy) + " Duplicate").c_str(), "Ctrl+D"))
                         DuplicateSelection(ctx, rangeAnchor);
-                    if (ImGui::MenuItem("Remove", "Delete"))
+                    if (ImGui::MenuItem((std::string(EditorIcons::Trash) + " Remove").c_str(), "Delete"))
                         pendingRemovals = TopLevelSelection(ctx);
                     ImGui::EndPopup();
                 }
@@ -597,6 +614,7 @@ namespace Duality {
             bool wasLeaf = hierarchy.Children.empty();
 
             ImGui::PushID(EntityId(entity));
+            const std::string labelledName = std::string(IconForEntity(entity)) + " " + name;
 
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
             if (IsSelected(ctx, entity))
@@ -618,7 +636,7 @@ namespace Duality {
                 ImGui::SameLine();
             }
 
-            bool open = ImGui::TreeNodeEx(name.c_str(), flags);
+            bool open = ImGui::TreeNodeEx(labelledName.c_str(), flags);
             if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
                 SelectEntity(ctx, entity, rangeAnchor, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !IsSelected(ctx, entity))
@@ -629,7 +647,7 @@ namespace Duality {
                     SelectEntity(ctx, entity, rangeAnchor, false, false);
                 entt::entity handle = entity.Handle();
                 ImGui::SetDragDropPayload("HIERARCHY_ENTITY", &handle, sizeof(handle));
-                ImGui::Text("%s", name.c_str());
+                ImGui::Text("%s", labelledName.c_str());
                 ImGui::EndDragDropSource();
             }
             if (ImGui::BeginDragDropTarget()) {
@@ -643,9 +661,9 @@ namespace Duality {
             if (ImGui::BeginPopupContextItem()) {
                 DrawCreateObjectMenu(ctx, entity);
                 ImGui::Separator();
-                if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
+                if (ImGui::MenuItem((std::string(EditorIcons::Copy) + " Duplicate").c_str(), "Ctrl+D"))
                     DuplicateSelection(ctx, rangeAnchor);
-                if (ImGui::MenuItem("Remove", "Delete"))
+                if (ImGui::MenuItem((std::string(EditorIcons::Trash) + " Remove").c_str(), "Delete"))
                     pendingRemovals = TopLevelSelection(ctx);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Create Prefab from Selection"))
@@ -673,7 +691,7 @@ namespace Duality {
         ImGui::Begin("Hierarchy");
         NormalizeSelection(ctx, m_RangeAnchor);
 
-        if (ImGui::Button("Create Entity", ImVec2(-1, 0))) {
+        if (ImGui::Button((std::string(EditorIcons::Add) + " Create Entity").c_str(), ImVec2(-1, 0))) {
             SelectEntity(ctx, ctx.SceneRef.CreateEntity("Entity"), m_RangeAnchor, false, false);
             MarkSceneDirty(ctx);
         }

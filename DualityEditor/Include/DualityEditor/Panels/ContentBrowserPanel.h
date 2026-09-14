@@ -67,6 +67,9 @@ namespace Duality {
         // a second translation unit with the same class/symbols.
         void DuplicateSelectedAsset(EditorContext& ctx);
         void CreateFolder(const std::filesystem::path& parent);
+        // Opens the class-name dialog before either half of a C++ Behaviour pair is written.
+        // One accepted name becomes both <Name>.h and <Name>.cpp.
+        void BeginCreateScript();
         void RequestDelete(const std::filesystem::path& path, bool isDirectory);
         // Moves the asset `guid` resolves to (plus its ".meta") into `destDir` and
         // re-registers it -- the drag-a-file-onto-a-folder flow.
@@ -88,6 +91,8 @@ namespace Duality {
         // Set true the same frame a rename starts so the InputText claims keyboard focus
         // exactly once (SetKeyboardFocusHere must be called before the widget it targets).
         bool m_FocusRenameField = false;
+        char m_NewScriptName[128] = "NewBehaviour";
+        bool m_FocusNewScriptName = false;
         std::string m_RangeAnchorPath;
 
         // Empty = no delete confirmation open; otherwise the path awaiting a Yes/Cancel

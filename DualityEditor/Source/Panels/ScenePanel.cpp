@@ -696,16 +696,38 @@ namespace Duality {
             return true;
         }
 
-        // Second line of defense against the same "near-horizon line blows up to an extreme
-        // screen coordinate" problem ClipSegmentToCameraFront's larger near-distance already
-        // reduces -- even a comfortably-in-front point can still project absurdly far outside
-        // the viewport for a line nearly edge-on to the camera. Rejecting those outright (they
-        // contribute nothing visible anyway) avoids handing ImGui/the GPU rasterizer
-        // coordinates large enough to risk float-precision artifacts.
-        bool IsReasonableScreenPoint(const Projector3D& proj, const ImVec2& p) {
-            float margin = std::max(proj.ViewportW, proj.ViewportH) * 4.0f;
-            return p.x > proj.ImagePos.x - margin && p.x < proj.ImagePos.x + proj.ViewportW + margin &&
-                   p.y > proj.ImagePos.y - margin && p.y < proj.ImagePos.y + proj.ViewportH + margin;
+        // Projects a world-space grid line first, then clips the resulting 2D segment to the
+        // Scene image itself. At a shallow/diagonal view, valid grid lines often have endpoints
+        // far off-screen while still crossing the viewport. The old endpoint rejection dropped
+        // those lines wholesale, causing the grid to disappear in large pieces while orbiting.
+        bool ClipLineToViewport(const Projector3D& proj, ImVec2& a, ImVec2& b) {
+            const float left = proj.ImagePos.x;
+            const float right = left + proj.ViewportW;
+            const float top = proj.ImagePos.y;
+            const float bottom = top + proj.ViewportH;
+            const float dx = b.x - a.x;
+            const float dy = b.y - a.y;
+            float first = 0.0f, last = 1.0f;
+            const auto clip = [&first, &last](float p, float q) {
+                if (std::abs(p) < 1e-6f)
+                    return q >= 0.0f;
+                const float t = q / p;
+                if (p < 0.0f) {
+                    if (t > last) return false;
+                    if (t > first) first = t;
+                } else {
+                    if (t < first) return false;
+                    if (t < last) last = t;
+                }
+                return true;
+            };
+            if (!clip(-dx, a.x - left) || !clip(dx, right - a.x) ||
+                !clip(-dy, a.y - top) || !clip(dy, bottom - a.y))
+                return false;
+            const ImVec2 original = a;
+            a = ImVec2(original.x + first * dx, original.y + first * dy);
+            b = ImVec2(original.x + last * dx, original.y + last * dy);
+            return std::isfinite(a.x) && std::isfinite(a.y) && std::isfinite(b.x) && std::isfinite(b.y);
         }
 
         // Unity/Cocos-style ground-plane grid (XZ plane at Y=0) for the 3D Scene pane -- same
@@ -726,11 +748,20 @@ namespace Duality {
         void DrawGrid3D(const Projector3D& proj, const glm::vec3& cameraTarget, float cellSize, float extent) {
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             int halfLineCount = std::max(1, static_cast<int>(extent / cellSize));
-            float centerX = std::round(cameraTarget.x / cellSize) * cellSize;
-            float centerZ = std::round(cameraTarget.z / cellSize) * cellSize;
-            // See ClipSegmentToCameraFront's own comment -- a meaningful fraction of a grid
-            // cell, not a bare "still technically in front" epsilon.
-            float nearClipDistance = std::max(cellSize * 0.5f, 1.0f);
+            // Focus at the ground hit of the Scene camera's centre ray, rather than blindly at
+            // orbit Target. Target can be well above/below Y=0 after perspective panning,
+            // leaving a finite grid patch beside the ground actually visible in the pane.
+            glm::vec3 focus = cameraTarget;
+            if (std::abs(proj.Forward.y) > 1e-4f) {
+                const float hitDistance = -proj.CameraPos.y / proj.Forward.y;
+                if (hitDistance > 0.0f)
+                    focus = proj.CameraPos + proj.Forward * hitDistance;
+            }
+            float centerX = std::round(focus.x / cellSize) * cellSize;
+            float centerZ = std::round(focus.z / cellSize) * cellSize;
+            // The 2D viewport clip below makes a small near-plane clip safe. A cell-sized
+            // clip removed nearby grid lines at diagonal angles.
+            constexpr float nearClipDistance = 0.05f;
 
             auto line = [&](const glm::vec3& a, const glm::vec3& b, ImU32 color, float thickness) {
                 glm::vec3 clippedA, clippedB;
@@ -739,11 +770,13 @@ namespace Duality {
                 ImVec2 sa, sb;
                 if (!proj.Project(clippedA, sa) || !proj.Project(clippedB, sb))
                     return;
-                if (!IsReasonableScreenPoint(proj, sa) || !IsReasonableScreenPoint(proj, sb))
+                if (!ClipLineToViewport(proj, sa, sb))
                     return;
                 drawList->AddLine(sa, sb, color, thickness);
             };
 
+            drawList->PushClipRect(proj.ImagePos,
+                ImVec2(proj.ImagePos.x + proj.ViewportW, proj.ImagePos.y + proj.ViewportH), true);
             const ImU32 gridColor = IM_COL32(120, 120, 130, 90);
             for (int i = -halfLineCount; i <= halfLineCount; i++) {
                 float x = centerX + i * cellSize;
@@ -758,6 +791,7 @@ namespace Duality {
             // and the orientation gizmo below) -- drawn last so they're on top of the plain grid.
             line({ centerX - extent, 0.0f, 0.0f }, { centerX + extent, 0.0f, 0.0f }, IM_COL32(230, 70, 70, 255), 2.0f);
             line({ 0.0f, 0.0f, centerZ - extent }, { 0.0f, 0.0f, centerZ + extent }, IM_COL32(80, 140, 230, 255), 2.0f);
+            drawList->PopClipRect();
         }
 
         constexpr float OrientationGizmoRadius = 40.0f;
@@ -1003,12 +1037,37 @@ namespace Duality {
             // Scene 3D shows SpriteRenderers as their actual world-space quads: an XY plane
             // positioned, rotated and scaled by the entity Transform. 2D mode is therefore
             // merely a convenient orthographic editing view, not a different representation.
+            // Preserve opaque-mesh depth testing, but don't let transparent texels reserve
+            // depth across the rectangular bounds of a sprite quad.
+            renderer3D.SetDepthWriteEnabled(false);
+            // Match Game and Scene 2D exactly: explicit Sort Order is primary and equal-order
+            // sprites follow the visible Hierarchy (last sibling is drawn last/on top). An EnTT
+            // component view is not an authoring order and may change after a reload.
+            const std::vector<Entity> hierarchy = ctx.SceneRef.GetHierarchyTraversalOrder();
+            std::unordered_map<entt::entity, std::size_t> hierarchyOrder;
+            hierarchyOrder.reserve(hierarchy.size());
+            for (std::size_t i = 0; i < hierarchy.size(); ++i)
+                hierarchyOrder[hierarchy[i].Handle()] = i;
+            struct EditorSpriteDrawItem { entt::entity Handle; int SortOrder; std::size_t HierarchyOrder; };
+            std::vector<EditorSpriteDrawItem> sprites;
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
                 if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                     continue;
                 auto& sprite = ctx.SceneRef.Registry().get<SpriteRendererComponent>(handle);
                 if (!sprite.Enabled)
                     continue;
+                const auto found = hierarchyOrder.find(handle);
+                sprites.push_back({ handle, sprite.SortOrder,
+                    found == hierarchyOrder.end() ? hierarchy.size() : found->second });
+            }
+            std::sort(sprites.begin(), sprites.end(), [](const EditorSpriteDrawItem& a, const EditorSpriteDrawItem& b) {
+                if (a.SortOrder != b.SortOrder)
+                    return a.SortOrder < b.SortOrder;
+                return a.HierarchyOrder < b.HierarchyOrder;
+            });
+            for (const EditorSpriteDrawItem& item : sprites) {
+                const entt::entity handle = item.Handle;
+                auto& sprite = ctx.SceneRef.Registry().get<SpriteRendererComponent>(handle);
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 const bool isInactive = !ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef));
                 glm::vec4 editorColor = sprite.Color;
@@ -1029,6 +1088,7 @@ namespace Duality {
                     { sprite.Size.x * transform.Scale.x, 1.0f, sprite.Size.y * transform.Scale.y },
                     editorColor, textureId);
             }
+            renderer3D.SetDepthWriteEnabled(true);
             // Cameras have no mesh of their own -- shown via the frustum wireframe overlay
             // below instead of a solid mesh marker here: this pane's own orbit camera is
             // deliberately SEEDED to sit at a Perspective camera's exact position (WYSIWYG
@@ -1072,12 +1132,16 @@ namespace Duality {
             // though (like all of them) it's really just a flat screen-space overlay with no
             // true depth test against the rendered mesh scene.
             {
-                float gridCellSize = GridCellSize3D(camera3D.Distance);
-                // Scales with how far the camera actually is from its own focus point --
-                // bounded to [10, 40] grid squares in each direction, rather than one fixed
-                // patch size regardless of zoom (see DrawGrid3D's own comment on why that made
-                // lines needlessly likely to require near-plane clipping as the camera moved).
-                float gridExtent = std::clamp(camera3D.Distance * 3.0f, gridCellSize * 10.0f, gridCellSize * 40.0f);
+                float groundFocusDistance = camera3D.Distance;
+                if (std::abs(forward.y) > 1e-4f) {
+                    const float hitDistance = -cameraPos.y / forward.y;
+                    if (hitDistance > 0.0f)
+                        groundFocusDistance = hitDistance;
+                }
+                float gridCellSize = GridCellSize3D(groundFocusDistance);
+                // Covers the perspective frustum around the centre-ray ground intersection,
+                // including oblique angles. The 128-cell cap keeps overlay work bounded.
+                float gridExtent = std::clamp(groundFocusDistance * 4.0f, gridCellSize * 12.0f, gridCellSize * 128.0f);
                 DrawGrid3D(proj, camera3D.Target, gridCellSize, gridExtent);
             }
 

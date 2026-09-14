@@ -9,6 +9,7 @@
 
 #include <imgui.h>
 
+#include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
@@ -104,6 +105,24 @@ namespace Duality {
         AssetDatabase::Register(guid, path.string());
     }
 
+    bool IsCppIdentifier(const std::string& value) {
+        if (value.empty())
+            return false;
+        const auto isFirst = [](unsigned char c) { return std::isalpha(c) || c == '_'; };
+        const auto isRest = [](unsigned char c) { return std::isalnum(c) || c == '_'; };
+        if (!isFirst(static_cast<unsigned char>(value.front())))
+            return false;
+        return std::all_of(value.begin() + 1, value.end(), [isRest](unsigned char c) { return isRest(c); });
+    }
+
+    std::string DefaultScriptClassName(const std::filesystem::path& directory) {
+        std::string className = "NewBehaviour";
+        for (int suffix = 1; std::filesystem::exists(directory / (className + ".h")) ||
+             std::filesystem::exists(directory / (className + ".cpp")); ++suffix)
+            className = "NewBehaviour" + std::to_string(suffix);
+        return className;
+    }
+
     // Writes a brand-new Behaviour script (`.h` + `.cpp` pair) to "<directory>/<Name>.h"/".cpp"
     // -- lets a project own its own gameplay scripts (compiled into GameScripts alongside the
     // engine's shared/demo scripts, see GameScripts/CMakeLists.txt's
@@ -116,20 +135,18 @@ namespace Duality {
     // class name (a plain string), never referenced by GUID like a real asset. Does NOT trigger
     // a rebuild -- matches every other "add a script" flow already documented (README.md/
     // GETTING_STARTED.md): click Reload Scripts afterward, same as always.
-    static void CreateScriptAsset(const std::filesystem::path& directory) {
-        std::string className = "NewBehaviour";
+    static bool CreateScriptAsset(const std::filesystem::path& directory, const std::string& className) {
+        if (!IsCppIdentifier(className))
+            return false;
         std::filesystem::path headerPath = directory / (className + ".h");
         std::filesystem::path sourcePath = directory / (className + ".cpp");
-        for (int suffix = 1; std::filesystem::exists(headerPath) || std::filesystem::exists(sourcePath); suffix++) {
-            className = "NewBehaviour" + std::to_string(suffix);
-            headerPath = directory / (className + ".h");
-            sourcePath = directory / (className + ".cpp");
-        }
+        if (std::filesystem::exists(headerPath) || std::filesystem::exists(sourcePath))
+            return false;
 
         std::ofstream header(headerPath);
         if (!header.is_open()) {
             Log::Error("ContentBrowserPanel: failed to create '" + headerPath.string() + "'");
-            return;
+            return false;
         }
         header <<
             "#pragma once\n\n"
@@ -144,7 +161,9 @@ namespace Duality {
         std::ofstream source(sourcePath);
         if (!source.is_open()) {
             Log::Error("ContentBrowserPanel: failed to create '" + sourcePath.string() + "'");
-            return;
+            std::error_code error;
+            std::filesystem::remove(headerPath, error); // avoid leaving a half-created class pair
+            return false;
         }
         source <<
             "#include \"" << className << ".h\"\n\n"
@@ -155,6 +174,7 @@ namespace Duality {
             "}\n\n"
             "REGISTER_BEHAVIOUR(" << className << ")\n";
         source.close();
+        return true;
     }
 
     static void DrawFolderIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max) {
@@ -168,20 +188,64 @@ namespace Duality {
         drawList->AddRectFilled(bodyMin, bodyMax, color, 3.0f);
     }
 
-    static void DrawFileIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max) {
-        const ImU32 fill = IM_COL32(205, 205, 210, 255);
-        const ImU32 border = IM_COL32(110, 110, 115, 255);
+    struct FileIconInfo {
+        const char* Glyph;
+        const char* Kind;
+        ImU32 Accent;
+    };
+
+    static FileIconInfo GetFileIconInfo(const std::filesystem::path& path) {
+        std::string extension = path.extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if (extension == ".scene")
+            return { EditorIcons::Map, "SCENE", IM_COL32(80, 185, 245, 255) };
+        if (extension == ".cpp" || extension == ".c" || extension == ".h" || extension == ".hpp" || extension == ".cs")
+            return { EditorIcons::Code, "SCRIPT", IM_COL32(95, 205, 150, 255) };
+        if (extension == ".mat")
+            return { EditorIcons::Material, "MAT", IM_COL32(220, 130, 220, 255) };
+        if (extension == ".prefab")
+            return { EditorIcons::Cube, "PREFAB", IM_COL32(95, 180, 245, 255) };
+        if (extension == ".asset")
+            return { EditorIcons::Settings, "ASSET", IM_COL32(235, 175, 80, 255) };
+        if (extension == ".obj" || extension == ".fbx" || extension == ".gltf" || extension == ".glb" || extension == ".mesh")
+            return { EditorIcons::Cube, "MESH", IM_COL32(90, 190, 210, 255) };
+        if (extension == ".wav" || extension == ".ogg" || extension == ".mp3")
+            return { EditorIcons::Music, "AUDIO", IM_COL32(235, 120, 110, 255) };
+        if (extension == ".ttf" || extension == ".otf")
+            return { EditorIcons::File, "FONT", IM_COL32(205, 185, 115, 255) };
+        if (extension == ".tilemap")
+            return { EditorIcons::Map, "TILES", IM_COL32(105, 195, 180, 255) };
+        return { EditorIcons::File, "FILE", IM_COL32(180, 185, 200, 255) };
+    }
+
+    static void DrawFileIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max, const std::filesystem::path& path) {
+        const FileIconInfo info = GetFileIconInfo(path);
+        const ImU32 fill = IM_COL32(40, 47, 62, 255);
+        const ImU32 border = IM_COL32(80, 92, 115, 255);
         float w = max.x - min.x, h = max.y - min.y;
         ImVec2 bodyMin(min.x + w * 0.2f, min.y + h * 0.06f);
         ImVec2 bodyMax(min.x + w * 0.8f, min.y + h * 0.94f);
-        drawList->AddRectFilled(bodyMin, bodyMax, fill, 2.0f);
-        drawList->AddRect(bodyMin, bodyMax, border, 2.0f);
+        drawList->AddRectFilled(bodyMin, bodyMax, fill, 4.0f);
+        drawList->AddRect(bodyMin, bodyMax, border, 4.0f);
 
         float fold = w * 0.18f;
         ImVec2 p1(bodyMax.x - fold, bodyMin.y);
         ImVec2 p2(bodyMax.x, bodyMin.y);
         ImVec2 p3(bodyMax.x, bodyMin.y + fold);
-        drawList->AddTriangleFilled(p1, p2, p3, border);
+        drawList->AddTriangleFilled(p1, p2, p3, info.Accent);
+        drawList->AddRectFilled(ImVec2(bodyMin.x, bodyMax.y - h * 0.18f), bodyMax, info.Accent, 0.0f);
+
+        ImFont* font = ImGui::GetFont();
+        const float glyphSize = std::max(14.0f, w * 0.44f);
+        const ImVec2 glyphExtent = font->CalcTextSizeA(glyphSize, 1000.0f, 0.0f, info.Glyph);
+        const ImVec2 glyphPos{ (bodyMin.x + bodyMax.x - glyphExtent.x) * 0.5f,
+            bodyMin.y + (bodyMax.y - bodyMin.y - h * 0.18f - glyphExtent.y) * 0.5f };
+        drawList->AddText(font, glyphSize, glyphPos, info.Accent, info.Glyph);
+        const ImVec2 kindExtent = font->CalcTextSizeA(9.0f, 1000.0f, 0.0f, info.Kind);
+        drawList->AddText(font, 9.0f, ImVec2((bodyMin.x + bodyMax.x - kindExtent.x) * 0.5f,
+            bodyMax.y - h * 0.17f), IM_COL32(18, 22, 30, 255), info.Kind);
     }
 
     ContentBrowserPanel::ContentBrowserPanel(const std::filesystem::path& rootDirectory)
@@ -215,7 +279,8 @@ namespace Duality {
         if (depth == 0)
             flags |= ImGuiTreeNodeFlags_DefaultOpen;
 
-        const bool open = ImGui::TreeNodeEx(directory.string().c_str(), flags, "%s", label);
+        const std::string treeLabel = std::string(EditorIcons::Folder) + " " + label;
+        const bool open = ImGui::TreeNodeEx(directory.string().c_str(), flags, "%s", treeLabel.c_str());
         if (ImGui::IsItemClicked())
             m_CurrentDirectory = directory;
         if (!open)
@@ -438,6 +503,13 @@ namespace Duality {
         BeginRename(path);
     }
 
+    void ContentBrowserPanel::BeginCreateScript() {
+        const std::string defaultName = DefaultScriptClassName(m_CurrentDirectory);
+        std::snprintf(m_NewScriptName, sizeof(m_NewScriptName), "%s", defaultName.c_str());
+        m_FocusNewScriptName = true;
+        ImGui::OpenPopup("Create C++ Behaviour");
+    }
+
     void ContentBrowserPanel::RequestDelete(const std::filesystem::path& path, bool isDirectory) {
         if (IsPackagesView(path))
             return;
@@ -517,7 +589,7 @@ namespace Duality {
         const bool readOnlyPackages = IsPackagesView(m_CurrentDirectory);
         const std::filesystem::path contentRoot = CurrentContentRoot();
         if (m_CurrentDirectory != contentRoot) {
-            if (ImGui::Button("Up"))
+            if (ImGui::Button((std::string(EditorIcons::Up) + " Up").c_str()))
                 m_CurrentDirectory = m_CurrentDirectory.parent_path();
             ImGui::SameLine();
         }
@@ -529,7 +601,8 @@ namespace Duality {
             ImGui::TextDisabled("%s / %s", rootLabel, relativePath.generic_string().c_str());
         ImGui::SameLine();
         ImGui::SetNextItemWidth(200.0f);
-        ImGui::InputTextWithHint("##ContentBrowserSearch", "Search...", m_SearchBuffer, sizeof(m_SearchBuffer));
+        const std::string searchHint = std::string(EditorIcons::Search) + " Search...";
+        ImGui::InputTextWithHint("##ContentBrowserSearch", searchHint.c_str(), m_SearchBuffer, sizeof(m_SearchBuffer));
         if (readOnlyPackages) {
             ImGui::SameLine();
             ImGui::TextDisabled("Package files are read-only here");
@@ -617,7 +690,7 @@ namespace Duality {
             else if (thumbnailTexture)
                 drawList->AddImage(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(thumbnailTexture)), iconMin, iconMax);
             else
-                DrawFileIcon(drawList, iconMin, iconMax);
+                DrawFileIcon(drawList, iconMin, iconMax, path);
 
             bool renamingThis = (m_RenamingPath == path.string());
             if (renamingThis) {
@@ -702,7 +775,7 @@ namespace Duality {
                 if (ImGui::MenuItem("Scene"))
                     CreateSceneAsset(m_CurrentDirectory);
                 if (ImGui::MenuItem("Script"))
-                    CreateScriptAsset(m_CurrentDirectory);
+                    BeginCreateScript();
                 ImGui::Separator();
                 if (ImGui::MenuItem("Material"))
                     CreateMaterialAsset(m_CurrentDirectory);
@@ -718,6 +791,42 @@ namespace Duality {
                 }
                 ImGui::EndMenu();
             }
+            ImGui::EndPopup();
+        }
+
+        // Name the C++ type before writing either file. A Behaviour's filename, class name,
+        // include and REGISTER_BEHAVIOUR argument must agree, so a single pre-create dialog is
+        // safer and much faster than two ordinary file renames after a NewBehaviour pair exists.
+        if (ImGui::BeginPopupModal("Create C++ Behaviour", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            if (m_FocusNewScriptName) {
+                ImGui::SetKeyboardFocusHere();
+                m_FocusNewScriptName = false;
+            }
+            ImGui::TextUnformatted("Class name (creates matching .h and .cpp):");
+            const bool submitted = ImGui::InputText("##NewScriptName", m_NewScriptName, sizeof(m_NewScriptName), ImGuiInputTextFlags_EnterReturnsTrue);
+            const std::string className = m_NewScriptName;
+            const bool validName = IsCppIdentifier(className);
+            const std::filesystem::path headerPath = m_CurrentDirectory / (className + ".h");
+            const std::filesystem::path sourcePath = m_CurrentDirectory / (className + ".cpp");
+            const bool alreadyExists = validName && (std::filesystem::exists(headerPath) || std::filesystem::exists(sourcePath));
+            if (!validName)
+                ImGui::TextDisabled("Use a C++ identifier: letters, digits and _, beginning with a letter or _.");
+            else if (alreadyExists)
+                ImGui::TextDisabled("A .h or .cpp with this name already exists.");
+            else
+                ImGui::TextDisabled("%s.h and %s.cpp", className.c_str(), className.c_str());
+            ImGui::Separator();
+            ImGui::BeginDisabled(!validName || alreadyExists);
+            if (submitted || ImGui::Button("Create", ImVec2(100.0f, 0.0f))) {
+                if (CreateScriptAsset(m_CurrentDirectory, className)) {
+                    Log::Info("Created Behaviour script pair '" + className + ".h/.cpp'");
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f)))
+                ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
 

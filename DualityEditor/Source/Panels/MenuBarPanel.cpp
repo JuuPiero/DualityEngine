@@ -5,6 +5,7 @@
 #include <imgui.h>
 
 #include "DualityEditor/BuildPipeline.h"
+#include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
@@ -24,7 +25,7 @@ namespace Duality {
                 if (ImGui::MenuItem("Open Project..."))
                     ctx.RequestOpenProject = true;
                 ImGui::Separator();
-                if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+                if (ImGui::MenuItem((std::string(EditorIcons::Save) + " Save Scene").c_str(), "Ctrl+S"))
                     SaveScene(ctx);
                 // Reloads ctx.ScenePath from disk, discarding unsaved in-memory edits --
                 // routed through SceneOps::OpenScene (clears the scene first) rather than a
@@ -53,7 +54,9 @@ namespace Duality {
                 // BuildPipeline::BuildForPCAsync's own comment on why they share one gate.
                 bool building = (BuildPipeline::GetStatus() == BuildStatus::Running) ||
                     (ScriptEngine::GetStatus() == ReloadStatus::Running);
-                if (ImGui::MenuItem(building ? "Build for 3DS (building...)" : "Build for 3DS", nullptr, false, !building)) {
+                const std::string build3DSLabel = std::string(EditorIcons::Package) +
+                    (building ? " Build for 3DS (building...)" : " Build for 3DS");
+                if (ImGui::MenuItem(build3DSLabel.c_str(), nullptr, false, !building)) {
                     if (ValidateSceneForRuntime(ctx, "Build")) {
                         SaveScene(ctx);
                         BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
@@ -73,20 +76,25 @@ namespace Duality {
                 ImGui::Separator();
                 // Built-in checkbox-style toggle (the bool* overload) rather than a manual
                 // assignment -- ImGui::MenuItem itself flips *ctx.ShowBuildSettings on click.
-                ImGui::MenuItem("Build Settings...", nullptr, &ctx.ShowBuildSettings);
+                ImGui::MenuItem((std::string(EditorIcons::Settings) + " Build Settings...").c_str(), nullptr, &ctx.ShowBuildSettings);
                 ImGui::EndMenu();
             }
 
             // Matches Unity's own menu placement (File > Build Settings, Edit > Project
             // Settings/Preferences) -- a familiar convention for this Unity-inspired editor.
             if (ImGui::BeginMenu("Edit")) {
-                ImGui::MenuItem("Project Settings...", nullptr, &ctx.ShowProjectSettings);
-                ImGui::MenuItem("Preferences...", nullptr, &ctx.ShowPreferences);
+                if (ImGui::MenuItem("Undo", "Ctrl+Z", false, !ctx.IsPlaying && ctx.History.CanUndo()))
+                    UndoScene(ctx);
+                if (ImGui::MenuItem("Redo", "Ctrl+Y / Ctrl+Shift+Z", false, !ctx.IsPlaying && ctx.History.CanRedo()))
+                    RedoScene(ctx);
+                ImGui::Separator();
+                ImGui::MenuItem((std::string(EditorIcons::Settings) + " Project Settings...").c_str(), nullptr, &ctx.ShowProjectSettings);
+                ImGui::MenuItem((std::string(EditorIcons::Settings) + " Preferences...").c_str(), nullptr, &ctx.ShowPreferences);
                 ImGui::EndMenu();
             }
 
             if (ImGui::BeginMenu("Window")) {
-                ImGui::MenuItem("Package Manager...", nullptr, &ctx.ShowPackageManager);
+                ImGui::MenuItem((std::string(EditorIcons::Package) + " Package Manager...").c_str(), nullptr, &ctx.ShowPackageManager);
                 ImGui::EndMenu();
             }
 

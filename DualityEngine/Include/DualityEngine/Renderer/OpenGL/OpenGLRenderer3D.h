@@ -27,6 +27,12 @@ namespace Duality {
         void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
+        // ScenePanel draws transparent SpriteRenderer quads after opaque meshes. Keeping
+        // depth testing on but disabling depth writes for that pass prevents transparent
+        // texels from blocking later sprites behind the quad's rectangular bounds.
+        // Desktop-editor convenience; the platform-neutral renderer contract stays minimal.
+        void SetDepthWriteEnabled(bool enabled);
+
         void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
         uint32_t GetSubMeshCount(uint32_t meshHandle) const override;
 

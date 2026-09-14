@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <imgui.h>
 
+#include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
@@ -198,7 +200,7 @@ namespace Duality {
         ImGui::Begin("Game");
 
         if (!ctx.IsPlaying) {
-            if (ImGui::Button("Play")) {
+            if (ImGui::Button((std::string(EditorIcons::Play) + " Play").c_str())) {
                 if (ValidateSceneForRuntime(ctx, "Play")) {
                     ctx.PlaySnapshot = SceneSerializer(ctx.SceneRef).SerializeToJson().dump();
                     ctx.IsPlaying = true;
@@ -206,7 +208,7 @@ namespace Duality {
                 }
             }
         } else {
-            if (ImGui::Button("Stop"))
+            if (ImGui::Button((std::string(EditorIcons::Stop) + " Stop").c_str()))
                 StopPlaying(ctx);
         }
         ImGui::SameLine();

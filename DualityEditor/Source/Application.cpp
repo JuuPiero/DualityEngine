@@ -79,6 +79,7 @@ namespace Duality {
         AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
 
         SetupDemoScene();
+        m_SceneHistory.Reset(m_Scene);
     }
 
     // One clean showcase scene demonstrating every engine technology/component, replacing what
@@ -456,6 +457,8 @@ namespace Duality {
         // error and leaves m_Scene empty in that case, same as clicking
         // "Load Scene" against a project that hasn't saved one yet.
         SceneSerializer(m_Scene).Deserialize(m_ScenePath);
+        m_SceneHistory.Reset(m_Scene);
+        m_SceneDirty = false;
     }
 
     // "Create New Project" -- Project::New(directory, name) already existed and does
@@ -507,6 +510,8 @@ namespace Duality {
         // exact same reason OpenProjectFromDialog keeps its own call: logs a normal "could not
         // open" error and leaves m_Scene empty rather than needing a special case here.
         SceneSerializer(m_Scene).Deserialize(m_ScenePath);
+        m_SceneHistory.Reset(m_Scene);
+        m_SceneDirty = false;
     }
 
     // Writes the CURRENT scene's content to a new file the user picks (defaulting to the
@@ -657,7 +662,7 @@ namespace Duality {
             ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
             EditorContext ctx{
-                m_Scene, m_Selected, m_SelectedEntities, m_SelectedAssetPath, m_SelectedAssetPaths, m_IsPlaying, m_SceneDirty,
+                m_Scene, m_Selected, m_SelectedEntities, m_SelectedAssetPath, m_SelectedAssetPaths, m_IsPlaying, m_SceneDirty, m_SceneHistory, m_SceneChangeSerial,
                 m_TopSceneView, m_BottomSceneView, m_ActiveGizmoMode, m_DraggingGizmoAxis, m_DraggingGizmoScreen,
                 m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
@@ -666,6 +671,20 @@ namespace Duality {
                 m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog,
                 m_RequestBrowseExternalEditor, m_RequestBrowseIcon, m_ShowBuildSettings, m_ShowProjectSettings, m_ShowPackageManager, m_ShowPreferences
             };
+
+            // Text fields own Ctrl+Z themselves. Everywhere else gets the editor-wide scene
+            // history shortcut; Ctrl+Shift+Z and Ctrl+Y are both familiar Redo variants.
+            ImGuiIO& io = ImGui::GetIO();
+            if (!m_IsPlaying && !io.WantTextInput && io.KeyCtrl) {
+                if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
+                    if (io.KeyShift)
+                        RedoScene(ctx);
+                    else
+                        UndoScene(ctx);
+                } else if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
+                    RedoScene(ctx);
+                }
+            }
 
             m_MenuBarPanel.OnImGuiRender(ctx);
             ImGui::End(); // EditorDockHost
@@ -732,6 +751,14 @@ namespace Duality {
             m_ProjectSettingsPanel.OnImGuiRender(ctx);
             m_PackageManagerPanel.OnImGuiRender(ctx);
             m_PreferencesPanel.OnImGuiRender(ctx);
+
+            // MarkSceneDirty is called by every Scene mutation path (Inspector, gizmo,
+            // hierarchy, creation/deletion, drag-drop). Capture after all panels have run so
+            // one UI frame becomes one atomic history entry.
+            if (!m_IsPlaying && m_CapturedSceneChangeSerial != m_SceneChangeSerial) {
+                m_SceneHistory.Capture(m_Scene);
+                m_CapturedSceneChangeSerial = m_SceneChangeSerial;
+            }
 
             m_Window.EndFrame();
         }
