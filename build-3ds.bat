@@ -91,9 +91,10 @@ REM back to the PROJECT's name, never this engine's own placeholder). Forwarded 
 REM DUALITY_PROJECT_NAME; DualityPlayer/CMakeLists.txt falls back to its own placeholder
 REM only when this is empty (i.e. no active project -- a plain double-click run).
 echo Configuring for Nintendo 3DS (devkitARM)...
-REM %4 is the active project's Packages folder and %5 is its comma-separated enabled IDs.
-REM Both are plain cache STRING values; GameScripts/CMakeLists handles the MSYS path conversion.
-cmake -S . -B "%BUILD_DIR%" -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="%DKP_MSYS%/cmake/3DS.cmake" -DCMAKE_BUILD_TYPE=Release -DDUALITY_PROJECT_SCRIPTS_DIR="%~1" -DDUALITY_PROJECT_ICON="%~2" -DDUALITY_PROJECT_NAME="%~3" -DDUALITY_PROJECT_PACKAGES_DIR="%~4" -DDUALITY_ENABLED_PACKAGES="%~5"
+REM %4 is the active project's Packages folder, %5 its enabled package IDs, and %6 its
+REM comma-separated scripting define symbols. All are plain cache STRING values; GameScripts/
+REM CMakeLists validates symbols and handles the MSYS path conversion where necessary.
+cmake -S . -B "%BUILD_DIR%" -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="%DKP_MSYS%/cmake/3DS.cmake" -DCMAKE_BUILD_TYPE=Release -DDUALITY_PROJECT_SCRIPTS_DIR="%~1" -DDUALITY_PROJECT_ICON="%~2" -DDUALITY_PROJECT_NAME="%~3" -DDUALITY_PROJECT_PACKAGES_DIR="%~4" -DDUALITY_ENABLED_PACKAGES="%~5" -DDUALITY_SCRIPTING_DEFINES="%~6"
 if errorlevel 1 goto :error
 
 echo.

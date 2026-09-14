@@ -21,6 +21,9 @@ namespace Duality {
         // manifest; only identifiers in EnabledPackages are compiled into GameScripts.
         std::string PackagesDirectory = "Packages";
         std::vector<std::string> EnabledPackages;
+        // Project-wide preprocessor symbols for GameScripts, e.g. "DEBUG_UI" or
+        // "ENABLE_CHEATS". They are plain identifier names, written as -DNAME=1 by CMake.
+        std::vector<std::string> ScriptingDefines;
         std::string StartScene;
 
         // Build Settings (DualityEditor/Panels/BuildSettingsPanel.cpp): Assets-relative .scene
@@ -84,6 +87,9 @@ namespace Duality {
         // CMake accepts this stable comma-separated form through a cache STRING. Package IDs
         // themselves may not contain commas (enforced by Package Manager).
         std::string GetEnabledPackagesCsv() const;
+        // Stable comma-separated representation passed to CMake. Names are validated again by
+        // GameScripts/CMakeLists.txt before becoming compiler definitions.
+        std::string GetScriptingDefinesCsv() const;
         ProjectConfig& GetConfig() { return m_Config; }
         const ProjectConfig& GetConfig() const { return m_Config; }
 

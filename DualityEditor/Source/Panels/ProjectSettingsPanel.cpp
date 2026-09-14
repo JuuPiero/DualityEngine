@@ -1,9 +1,11 @@
 #include "DualityEditor/Panels/ProjectSettingsPanel.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <vector>
 
 #include <imgui.h>
 
@@ -20,6 +22,7 @@ namespace Duality {
             Physics2D,
             Physics3D,
             InputManager,
+            Scripting,
             TagsAndLayers,
             Audio,
             Time,
@@ -30,7 +33,7 @@ namespace Duality {
 
         constexpr const char* CategoryNames[] = {
             "General", "Player", "Rendering", "Physics 2D", "Physics 3D",
-            "Input Manager", "Tags and Layers", "Audio", "Time", "Quality",
+            "Input Manager", "Scripting", "Tags and Layers", "Audio", "Time", "Quality",
             "Build", "Editor"
         };
 
@@ -48,6 +51,32 @@ namespace Duality {
                 return false;
             value = buffer;
             return true;
+        }
+
+        bool IsValidDefineSymbol(const std::string& symbol) {
+            if (symbol.empty() || !(std::isalpha(static_cast<unsigned char>(symbol.front())) || symbol.front() == '_'))
+                return false;
+            return std::all_of(symbol.begin() + 1, symbol.end(), [](unsigned char character) {
+                return std::isalnum(character) || character == '_';
+            });
+        }
+
+        std::vector<std::string> ParseDefineSymbols(const char* text) {
+            std::vector<std::string> result;
+            std::string token;
+            const auto flush = [&]() {
+                if (IsValidDefineSymbol(token) && std::find(result.begin(), result.end(), token) == result.end())
+                    result.push_back(token);
+                token.clear();
+            };
+            for (const char* cursor = text; *cursor; ++cursor) {
+                if (*cursor == ',' || *cursor == ';' || std::isspace(static_cast<unsigned char>(*cursor)))
+                    flush();
+                else
+                    token += *cursor;
+            }
+            flush();
+            return result;
         }
     }
 
@@ -68,12 +97,13 @@ namespace Duality {
 
         static SettingsCategory selectedCategory = SettingsCategory::General;
         static Project* lastBoundProject = nullptr;
-        static char nameBuffer[256], companyBuffer[256], versionBuffer[64], productNameBuffer[256];
+        static char nameBuffer[256], companyBuffer[256], versionBuffer[64], productNameBuffer[256], scriptingDefinesBuffer[512];
         if (lastBoundProject != project.get()) {
             std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", project->GetConfig().Name.c_str());
             std::snprintf(companyBuffer, sizeof(companyBuffer), "%s", project->GetConfig().CompanyName.c_str());
             std::snprintf(versionBuffer, sizeof(versionBuffer), "%s", project->GetConfig().Version.c_str());
             std::snprintf(productNameBuffer, sizeof(productNameBuffer), "%s", project->GetConfig().ProductName.c_str());
+            std::snprintf(scriptingDefinesBuffer, sizeof(scriptingDefinesBuffer), "%s", project->GetScriptingDefinesCsv().c_str());
             lastBoundProject = project.get();
         }
 
@@ -171,6 +201,22 @@ namespace Duality {
             case SettingsCategory::InputManager:
                 DrawUnavailable("Input Manager", "Horizontal and Vertical are available today. Desktop: A/D or Left/Right, W/S or Up/Down. 3DS: the platform host maps physical controls. Custom named axes are not implemented yet.");
                 break;
+            case SettingsCategory::Scripting: {
+                ImGui::TextUnformatted("Scripting Define Symbols");
+                ImGui::Separator();
+                ImGui::TextDisabled("Comma, space or newline separated C/C++ identifiers.");
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::InputTextMultiline("##ScriptingDefines", scriptingDefinesBuffer, sizeof(scriptingDefinesBuffer), ImVec2(0.0f, 100.0f))) {
+                    project->GetConfig().ScriptingDefines = ParseDefineSymbols(scriptingDefinesBuffer);
+                    changed = true;
+                }
+                ImGui::TextDisabled("Example: DEBUG_UI, ENABLE_CHEATS, DEMO_BUILD");
+                ImGui::TextDisabled("Use #if defined(DEBUG_UI) or #if DEBUG_UI in GameScripts.");
+                ImGui::Spacing();
+                ImGui::TextDisabled("Built in: DUALITY_PLATFORM_DESKTOP or DUALITY_PLATFORM_3DS.");
+                ImGui::TextDisabled("Press Reload Scripts after changing symbols. They also apply to Build for 3DS.");
+                break;
+            }
             case SettingsCategory::TagsAndLayers:
                 DrawUnavailable("Tags and Layers", "Tags are free-form per-entity values. Render layers currently reserve Default, TOP and BOTTOM for the dual-screen renderer; named custom layers need a runtime layer registry before they can be safely edited here.");
                 break;

@@ -64,6 +64,7 @@ namespace Duality {
         project->m_Config.ScriptsDirectory = root.value("ScriptsDirectory", "Scripts");
         project->m_Config.PackagesDirectory = root.value("PackagesDirectory", "Packages");
         project->m_Config.EnabledPackages = root.value("EnabledPackages", std::vector<std::string>{});
+        project->m_Config.ScriptingDefines = root.value("ScriptingDefines", std::vector<std::string>{});
         project->m_Config.StartScene = root.value("StartScene", "");
         project->m_Config.ScenesInBuild = root.value("ScenesInBuild", std::vector<std::string>{});
         project->m_Config.N3DSAntiAliasing = root.value("N3DSAntiAliasing", 0);
@@ -92,6 +93,7 @@ namespace Duality {
         root["ScriptsDirectory"] = m_Config.ScriptsDirectory;
         root["PackagesDirectory"] = m_Config.PackagesDirectory;
         root["EnabledPackages"] = m_Config.EnabledPackages;
+        root["ScriptingDefines"] = m_Config.ScriptingDefines;
         root["StartScene"] = m_Config.StartScene;
         root["ScenesInBuild"] = m_Config.ScenesInBuild;
         root["N3DSAntiAliasing"] = m_Config.N3DSAntiAliasing;
@@ -128,6 +130,18 @@ namespace Duality {
         if (!m_Config.ScenesInBuild.empty())
             return m_Config.ScenesInBuild.front();
         return "Scene.scene";
+    }
+
+    std::string Project::GetScriptingDefinesCsv() const {
+        std::string result;
+        for (const std::string& define : m_Config.ScriptingDefines) {
+            if (define.empty())
+                continue;
+            if (!result.empty())
+                result += ',';
+            result += define;
+        }
+        return result;
     }
 
 }

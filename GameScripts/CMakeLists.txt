@@ -68,6 +68,10 @@ set(DUALITY_PROJECT_SCRIPTS_DIR "" CACHE STRING "Active project's Assets/Scripts
 # static script module on 3DS. CSV avoids CMake-list semicolon quoting issues across cmd/MSYS.
 set(DUALITY_PROJECT_PACKAGES_DIR "" CACHE STRING "Active project's Packages directory")
 set(DUALITY_ENABLED_PACKAGES "" CACHE STRING "Comma-separated enabled project package identifiers")
+# Project Settings > Scripting > Define Symbols. CSV avoids semicolon escaping through cmd.exe
+# and the MSYS-hosted CMake used for the 3DS build. Every entry is validated below before it is
+# passed to the compiler, so a malformed .dproj cannot inject arbitrary compile options.
+set(DUALITY_SCRIPTING_DEFINES "" CACHE STRING "Comma-separated project preprocessor symbols for GameScripts")
 
 # file(GLOB)/EXISTS under the MSYS-hosted cmake.exe the 3DS configure uses (see build-3ds.bat's
 # own comments on why it must be that one) use Cygwin/MSYS path semantics internally -- a
@@ -179,6 +183,24 @@ else()
         ${DUALITY_PACKAGE_SOURCES}
     )
     set_target_properties(GameScripts PROPERTIES PREFIX "")
+endif()
+
+string(REPLACE "," ";" DUALITY_SCRIPTING_DEFINE_LIST "${DUALITY_SCRIPTING_DEFINES}")
+set(DUALITY_SAFE_SCRIPTING_DEFINES "")
+foreach(DUALITY_SCRIPTING_DEFINE IN LISTS DUALITY_SCRIPTING_DEFINE_LIST)
+    if(DUALITY_SCRIPTING_DEFINE STREQUAL "")
+        continue()
+    endif()
+    if(DUALITY_SCRIPTING_DEFINE MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+        list(APPEND DUALITY_SAFE_SCRIPTING_DEFINES "${DUALITY_SCRIPTING_DEFINE}=1")
+    else()
+        message(WARNING "GameScripts: ignoring invalid scripting define '${DUALITY_SCRIPTING_DEFINE}'")
+    endif()
+endforeach()
+if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
+    target_compile_definitions(GameScripts PRIVATE DUALITY_PLATFORM_3DS=1 ${DUALITY_SAFE_SCRIPTING_DEFINES})
+else()
+    target_compile_definitions(GameScripts PRIVATE DUALITY_PLATFORM_DESKTOP=1 ${DUALITY_SAFE_SCRIPTING_DEFINES})
 endif()
 
 target_include_directories(GameScripts PRIVATE

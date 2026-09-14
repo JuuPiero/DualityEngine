@@ -570,6 +570,7 @@ namespace Duality {
         std::string projectScriptsDir;
         std::string projectPackagesDir;
         std::string enabledPackages;
+        std::string scriptingDefines;
         // Same absolute + forward-slash resolution as projectScriptsDir above, and for the same
         // reason -- ProjectSettingsPanel's file dialog already returns an absolute path, so this
         // is a safe no-op there; it only matters if IconPath is ever set some other way.
@@ -582,6 +583,7 @@ namespace Duality {
             projectScriptsDir = std::filesystem::absolute(activeProject->GetScriptsDirectory()).generic_string();
             projectPackagesDir = std::filesystem::absolute(activeProject->GetPackagesDirectory()).generic_string();
             enabledPackages = activeProject->GetEnabledPackagesCsv();
+            scriptingDefines = activeProject->GetScriptingDefinesCsv();
             if (!activeProject->GetConfig().IconPath.empty())
                 projectIconPath = std::filesystem::absolute(activeProject->GetConfig().IconPath).generic_string();
             productName = activeProject->GetConfig().ProductName.empty()
@@ -589,7 +591,7 @@ namespace Duality {
                 : activeProject->GetConfig().ProductName;
         }
         std::string command = "\"" + repoRoot + "\\build-3ds.bat\" \"" + projectScriptsDir + "\" \"" + projectIconPath + "\" \"" + productName +
-            "\" \"" + projectPackagesDir + "\" \"" + enabledPackages + "\"";
+            "\" \"" + projectPackagesDir + "\" \"" + enabledPackages + "\" \"" + scriptingDefines + "\"";
         if (RunCommand(command) != 0) {
             Log::Error("BuildPipeline: 3DS build failed");
             return false;

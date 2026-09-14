@@ -79,13 +79,16 @@ namespace Duality {
         std::string projectScriptsDir;
         std::string projectPackagesDir;
         std::string enabledPackages;
+        std::string scriptingDefines;
         if (auto project = Project::GetActive()) {
             projectScriptsDir = std::filesystem::absolute(project->GetScriptsDirectory()).generic_string();
             projectPackagesDir = std::filesystem::absolute(project->GetPackagesDirectory()).generic_string();
             enabledPackages = project->GetEnabledPackagesCsv();
+            scriptingDefines = project->GetScriptingDefinesCsv();
         }
         std::string configureCommand = "cmake -B \"" + buildDirectory + "\" -DDUALITY_PROJECT_SCRIPTS_DIR=\"" + projectScriptsDir +
-            "\" -DDUALITY_PROJECT_PACKAGES_DIR=\"" + projectPackagesDir + "\" -DDUALITY_ENABLED_PACKAGES=\"" + enabledPackages + "\"";
+            "\" -DDUALITY_PROJECT_PACKAGES_DIR=\"" + projectPackagesDir + "\" -DDUALITY_ENABLED_PACKAGES=\"" + enabledPackages +
+            "\" -DDUALITY_SCRIPTING_DEFINES=\"" + scriptingDefines + "\"";
         if (std::system(configureCommand.c_str()) != 0) {
             Log::Error("ScriptEngine: reconfigure failed");
             return false;
