@@ -35,7 +35,8 @@ namespace Duality {
 
     // The mesh half of RenderScreen's composited draw -- draws every (Transform, MeshRenderer)
     // entity in the scene through `screen`'s primary camera (world position/rotation,
-    // Fov/Near/FarPlane for Perspective, Zoom for Orthographic), unlit. Exposed separately (not
+    // Fov/Near/FarPlane for Perspective, Zoom for Orthographic), including opt-in VertexLit and
+    // directional projected-blob shadows. Exposed separately (not
     // just a RenderScreen implementation detail) so the Editor's 3D Scene view pane can call it
     // too, same convention as GetActiveSpriteTexture/ResolveSpriteTexture below being shared
     // with the 2D Scene view. No-ops if `screen` has no primary camera, matching RenderScreen's
@@ -43,6 +44,21 @@ namespace Duality {
     // screen this frame already cleared it (or will clear it afterward) -- RenderScreen always
     // passes true here since the mesh pass runs first.
     void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear = true);
+
+    // Builds the platform-neutral camera/light state consumed by the forward mesh pass.
+    // Kept public for renderer diagnostics and headless tests; it does not allocate GPU state.
+    RenderView BuildRenderView(Scene& scene, Entity camera, Screen screen);
+
+    // Selects the first active enabled directional light in canonical hierarchy order and copies
+    // its authored state into `view`. The editor's free-roam Scene camera uses this too, keeping
+    // its light choice identical to the Game renderer without pretending the editor camera is a
+    // gameplay CameraComponent.
+    void PopulateMainDirectionalLight(Scene& scene, RenderView& view);
+
+    // Draws the light's low-cost projected blob-shadow tier onto active Plane primitives. Each
+    // non-plane mesh is projected along the selected light's ray direction. It is a deliberately
+    // bounded alternative to shadow maps for 3DS; called after opaque meshes and before sprites.
+    void RenderDirectionalBlobShadows(IRenderer3D& renderer, Scene& scene, Screen screen, const RenderView& view, const CameraComponent* cameraFilter = nullptr);
 
     // Whichever AssetRef should currently be drawn for this entity's
     // sprite: its SpriteFlipbookComponent's current frame if it has one

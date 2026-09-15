@@ -1,10 +1,10 @@
-; DualityEngine unlit 3D mesh vertex shader (see IRenderer3D.h/Citro3DRenderer.cpp) --
-; position * (projection * modelView) plus texcoord/color passthrough, no lighting.
+; DualityEngine forward mesh shader. VertexLit uses Gouraud Lambert lighting;
+; the backend supplies white ambient/zero diffuse for backwards-compatible Unlit draws.
 ; Shape based on References/devkitpro-3ds-templates/graphics/gpu/{simple_tri,textured_cube}'s
 ; own proven vshader.v.pica sources.
 
 ; Uniforms
-.fvec projection[4], modelView[4]
+.fvec projection[4], modelView[4], lightVec, lightColor, ambientColor
 
 ; Constants
 .constf myconst(0.0, 1.0, -1.0, -0.5)
@@ -19,7 +19,8 @@
 ; Inputs (defined as aliases for convenience)
 .alias inpos v0 ; loaded, per-vertex (position)
 .alias intex v1 ; loaded, per-vertex (texcoord)
-.alias inclr v2 ; fixed, set once per DrawMesh call (flat Color -- see Citro3DRenderer::DrawMesh)
+.alias innrm v2 ; loaded, per-vertex object-space normal
+.alias inclr v3 ; fixed material color
 
 .proc main
 	; Force the w component of inpos to be 1.0
@@ -38,9 +39,26 @@
 	dp4 outpos.z, projection[2], r1
 	dp4 outpos.w, projection[3], r1
 
-	; outtc0 = intex, outclr = inclr
+	; Transform and normalize the normal. The first PICA VertexLit tier supports
+	; uniform scale; desktop's GLSL path additionally uses an inverse-transpose normal matrix.
+	mov r2.xyz, innrm
+	mov r2.w, zeros
+	dp4 r3.x, modelView[0], r2
+	dp4 r3.y, modelView[1], r2
+	dp4 r3.z, modelView[2], r2
+	dp3 r4.x, r3, r3
+	rsq r4.x, r4.x
+	mul r3.xyz, r3, r4.x
+
+	; ambient + lightColor * max(dot(normal, lightVector), 0)
+	dp3 r4.x, lightVec, r3
+	max r4.x, zeros, r4.x
+	mul r4, lightColor, r4.xxxx
+	add r4, ambientColor, r4
+
+	; Modulate material color by the vertex-lighting result.
 	mov outtc0, intex
-	mov outclr, inclr
+	mul outclr, inclr, r4
 
 	; We're finished
 	end

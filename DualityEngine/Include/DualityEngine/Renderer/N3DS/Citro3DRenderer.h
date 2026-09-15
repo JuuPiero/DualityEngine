@@ -35,9 +35,11 @@ namespace Duality {
         void SetScreenTargets(C3D_RenderTarget* top, C3D_RenderTarget* bottom);
 
         void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) override;
+        void BeginScene(const RenderView& view, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
         void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
+        void DrawMesh(const MeshDrawCommand& command) override;
         uint32_t GetSubMeshCount(uint32_t meshHandle) const override;
 
         // `path` is expected to already be a citro3d-loadable ".t3x" path (romfs:/...), same
@@ -77,11 +79,15 @@ namespace Duality {
         C3D_RenderTarget* m_TopTarget = nullptr;
         C3D_RenderTarget* m_BottomTarget = nullptr;
         uint32_t m_DrawCallCount = 0;
+        RenderView m_RenderView{};
 
         DVLB_s* m_ShaderDvlb = nullptr;
         shaderProgram_s m_ShaderProgram{};
         int m_UniformProjection = -1;
         int m_UniformModelView = -1;
+        int m_UniformLightVector = -1;
+        int m_UniformLightColor = -1;
+        int m_UniformAmbientColor = -1;
 
         C3D_Mtx m_Projection{};
         C3D_Mtx m_View{}; // inverse of the camera's own world transform, set in BeginScene, read in DrawMesh

@@ -16,7 +16,7 @@ namespace Duality {
         std::unordered_map<std::string, MeshData> s_Cache;
 
         // Parses one OBJ face-vertex token ("3", "3/2", "3//1", or "3/2/1") into its 1-based
-        // position/texcoord indices (0 = not present). Negative (relative-to-end) OBJ indices
+        // position/texcoord/normal indices (0 = not present). Negative (relative-to-end) OBJ indices
         // are not supported -- a known gap of this hand-rolled parser.
         //
         // Deliberately does NOT use std::strtok here -- a real bug this fix replaces: the face
@@ -36,9 +36,10 @@ namespace Duality {
         // which the old strtok-based version also got wrong (strtok collapses "//" into a
         // single skipped delimiter, silently shifting the normal's index into the texcoord
         // slot instead of leaving it absent).
-        void ParseFaceVertex(const char* token, int& posIndex, int& texIndex) {
+        void ParseFaceVertex(const char* token, int& posIndex, int& texIndex, int& normalIndex) {
             posIndex = std::atoi(token);
             texIndex = 0;
+            normalIndex = 0;
 
             const char* firstSlash = std::strchr(token, '/');
             if (!firstSlash)
@@ -47,8 +48,18 @@ namespace Duality {
             const char* afterFirstSlash = firstSlash + 1;
             if (*afterFirstSlash != '/') // "v/vt" or "v/vt/vn" -- a real number follows
                 texIndex = std::atoi(afterFirstSlash);
-            // else "v//vn" -- immediately hits the second '/', texIndex stays 0 (absent)
+
+            const char* secondSlash = std::strchr(afterFirstSlash, '/');
+            if (secondSlash && secondSlash[1] != '\0')
+                normalIndex = std::atoi(secondSlash + 1);
+            // For "v//vn", texIndex remains 0 while normalIndex is still read correctly.
         }
+
+        struct FaceVertex {
+            int PositionIndex = 0;
+            int TexCoordIndex = 0;
+            int NormalIndex = 0;
+        };
     }
 
     const MeshData& MeshLoader::Load(const std::string& path) {
@@ -63,6 +74,7 @@ namespace Duality {
         } else {
             std::vector<glm::vec3> positions;
             std::vector<glm::vec2> texcoords;
+            std::vector<glm::vec3> normals;
 
             // Vertex index (into data.Vertices) where the CURRENT part started -- closed out
             // into a real SubMesh when the next "usemtl" / "o" / "g" line is hit, or at EOF.
@@ -90,24 +102,33 @@ namespace Duality {
                     glm::vec2 vt{};
                     std::sscanf(line + 3, "%f %f", &vt.x, &vt.y);
                     texcoords.push_back(vt);
+                } else if (line[0] == 'v' && line[1] == 'n') {
+                    glm::vec3 vn{};
+                    std::sscanf(line + 3, "%f %f %f", &vn.x, &vn.y, &vn.z);
+                    normals.push_back(vn);
                 } else if (line[0] == 'f' && line[1] == ' ') {
                     // Fan-triangulates faces with more than 3 vertices (convex n-gons only).
-                    std::vector<std::pair<int, int>> faceVerts;
+                    std::vector<FaceVertex> faceVerts;
                     char* token = std::strtok(line + 2, " \t\r\n");
                     while (token) {
-                        int posIndex = 0, texIndex = 0;
-                        ParseFaceVertex(token, posIndex, texIndex);
+                        int posIndex = 0, texIndex = 0, normalIndex = 0;
+                        ParseFaceVertex(token, posIndex, texIndex, normalIndex);
                         if (posIndex > 0)
-                            faceVerts.emplace_back(posIndex, texIndex);
+                            faceVerts.push_back({ posIndex, texIndex, normalIndex });
                         token = std::strtok(nullptr, " \t\r\n");
                     }
 
-                    auto emit = [&](const std::pair<int, int>& faceVertex) {
-                        glm::vec3 pos = (faceVertex.first >= 1 && faceVertex.first <= static_cast<int>(positions.size()))
-                            ? positions[faceVertex.first - 1] : glm::vec3(0.0f);
-                        glm::vec2 tex = (faceVertex.second >= 1 && faceVertex.second <= static_cast<int>(texcoords.size()))
-                            ? texcoords[faceVertex.second - 1] : glm::vec2(0.0f);
-                        data.Vertices.push_back({ pos, tex });
+                    auto emit = [&](const FaceVertex& faceVertex) {
+                        glm::vec3 pos = (faceVertex.PositionIndex >= 1 && faceVertex.PositionIndex <= static_cast<int>(positions.size()))
+                            ? positions[faceVertex.PositionIndex - 1] : glm::vec3(0.0f);
+                        glm::vec2 tex = (faceVertex.TexCoordIndex >= 1 && faceVertex.TexCoordIndex <= static_cast<int>(texcoords.size()))
+                            ? texcoords[faceVertex.TexCoordIndex - 1] : glm::vec2(0.0f);
+                        glm::vec3 normal = (faceVertex.NormalIndex >= 1 && faceVertex.NormalIndex <= static_cast<int>(normals.size()))
+                            ? normals[faceVertex.NormalIndex - 1] : glm::vec3(0.0f);
+                        const float normalLengthSq = glm::dot(normal, normal);
+                        if (normalLengthSq > 0.000001f)
+                            normal /= std::sqrt(normalLengthSq);
+                        data.Vertices.push_back({ pos, tex, normal });
                     };
                     for (size_t i = 1; i + 1 < faceVerts.size(); i++) {
                         emit(faceVerts[0]);
@@ -124,6 +145,20 @@ namespace Duality {
             uint32_t finalVertexCount = static_cast<uint32_t>(data.Vertices.size());
             if (finalVertexCount > subMeshStart)
                 data.SubMeshes.push_back({ subMeshStart, finalVertexCount - subMeshStart });
+
+            // Preserve valid authored vn normals.  Generate a stable flat normal only for a
+            // face vertex that did not provide one, keeping old position/UV-only assets lit.
+            for (size_t i = 0; i + 2 < data.Vertices.size(); i += 3) {
+                MeshVertex& a = data.Vertices[i];
+                MeshVertex& b = data.Vertices[i + 1];
+                MeshVertex& c = data.Vertices[i + 2];
+                glm::vec3 normal = glm::cross(b.Position - a.Position, c.Position - a.Position);
+                float lengthSq = glm::dot(normal, normal);
+                normal = lengthSq > 0.000001f ? normal / std::sqrt(lengthSq) : glm::vec3(0.0f, 1.0f, 0.0f);
+                if (glm::dot(a.Normal, a.Normal) <= 0.000001f) a.Normal = normal;
+                if (glm::dot(b.Normal, b.Normal) <= 0.000001f) b.Normal = normal;
+                if (glm::dot(c.Normal, c.Normal) <= 0.000001f) c.Normal = normal;
+            }
 
             if (data.Vertices.empty())
                 Log::Warn("MeshLoader: '" + path + "' produced 0 vertices -- only \"v\"/\"vt\"/\"f\" lines are "

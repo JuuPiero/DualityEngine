@@ -57,6 +57,9 @@ namespace Duality {
 
         m_UniformProjection = shaderInstanceGetUniformLocation(m_ShaderProgram.vertexShader, "projection");
         m_UniformModelView = shaderInstanceGetUniformLocation(m_ShaderProgram.vertexShader, "modelView");
+        m_UniformLightVector = shaderInstanceGetUniformLocation(m_ShaderProgram.vertexShader, "lightVec");
+        m_UniformLightColor = shaderInstanceGetUniformLocation(m_ShaderProgram.vertexShader, "lightColor");
+        m_UniformAmbientColor = shaderInstanceGetUniformLocation(m_ShaderProgram.vertexShader, "ambientColor");
 
         // No C3D_RenderTargetCreate/SetOutput here -- see SetScreenTargets's own comment.
 
@@ -102,6 +105,7 @@ namespace Duality {
     }
 
     void Citro3DRenderer::BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) {
+        m_RenderView = {};
         // No IRenderer3D::BeginFrame -- there's no shared cross-screen GPU frame concept
         // exposed at this interface level (that's now the caller's job, see
         // Citro2DRenderer::Init's comment), so BeginScene/EndScene is the natural draw-call
@@ -140,14 +144,26 @@ namespace Duality {
         C3D_DepthTest(true, GPU_GREATER, GPU_WRITE_ALL);
     }
 
+    void Citro3DRenderer::BeginScene(const RenderView& view, const glm::vec4& clearColor, bool clear) {
+        BeginScene(view.TargetScreen, view.Projection, view.CameraPosition, view.CameraRotationDegrees,
+            view.FovDegrees, view.OrthoHalfHeight, view.AspectRatio, view.NearPlane, view.FarPlane, clearColor, clear);
+        m_RenderView = view;
+    }
+
     void Citro3DRenderer::EndScene() {
         C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_ALL);
+        C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD,
+            GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA);
         // citro3d submits draw calls immediately against the target selected by the last
         // C3D_FrameDrawOn -- nothing to flush explicitly here, matching Citro2DRenderer's own
         // EndScene (this bracket exists for a future batched implementation to flush from).
     }
 
     void Citro3DRenderer::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
+        DrawMesh(MeshDrawCommand{ primitive, meshHandle, subMeshIndex, translation, rotationDegrees, scale, color, textureId, MaterialShadingMode::Unlit });
+    }
+
+    void Citro3DRenderer::DrawMesh(const MeshDrawCommand& command) {
         m_DrawCallCount++;
 
         // Re-bind everything -- citro2d's own draws on the other screen this same frame will
@@ -155,20 +171,49 @@ namespace Duality {
         // header comment).
         C3D_BindProgram(&m_ShaderProgram);
 
+        // Match the desktop projected-shadow path: alpha compositing stays enabled (opaque
+        // meshes have alpha 1 so this is equivalent to replace), while transparent shadow quads
+        // depth-test but only write color. The state is explicitly restored per command because
+        // Citro2D/Citro3D share global GPU state.
+        C3D_AlphaBlend(GPU_BLEND_ADD, GPU_BLEND_ADD,
+            command.AlphaBlend ? GPU_SRC_ALPHA : GPU_ONE,
+            command.AlphaBlend ? GPU_ONE_MINUS_SRC_ALPHA : GPU_ZERO,
+            command.AlphaBlend ? GPU_SRC_ALPHA : GPU_ONE,
+            command.AlphaBlend ? GPU_ONE_MINUS_SRC_ALPHA : GPU_ZERO);
+        C3D_DepthTest(true, GPU_GREATER, command.DepthWrite ? GPU_WRITE_ALL : GPU_WRITE_COLOR);
+
         C3D_AttrInfo* attrInfo = C3D_GetAttrInfo();
         AttrInfo_Init(attrInfo);
         AttrInfo_AddLoader(attrInfo, 0, GPU_FLOAT, 3); // v0 = position
         AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 2); // v1 = texcoord
-        AttrInfo_AddFixed(attrInfo, 2);                // v2 = color (flat, not loaded from the buffer)
-        C3D_FixedAttribSet(2, color.r, color.g, color.b, color.a);
+        AttrInfo_AddLoader(attrInfo, 2, GPU_FLOAT, 3); // v2 = normal
+        AttrInfo_AddFixed(attrInfo, 3);                 // v3 = material color
+        C3D_FixedAttribSet(3, command.Color.r, command.Color.g, command.Color.b, command.Color.a);
 
-        const PrimitiveGpuMesh& mesh = (meshHandle != 0) ? m_ImportedMeshes[meshHandle - 1] : m_Meshes[static_cast<int>(primitive)];
+        const PrimitiveGpuMesh& mesh = (command.MeshHandle != 0) ? m_ImportedMeshes[command.MeshHandle - 1] : m_Meshes[static_cast<int>(command.Primitive)];
         C3D_BufInfo* bufInfo = C3D_GetBufInfo();
         BufInfo_Init(bufInfo);
-        BufInfo_Add(bufInfo, mesh.VertexBuffer, sizeof(MeshVertex), 2, 0x10);
+        BufInfo_Add(bufInfo, mesh.VertexBuffer, sizeof(MeshVertex), 3, 0x210);
 
-        if (textureId != 0) {
-            C3D_TexBind(0, &m_Textures[textureId - 1]);
+        const bool vertexLit = command.ShadingMode == MaterialShadingMode::VertexLit && m_RenderView.MainLight.Enabled;
+        const glm::vec3 ambient = vertexLit ? m_RenderView.AmbientColor : glm::vec3(1.0f);
+        const glm::vec3 lightColor = vertexLit ? m_RenderView.MainLight.Color * m_RenderView.MainLight.Intensity : glm::vec3(0.0f);
+        // mesh.v.pica evaluates normals after modelView, therefore the directional-light
+        // vector must be in view space too.  w=0 makes this a direction: camera translation
+        // cannot move it, only camera rotation can.
+        glm::vec3 lightDirection(0.0f, 1.0f, 0.0f);
+        if (vertexLit) {
+            C3D_FVec viewSpaceLight = Mtx_MultiplyFVec3(
+                &m_View, FVec4_New(m_RenderView.MainLight.Direction.x, m_RenderView.MainLight.Direction.y,
+                    m_RenderView.MainLight.Direction.z, 0.0f));
+            lightDirection = glm::normalize(glm::vec3(viewSpaceLight.x, viewSpaceLight.y, viewSpaceLight.z));
+        }
+        C3D_FVUnifSet(GPU_VERTEX_SHADER, m_UniformLightVector, lightDirection.x, lightDirection.y, lightDirection.z, 0.0f);
+        C3D_FVUnifSet(GPU_VERTEX_SHADER, m_UniformLightColor, lightColor.x, lightColor.y, lightColor.z, 1.0f);
+        C3D_FVUnifSet(GPU_VERTEX_SHADER, m_UniformAmbientColor, ambient.x, ambient.y, ambient.z, 1.0f);
+
+        if (command.TextureId != 0) {
+            C3D_TexBind(0, &m_Textures[command.TextureId - 1]);
             C3D_TexEnv* env = C3D_GetTexEnv(0);
             C3D_TexEnvInit(env);
             C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, GPU_PRIMARY_COLOR);
@@ -181,7 +226,7 @@ namespace Duality {
         }
 
         C3D_Mtx model;
-        ComposeWorldMtx(&model, translation, rotationDegrees, scale);
+        ComposeWorldMtx(&model, command.Translation, command.RotationDegrees, command.Scale);
         C3D_Mtx modelView;
         Mtx_Multiply(&modelView, &m_View, &model);
 
@@ -191,8 +236,8 @@ namespace Duality {
         // An imported mesh with real submesh ranges draws only that one slice; everything else
         // (procedural primitives, or an imported mesh with no material-group boundaries at all)
         // draws as one whole mesh, exactly like before this feature.
-        if (meshHandle != 0 && subMeshIndex < mesh.SubMeshes.size()) {
-            const MeshData::SubMesh& subMesh = mesh.SubMeshes[subMeshIndex];
+        if (command.MeshHandle != 0 && command.SubMeshIndex < mesh.SubMeshes.size()) {
+            const MeshData::SubMesh& subMesh = mesh.SubMeshes[command.SubMeshIndex];
             C3D_DrawArrays(GPU_TRIANGLES, static_cast<int>(subMesh.FirstVertex), static_cast<int>(subMesh.VertexCount));
         } else {
             C3D_DrawArrays(GPU_TRIANGLES, 0, mesh.VertexCount);

@@ -17,11 +17,28 @@ namespace Duality {
             "#version 130\n"
             "uniform mat4 u_ViewProjection;\n"
             "uniform mat4 u_Model;\n"
+            "uniform mat3 u_NormalMatrix;\n"
+            "uniform int u_ShadingMode;\n"
+            "uniform vec3 u_AmbientColor;\n"
+            "uniform vec3 u_LightDirection;\n"
+            "uniform vec3 u_LightColor;\n"
+            "uniform float u_LightIntensity;\n"
             "in vec3 a_Position;\n"
             "in vec2 a_TexCoord;\n"
+            "in vec3 a_Normal;\n"
             "out vec2 v_TexCoord;\n"
+            "out vec3 v_Lighting;\n"
             "void main() {\n"
             "    v_TexCoord = a_TexCoord;\n"
+            "    v_Lighting = vec3(1.0);\n"
+            "    if (u_ShadingMode != 0) {\n"
+            // Keep the desktop shader at GLSL 1.30, the same compatibility profile used by
+            // the editor and ImGui backend. GLSL 1.30 does not reliably provide inverse(),
+            // so the inverse-transpose normal matrix is calculated on the CPU per draw.
+            "        vec3 normal = normalize(u_NormalMatrix * a_Normal);\n"
+            "        float diffuse = max(dot(normal, normalize(u_LightDirection)), 0.0);\n"
+            "        v_Lighting = u_AmbientColor + u_LightColor * (u_LightIntensity * diffuse);\n"
+            "    }\n"
             "    gl_Position = u_ViewProjection * u_Model * vec4(a_Position, 1.0);\n"
             "}\n";
 
@@ -30,9 +47,10 @@ namespace Duality {
             "uniform sampler2D u_Texture;\n"
             "uniform vec4 u_Color;\n"
             "in vec2 v_TexCoord;\n"
+            "in vec3 v_Lighting;\n"
             "out vec4 FragColor;\n"
             "void main() {\n"
-            "    FragColor = texture(u_Texture, v_TexCoord) * u_Color;\n"
+            "    FragColor = texture(u_Texture, v_TexCoord) * u_Color * vec4(v_Lighting, 1.0);\n"
             "}\n";
 
         // T * Rz * Ry * Rx * S -- must match Citro3DRenderer::ComposeWorldMtx's composition
@@ -56,6 +74,7 @@ namespace Duality {
         mesh.SetVertexData(vertices.data(), vertices.size() * sizeof(MeshVertex), static_cast<int>(vertices.size()));
         mesh.AddFloatAttribute(m_AttribPosition, 3, sizeof(MeshVertex), offsetof(MeshVertex, Position));
         mesh.AddFloatAttribute(m_AttribTexCoord, 2, sizeof(MeshVertex), offsetof(MeshVertex, TexCoord));
+        mesh.AddFloatAttribute(m_AttribNormal, 3, sizeof(MeshVertex), offsetof(MeshVertex, Normal));
         mesh.Unbind();
         return mesh;
     }
@@ -65,10 +84,17 @@ namespace Duality {
 
         m_UniformViewProjection = m_Shader.GetUniformLocation("u_ViewProjection");
         m_UniformModel = m_Shader.GetUniformLocation("u_Model");
+        m_UniformNormalMatrix = m_Shader.GetUniformLocation("u_NormalMatrix");
         m_UniformColor = m_Shader.GetUniformLocation("u_Color");
         m_UniformTexture = m_Shader.GetUniformLocation("u_Texture");
+        m_UniformShadingMode = m_Shader.GetUniformLocation("u_ShadingMode");
+        m_UniformAmbientColor = m_Shader.GetUniformLocation("u_AmbientColor");
+        m_UniformLightDirection = m_Shader.GetUniformLocation("u_LightDirection");
+        m_UniformLightColor = m_Shader.GetUniformLocation("u_LightColor");
+        m_UniformLightIntensity = m_Shader.GetUniformLocation("u_LightIntensity");
         m_AttribPosition = m_Shader.GetAttribLocation("a_Position");
         m_AttribTexCoord = m_Shader.GetAttribLocation("a_TexCoord");
+        m_AttribNormal = m_Shader.GetAttribLocation("a_Normal");
 
         for (int i = 0; i < static_cast<int>(MeshPrimitive::Count); i++) {
             const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(static_cast<MeshPrimitive>(i));
@@ -102,6 +128,7 @@ namespace Duality {
     }
 
     void OpenGLRenderer3D::BeginScene(Screen /*screen*/, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) {
+        m_RenderView = {};
         m_DrawCallCount = 0;
 
         glEnable(GL_DEPTH_TEST);
@@ -144,6 +171,12 @@ namespace Duality {
         m_ViewProjection = projectionMtx * view;
     }
 
+    void OpenGLRenderer3D::BeginScene(const RenderView& view, const glm::vec4& clearColor, bool clear) {
+        BeginScene(view.TargetScreen, view.Projection, view.CameraPosition, view.CameraRotationDegrees,
+            view.FovDegrees, view.OrthoHalfHeight, view.AspectRatio, view.NearPlane, view.FarPlane, clearColor, clear);
+        m_RenderView = view;
+    }
+
     void OpenGLRenderer3D::EndScene() {
         // Both reset rather than left set -- OpenGLRenderer2D's own draws (this screen's Scene
         // view pane, or the other screen's Game/Scene view) run later in the same frame via the
@@ -155,6 +188,9 @@ namespace Duality {
         // rule, just in the opposite direction (3D must clean up after itself instead of before).
         glDepthMask(GL_TRUE);
         glDisable(GL_DEPTH_TEST);
+        // OpenGLRenderer2D runs after this pass through the compatibility pipeline and expects
+        // conventional straight-alpha blending for sprites/UI.
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         m_Shader.Unbind();
     }
 
@@ -163,27 +199,47 @@ namespace Duality {
     }
 
     void OpenGLRenderer3D::DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId) {
+        DrawMesh(MeshDrawCommand{ primitive, meshHandle, subMeshIndex, translation, rotationDegrees, scale, color, textureId, MaterialShadingMode::Unlit });
+    }
+
+    void OpenGLRenderer3D::DrawMesh(const MeshDrawCommand& command) {
         m_DrawCallCount++;
 
+        // The scene submits projected blob shadows as translucent, depth-tested overlays. Keep
+        // their depth writes disabled so a shadow cannot occlude sprites/meshes drawn later;
+        // ordinary mesh commands restore the opaque default on their next draw.
+        glDepthMask(command.DepthWrite ? GL_TRUE : GL_FALSE);
+        glBlendFunc(command.AlphaBlend ? GL_SRC_ALPHA : GL_ONE,
+            command.AlphaBlend ? GL_ONE_MINUS_SRC_ALPHA : GL_ZERO);
         m_Shader.Bind();
 
-        glm::mat4 model = ComposeWorldMtx(translation, rotationDegrees, scale);
+        glm::mat4 model = ComposeWorldMtx(command.Translation, command.RotationDegrees, command.Scale);
+        const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(model)));
         m_Shader.SetUniformMat4(m_UniformViewProjection, m_ViewProjection);
         m_Shader.SetUniformMat4(m_UniformModel, model);
-        m_Shader.SetUniformVec4(m_UniformColor, color);
+        glUniformMatrix3fv(m_UniformNormalMatrix, 1, GL_FALSE, &normalMatrix[0][0]);
+        m_Shader.SetUniformVec4(m_UniformColor, command.Color);
+        glUniform1i(m_UniformShadingMode, command.ShadingMode == MaterialShadingMode::VertexLit && m_RenderView.MainLight.Enabled ? 1 : 0);
+        // These shader uniforms are GLSL vec3s. Calling glUniform4f (the vec4 helper) for
+        // them is GL_INVALID_OPERATION; the uniforms then retain their all-zero defaults and
+        // every VertexLit material is multiplied to black. Keep the upload type exact.
+        m_Shader.SetUniformVec3(m_UniformAmbientColor, m_RenderView.AmbientColor);
+        m_Shader.SetUniformVec3(m_UniformLightDirection, m_RenderView.MainLight.Direction);
+        m_Shader.SetUniformVec3(m_UniformLightColor, m_RenderView.MainLight.Color);
+        glUniform1f(m_UniformLightIntensity, m_RenderView.MainLight.Intensity);
 
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, textureId != 0 ? textureId : m_WhiteTexture);
+        glBindTexture(GL_TEXTURE_2D, command.TextureId != 0 ? command.TextureId : m_WhiteTexture);
         m_Shader.SetUniformInt(m_UniformTexture, 0);
 
-        const GLVertexArray& mesh = (meshHandle != 0) ? m_ImportedMeshes[meshHandle - 1] : m_Meshes[static_cast<int>(primitive)];
+        const GLVertexArray& mesh = (command.MeshHandle != 0) ? m_ImportedMeshes[command.MeshHandle - 1] : m_Meshes[static_cast<int>(command.Primitive)];
         mesh.Bind();
         // An imported mesh with real submesh ranges draws only that one slice; everything else
         // (procedural primitives, or an imported mesh with no material-group boundaries at all,
         // i.e. GetSubMeshes() empty) draws as one whole mesh, exactly like before this feature.
         const std::vector<MeshData::SubMesh>& subMeshes = mesh.GetSubMeshes();
-        if (meshHandle != 0 && subMeshIndex < subMeshes.size()) {
-            const MeshData::SubMesh& subMesh = subMeshes[subMeshIndex];
+        if (command.MeshHandle != 0 && command.SubMeshIndex < subMeshes.size()) {
+            const MeshData::SubMesh& subMesh = subMeshes[command.SubMeshIndex];
             glDrawArrays(GL_TRIANGLES, static_cast<GLint>(subMesh.FirstVertex), static_cast<GLsizei>(subMesh.VertexCount));
         } else {
             glDrawArrays(GL_TRIANGLES, 0, mesh.GetVertexCount());

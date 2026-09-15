@@ -5,6 +5,18 @@
 namespace Duality {
 
     namespace {
+        void GenerateFlatNormals(std::vector<MeshVertex>& vertices) {
+            for (size_t i = 0; i + 2 < vertices.size(); i += 3) {
+                MeshVertex& a = vertices[i];
+                MeshVertex& b = vertices[i + 1];
+                MeshVertex& c = vertices[i + 2];
+                glm::vec3 normal = glm::cross(b.Position - a.Position, c.Position - a.Position);
+                float lengthSq = glm::dot(normal, normal);
+                normal = lengthSq > 0.000001f ? normal / std::sqrt(lengthSq) : glm::vec3(0.0f, 1.0f, 0.0f);
+                a.Normal = b.Normal = c.Normal = normal;
+            }
+        }
+
         // Six faces x 2 triangles x 3 verts, unit cube (-0.5..+0.5) -- same vertex layout as
         // References/devkitpro-3ds-templates/graphics/gpu/textured_cube's own vertex_list,
         // minus the per-vertex normal (unlit, see IRenderer3D.h).
@@ -143,10 +155,10 @@ namespace Duality {
     }
 
     const std::vector<MeshVertex>& GetPrimitiveMesh(MeshPrimitive primitive) {
-        static const std::vector<MeshVertex> cube = MakeCube();
-        static const std::vector<MeshVertex> sphere = MakeSphere();
-        static const std::vector<MeshVertex> plane = MakePlane();
-        static const std::vector<MeshVertex> capsule = MakeCapsule();
+        static const std::vector<MeshVertex> cube = [] { auto v = MakeCube(); GenerateFlatNormals(v); return v; }();
+        static const std::vector<MeshVertex> sphere = [] { auto v = MakeSphere(); for (auto& vertex : v) vertex.Normal = glm::normalize(vertex.Position); return v; }();
+        static const std::vector<MeshVertex> plane = [] { auto v = MakePlane(); GenerateFlatNormals(v); return v; }();
+        static const std::vector<MeshVertex> capsule = [] { auto v = MakeCapsule(); for (auto& vertex : v) vertex.Normal = glm::normalize(vertex.Position); return v; }();
 
         switch (primitive) {
             case MeshPrimitive::Sphere: return sphere;

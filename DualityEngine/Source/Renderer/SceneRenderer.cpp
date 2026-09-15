@@ -5,6 +5,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
 #include "DualityEngine/Physics/PhysicsUnits.h"
@@ -44,6 +46,70 @@ namespace Duality {
                 }
             }
             outTexture = GetActiveSpriteTexture(scene, handle);
+        }
+
+        RenderView BuildRenderViewInternal(Scene& scene, Entity camera, Screen screen) {
+            const CameraComponent& cameraComponent = camera.GetComponent<CameraComponent>();
+            const TransformComponent cameraTransform = scene.GetWorldTransform(camera);
+            const float screenWidth = screen == Screen::Top ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
+            const float screenHeight = screen == Screen::Top ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
+
+            RenderView view;
+            view.TargetScreen = screen;
+            view.Projection = cameraComponent.Projection;
+            view.CameraPosition = cameraTransform.Translation;
+            view.CameraRotationDegrees = cameraTransform.Rotation;
+            view.FovDegrees = cameraComponent.FovDegrees;
+            view.OrthoHalfHeight = screenHeight * 0.5f / cameraComponent.Zoom;
+            view.AspectRatio = screenWidth / screenHeight;
+            view.NearPlane = cameraComponent.NearPlane;
+            view.FarPlane = cameraComponent.FarPlane;
+
+            PopulateMainDirectionalLight(scene, view);
+            return view;
+        }
+
+        glm::mat4 RotationMatrix(const glm::vec3& rotationDegrees) {
+            glm::mat4 rotation(1.0f);
+            rotation = glm::rotate(rotation, glm::radians(rotationDegrees.z), glm::vec3(0.0f, 0.0f, 1.0f));
+            rotation = glm::rotate(rotation, glm::radians(rotationDegrees.y), glm::vec3(0.0f, 1.0f, 0.0f));
+            rotation = glm::rotate(rotation, glm::radians(rotationDegrees.x), glm::vec3(1.0f, 0.0f, 0.0f));
+            return rotation;
+        }
+
+        float PrimitiveShadowRadius(MeshPrimitive primitive) {
+            switch (primitive) {
+                case MeshPrimitive::Sphere:
+                case MeshPrimitive::Capsule: return 0.5f;
+                case MeshPrimitive::Cube:    return 0.5f * std::sqrt(3.0f);
+                default:                      return 0.5f;
+            }
+        }
+    }
+
+    RenderView BuildRenderView(Scene& scene, Entity camera, Screen screen) {
+        return BuildRenderViewInternal(scene, camera, screen);
+    }
+
+    void PopulateMainDirectionalLight(Scene& scene, RenderView& view) {
+        view.MainLight = {};
+        // Storage order is an EnTT implementation detail. Use canonical hierarchy order so the
+        // Game renderer and the editor's free Scene camera make the same deterministic choice.
+        for (Entity light : scene.GetHierarchyTraversalOrder()) {
+            if (!light.HasComponent<DirectionalLightComponent>())
+                continue;
+            const DirectionalLightComponent& component = light.GetComponent<DirectionalLightComponent>();
+            if (!component.Enabled || !scene.IsEffectivelyActive(light))
+                continue;
+            const TransformComponent transform = scene.GetWorldTransform(light);
+            const glm::mat4 rotation = RotationMatrix(transform.Rotation);
+            // Entity forward is -Z; lighting needs the direction from a point toward the light.
+            view.MainLight.Enabled = true;
+            view.MainLight.Direction = -glm::normalize(glm::vec3(rotation * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+            view.MainLight.Color = component.Color;
+            view.MainLight.Intensity = component.Intensity;
+            view.MainLight.CastShadows = component.CastShadows;
+            break;
         }
     }
 
@@ -291,19 +357,81 @@ namespace Duality {
         renderer2D.EndScene();
     }
 
+    void RenderDirectionalBlobShadows(IRenderer3D& renderer, Scene& scene, Screen screen, const RenderView& view, const CameraComponent* cameraFilter) {
+        if (!view.MainLight.Enabled || !view.MainLight.CastShadows)
+            return;
+
+        // RenderView stores the direction from a shaded point TOWARD the light. A projected
+        // shadow travels the other way, from the caster toward the receiver plane.
+        const float lightDirectionLength = glm::length(view.MainLight.Direction);
+        if (lightDirectionLength <= 0.0001f)
+            return;
+        const glm::vec3 rayDirection = -view.MainLight.Direction / lightDirectionLength;
+
+        struct Receiver {
+            TransformComponent Transform;
+            glm::vec3 Normal;
+        };
+        std::vector<Receiver> receivers;
+        for (auto handle : scene.Registry().view<TransformComponent, MeshRendererComponent>()) {
+            if (!ShouldRenderOnScreen(scene, handle, screen, cameraFilter))
+                continue;
+            Entity entity(handle, &scene);
+            const auto& mesh = entity.GetComponent<MeshRendererComponent>();
+            if (!mesh.Enabled || mesh.Primitive != MeshPrimitive::Plane || !scene.IsEffectivelyActive(entity))
+                continue;
+            TransformComponent transform = scene.GetWorldTransform(entity);
+            const glm::vec3 normal = glm::normalize(glm::vec3(RotationMatrix(transform.Rotation) * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)));
+            if (std::abs(glm::dot(rayDirection, normal)) > 0.001f)
+                receivers.push_back({ transform, normal });
+        }
+        if (receivers.empty())
+            return;
+
+        // A small translucent projected quad is the intentionally hardware-safe shadow tier:
+        // no depth target, texture allocation or second camera pass. It looks best on a large
+        // horizontal Plane ground receiver; rotated planes also work because the intersection
+        // and shadow quad both use the receiver's world-space normal/rotation.
+        constexpr glm::vec4 ShadowColor{ 0.015f, 0.02f, 0.04f, 0.38f };
+        for (auto handle : scene.Registry().view<TransformComponent, MeshRendererComponent>()) {
+            if (!ShouldRenderOnScreen(scene, handle, screen, cameraFilter))
+                continue;
+            Entity caster(handle, &scene);
+            const auto& mesh = caster.GetComponent<MeshRendererComponent>();
+            if (!mesh.Enabled || mesh.Primitive == MeshPrimitive::Plane || !scene.IsEffectivelyActive(caster))
+                continue;
+            const TransformComponent casterTransform = scene.GetWorldTransform(caster);
+            const float maxScale = std::max({ std::abs(casterTransform.Scale.x), std::abs(casterTransform.Scale.y), std::abs(casterTransform.Scale.z) });
+            const float shadowDiameter = std::max(0.02f, PrimitiveShadowRadius(mesh.Primitive) * maxScale * 2.0f);
+
+            for (const Receiver& receiver : receivers) {
+                const float denominator = glm::dot(rayDirection, receiver.Normal);
+                const float rayDistance = glm::dot(receiver.Transform.Translation - casterTransform.Translation, receiver.Normal) / denominator;
+                if (!std::isfinite(rayDistance) || rayDistance <= 0.0f)
+                    continue; // receiver is behind the caster/light ray
+
+                MeshDrawCommand shadow;
+                shadow.Primitive = MeshPrimitive::Plane;
+                shadow.Translation = casterTransform.Translation + rayDirection * rayDistance + receiver.Normal * (0.002f * std::max(1.0f, shadowDiameter));
+                shadow.RotationDegrees = receiver.Transform.Rotation;
+                shadow.Scale = { shadowDiameter, 1.0f, shadowDiameter };
+                shadow.Color = ShadowColor;
+                shadow.ShadingMode = MaterialShadingMode::Unlit;
+                shadow.AlphaBlend = true;
+                shadow.DepthWrite = false;
+                renderer.DrawMesh(shadow);
+            }
+        }
+    }
+
     void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
         Entity camera = scene.GetPrimaryCamera(screen);
         if (!camera)
             return;
 
-        TransformComponent cameraTransform = scene.GetWorldTransform(camera);
-        auto& cameraComponent = camera.GetComponent<CameraComponent>();
-        float screenWidth, screenHeight;
-        ScreenExtents(screen, screenWidth, screenHeight);
-
-        float orthoHalfHeight = screenHeight * 0.5f / cameraComponent.Zoom;
-
-        renderer.BeginScene(screen, cameraComponent.Projection, cameraTransform.Translation, cameraTransform.Rotation, cameraComponent.FovDegrees, orthoHalfHeight, screenWidth / screenHeight, cameraComponent.NearPlane, cameraComponent.FarPlane, clearColor, clear);
+        const auto& cameraComponent = camera.GetComponent<CameraComponent>();
+        RenderView renderView = BuildRenderView(scene, camera, screen);
+        renderer.BeginScene(renderView, clearColor, clear);
 
         auto view = scene.Registry().view<TransformComponent, MeshRendererComponent>();
         for (auto handle : view) {
@@ -322,9 +450,11 @@ namespace Duality {
                 const AssetRef& materialRef = MaterialForSubMesh(mesh.Materials, i);
                 Material material = ResolveMeshMaterial(materialRef);
                 uint32_t textureId = ResolveMeshTexture(renderer, material.Texture);
-                renderer.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+                renderer.DrawMesh(MeshDrawCommand{ mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId, material.ShadingMode });
             }
         }
+
+        RenderDirectionalBlobShadows(renderer, scene, screen, renderView, &cameraComponent);
 
         renderer.EndScene();
     }

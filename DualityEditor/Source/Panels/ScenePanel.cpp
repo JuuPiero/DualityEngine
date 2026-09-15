@@ -12,6 +12,7 @@
 
 #include <imgui.h>
 
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include "DualityEditor/EditorContext.h"
@@ -426,6 +427,83 @@ namespace Duality {
             if (projectionType == ProjectionType::Perspective) {
                 for (int i = 0; i < 4; i++)
                     drawLine(camPos, nearCorners[i]);
+            }
+        }
+
+        // A compact camera body + lens makes the camera entity itself readable even when its
+        // frustum is edge-on or extends beyond the Scene pane. The forward arrow uses the same
+        // basis as DrawCameraFrustum, so the icon never contradicts the Game camera direction.
+        void DrawCameraBodyGizmo(const Projector3D& proj, const glm::vec3& cameraPosition, const glm::vec3& cameraForward, ImU32 color) {
+            ImVec2 center;
+            if (!proj.Project(cameraPosition, center))
+                return;
+
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            const ImU32 bodyFill = (color & 0x00FFFFFFu) | 0xB0000000u;
+            drawList->AddRectFilled(ImVec2(center.x - 8.0f, center.y - 5.0f), ImVec2(center.x + 8.0f, center.y + 5.0f), bodyFill, 2.0f);
+            drawList->AddRect(ImVec2(center.x - 8.0f, center.y - 5.0f), ImVec2(center.x + 8.0f, center.y + 5.0f), color, 2.0f, 0, 1.5f);
+            drawList->AddCircle(center, 3.0f, color, 12, 1.5f);
+
+            ImVec2 tip;
+            const float arrowLength = Gizmo3DWorldAxisLength(proj, cameraPosition) * 0.7f;
+            if (!proj.Project(cameraPosition + cameraForward * arrowLength, tip))
+                return;
+            drawList->AddLine(center, tip, color, 1.75f);
+            const ImVec2 direction{ tip.x - center.x, tip.y - center.y };
+            const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+            if (length <= 0.01f)
+                return;
+            const ImVec2 unit{ direction.x / length, direction.y / length };
+            const ImVec2 perpendicular{ -unit.y, unit.x };
+            drawList->AddTriangleFilled(tip,
+                ImVec2(tip.x - unit.x * 7.0f + perpendicular.x * 3.5f, tip.y - unit.y * 7.0f + perpendicular.y * 3.5f),
+                ImVec2(tip.x - unit.x * 7.0f - perpendicular.x * 3.5f, tip.y - unit.y * 7.0f - perpendicular.y * 3.5f), color);
+        }
+
+        // Unity-like directional-light gizmo: a yellow sun at the entity position plus three
+        // parallel, arrowed rays. Directional lights have no physical range, therefore the ray
+        // length is only an editor visual aid and is kept screen-size stable via the projector.
+        // Rays travel along entity local -Z, the same direction RenderView derives before it
+        // converts it to the shader's point-to-light vector.
+        void DrawDirectionalLightGizmo(const Projector3D& proj, const TransformComponent& transform) {
+            constexpr ImU32 SunColor = IM_COL32(255, 220, 70, 255);
+            constexpr ImU32 RayColor = IM_COL32(255, 235, 130, 235);
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+            ImVec2 center;
+            if (proj.Project(transform.Translation, center)) {
+                drawList->AddCircleFilled(center, 5.0f, SunColor, 16);
+                drawList->AddCircle(center, 8.0f, SunColor, 16, 1.5f);
+                for (int i = 0; i < 8; ++i) {
+                    const float angle = glm::two_pi<float>() * static_cast<float>(i) / 8.0f;
+                    const ImVec2 rayStart{ center.x + std::cos(angle) * 10.0f, center.y + std::sin(angle) * 10.0f };
+                    const ImVec2 rayEnd{ center.x + std::cos(angle) * 14.0f, center.y + std::sin(angle) * 14.0f };
+                    drawList->AddLine(rayStart, rayEnd, SunColor, 1.5f);
+                }
+            }
+
+            const glm::quat rotation = EulerDegreesToQuat(transform.Rotation);
+            const glm::vec3 rayDirection = rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+            const glm::vec3 right = rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+            const glm::vec3 up = rotation * glm::vec3(0.0f, 1.0f, 0.0f);
+            const float size = Gizmo3DWorldAxisLength(proj, transform.Translation);
+            const glm::vec2 offsets[3] = { { -0.55f, 0.38f }, { 0.0f, 0.0f }, { 0.55f, -0.38f } };
+            for (const glm::vec2& offset : offsets) {
+                const glm::vec3 start = transform.Translation + (right * offset.x + up * offset.y) * size;
+                const glm::vec3 end = start + rayDirection * (size * 1.7f);
+                ImVec2 screenStart, screenEnd;
+                if (!proj.Project(start, screenStart) || !proj.Project(end, screenEnd))
+                    continue;
+                drawList->AddLine(screenStart, screenEnd, RayColor, 1.75f);
+                const ImVec2 direction{ screenEnd.x - screenStart.x, screenEnd.y - screenStart.y };
+                const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
+                if (length <= 0.01f)
+                    continue;
+                const ImVec2 unit{ direction.x / length, direction.y / length };
+                const ImVec2 perpendicular{ -unit.y, unit.x };
+                drawList->AddTriangleFilled(screenEnd,
+                    ImVec2(screenEnd.x - unit.x * 7.0f + perpendicular.x * 3.5f, screenEnd.y - unit.y * 7.0f + perpendicular.y * 3.5f),
+                    ImVec2(screenEnd.x - unit.x * 7.0f - perpendicular.x * 3.5f, screenEnd.y - unit.y * 7.0f - perpendicular.y * 3.5f), RayColor);
             }
         }
 
@@ -1057,7 +1135,20 @@ namespace Duality {
 
             framebuffer.Bind();
             glm::vec4 clearColor = (screen == Screen::Top) ? glm::vec4{ 0.15f, 0.15f, 0.18f, 1.0f } : glm::vec4{ 0.18f, 0.15f, 0.15f, 1.0f };
-            renderer3D.BeginScene(screen, ProjectionType::Perspective, cameraPos, cameraRotation, FovDegrees, 0.0f, aspect, NearPlane, FarPlane, clearColor, true);
+            // The Scene pane owns a free editor camera, but its light selection must be exactly
+            // the Game renderer's. Build the camera portion locally and delegate directional
+            // light policy to SceneRenderer's shared helper.
+            RenderView previewView;
+            previewView.TargetScreen = screen;
+            previewView.Projection = ProjectionType::Perspective;
+            previewView.CameraPosition = cameraPos;
+            previewView.CameraRotationDegrees = cameraRotation;
+            previewView.FovDegrees = FovDegrees;
+            previewView.AspectRatio = aspect;
+            previewView.NearPlane = NearPlane;
+            previewView.FarPlane = FarPlane;
+            PopulateMainDirectionalLight(ctx.SceneRef, previewView);
+            renderer3D.BeginScene(previewView, clearColor, true);
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, MeshRendererComponent>()) {
                 if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                     continue;
@@ -1079,9 +1170,12 @@ namespace Duality {
                     const AssetRef& materialRef = MaterialForSubMesh(mesh.Materials, i);
                     Material material = ResolveMeshMaterial(materialRef);
                     uint32_t textureId = ResolveMeshTexture(renderer3D, material.Texture);
-                    renderer3D.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+                    renderer3D.DrawMesh(MeshDrawCommand{ mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId, material.ShadingMode });
                 }
             }
+            // Same projected-shadow policy as Game: active non-plane meshes cast onto active
+            // Plane receivers only when the selected Directional Light enables Cast Shadows.
+            RenderDirectionalBlobShadows(renderer3D, ctx.SceneRef, screen, previewView);
             // Scene 3D shows SpriteRenderers as their actual world-space quads: an XY plane
             // positioned, rotated and scaled by the entity Transform. 2D mode is therefore
             // merely a convenient orthographic editing view, not a different representation.
@@ -1130,11 +1224,16 @@ namespace Duality {
                 // the editor, so it remains visible from either side as a Unity sprite does.
                 glm::quat quadRotation = EulerDegreesToQuat(transform.Rotation) *
                     glm::angleAxis(glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-                renderer3D.DrawMesh(MeshPrimitive::Plane, 0, 0,
-                    transform.Translation,
-                    QuatToEulerDegrees(quadRotation),
-                    { sprite.Size.x * transform.Scale.x, 1.0f, sprite.Size.y * transform.Scale.y },
-                    editorColor, textureId);
+                MeshDrawCommand spriteCommand;
+                spriteCommand.Primitive = MeshPrimitive::Plane;
+                spriteCommand.Translation = transform.Translation;
+                spriteCommand.RotationDegrees = QuatToEulerDegrees(quadRotation);
+                spriteCommand.Scale = { sprite.Size.x * transform.Scale.x, 1.0f, sprite.Size.y * transform.Scale.y };
+                spriteCommand.Color = editorColor;
+                spriteCommand.TextureId = textureId;
+                spriteCommand.AlphaBlend = true;
+                spriteCommand.DepthWrite = false;
+                renderer3D.DrawMesh(spriteCommand);
             }
             renderer3D.SetDepthWriteEnabled(true);
             // Cameras have no mesh of their own -- shown via the frustum wireframe overlay
@@ -1193,17 +1292,15 @@ namespace Duality {
                 DrawGrid3D(proj, camera3D.Target, gridCellSize, gridExtent);
             }
 
-            // Frustum wireframe for every camera entity, showing at a glance where it's
-            // looking and its Fov/Zoom -- same color-by-target-screen convention as the sphere
-            // marker/2D pane's own camera marker. Roll (Rotation.z) is ignored for this gizmo's
-            // own forward/right/up (same simplification OrbitForward already makes) -- it only
-            // rotates the frustum rectangle around its own view axis, not worth the extra
-            // precision for a purely visual aid.
+            // Camera body + frustum wireframe for every camera entity. The compact body remains
+            // legible at a distance; the frustum shows the actual view volume and Fov/Zoom.
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CameraComponent>()) {
                 if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                     continue;
                 TransformComponent camTransform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 auto& cameraComponent = ctx.SceneRef.Registry().get<CameraComponent>(handle);
+                if (!cameraComponent.Enabled || !ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef)))
+                    continue;
                 glm::vec3 camForward = OrbitForward(camTransform.Rotation.x, camTransform.Rotation.y);
                 glm::vec3 camRight = glm::normalize(glm::cross(camForward, glm::vec3(0.0f, 1.0f, 0.0f)));
                 glm::vec3 camUp = glm::cross(camRight, camForward);
@@ -1211,6 +1308,20 @@ namespace Duality {
                 float camOrthoHalfHeight = (realScreenHeight * 0.5f) / cameraComponent.Zoom; // matches SceneRenderer.cpp's own Zoom convention
                 ImU32 frustumColor = (cameraComponent.Screen == Screen::Top) ? IM_COL32(80, 230, 230, 200) : IM_COL32(240, 150, 50, 200);
                 DrawCameraFrustum(proj, camTransform.Translation, camForward, camRight, camUp, cameraComponent.Projection, cameraComponent.FovDegrees, camOrthoHalfHeight, aspect, cameraComponent.NearPlane, cameraComponent.FarPlane, frustumColor);
+                DrawCameraBodyGizmo(proj, camTransform.Translation, camForward, frustumColor);
+            }
+
+            // Directional lights are invisible render-time data, so give each active light a
+            // scene-only sun and parallel-ray icon. This is an ImGui overlay and therefore
+            // cannot leak into Game framebuffers or the 3DS player build.
+            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, DirectionalLightComponent>()) {
+                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                    continue;
+                Entity light(handle, &ctx.SceneRef);
+                const auto& component = light.GetComponent<DirectionalLightComponent>();
+                if (!component.Enabled || !ctx.SceneRef.IsEffectivelyActive(light))
+                    continue;
+                DrawDirectionalLightGizmo(proj, ctx.SceneRef.GetWorldTransform(light));
             }
 
             // 3D collider gizmo -- green wireframe for the selected entity only. Resize handles
@@ -1411,6 +1522,16 @@ namespace Duality {
                             TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
                             testSphere(candidate, transform.Translation, 20.0f);
                         }
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, DirectionalLightComponent>()) {
+                            if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                                continue;
+                            Entity candidate(handle, &ctx.SceneRef);
+                            const auto& light = candidate.GetComponent<DirectionalLightComponent>();
+                            if (!light.Enabled || !ctx.SceneRef.IsEffectivelyActive(candidate))
+                                continue;
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            testSphere(candidate, transform.Translation, 20.0f);
+                        }
                         for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, BoxCollider3DComponent>()) {
                             if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                                 continue;
@@ -1447,6 +1568,7 @@ namespace Duality {
                             if (candidate.HasComponent<MeshRendererComponent>() ||
                                 candidate.HasComponent<SpriteRendererComponent>() ||
                                 candidate.HasComponent<CameraComponent>() ||
+                                candidate.HasComponent<DirectionalLightComponent>() ||
                                 candidate.HasComponent<BoxCollider3DComponent>() ||
                                 candidate.HasComponent<SphereCollider3DComponent>() ||
                                 candidate.HasComponent<CapsuleCollider3DComponent>())

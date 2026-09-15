@@ -102,6 +102,13 @@ namespace Duality {
             MakeField("Sort Order", &MeshRendererComponent::SortOrder),
         });
 
+        TypeRegistry::Register<DirectionalLightComponent>("Directional Light", false, {
+            MakeField("Enabled", &DirectionalLightComponent::Enabled),
+            MakeField("Color", &DirectionalLightComponent::Color),
+            MakeField("Intensity", &DirectionalLightComponent::Intensity),
+            MakeField("Cast Shadows", &DirectionalLightComponent::CastShadows),
+        });
+
         TypeRegistry::Register<LayerComponent>("Layer", false, {
             MakeField("Layer", &LayerComponent::Value),
         });

@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 
 #include "DualityEngine/Reflection/Field.h"
+#include "DualityEngine/Renderer/MaterialShadingMode.h"
 
 namespace Duality {
 
@@ -15,6 +16,10 @@ namespace Duality {
     struct Material {
         glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
         AssetRef Texture; // empty Guid = flat Color, same convention as SpriteRendererComponent::Texture
+        // Kept last so existing C++ aggregate initializers (`Material{ color, texture }`)
+        // retain their source compatibility. Older .mat files also omit this field and keep
+        // the backward-compatible Unlit default while loading.
+        MaterialShadingMode ShadingMode = MaterialShadingMode::Unlit;
 
         // Same MakeField()/FieldHandle reflection ScriptableObject and built-in components use
         // (Reflection/Field.h works on a plain void*, not just an Entity) -- lets MaterialLoader
@@ -23,6 +28,7 @@ namespace Duality {
         // hand-rolling its own, one-off versions of both.
         static std::vector<FieldHandle> Fields() {
             return {
+                MakeEnumField("Shading Mode", &Material::ShadingMode, { "Unlit", "VertexLit" }),
                 MakeColorField("Color", &Material::Color),
                 MakeField("Texture", &Material::Texture),
             };

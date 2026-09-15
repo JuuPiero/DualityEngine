@@ -99,6 +99,17 @@ namespace Duality {
         int SortOrder = 0;
     };
 
+    // One enabled directional light is selected for each RenderView. Its direction derives
+    // from this entity's world rotation; color/intensity stay authored data.
+    struct DirectionalLightComponent {
+        bool Enabled = true;
+        glm::vec3 Color{ 1.0f, 1.0f, 1.0f };
+        float Intensity = 1.0f;
+        // Enables the current low-cost projected blob-shadow tier for this selected main light.
+        // It is intentionally false by default so existing scenes retain their exact visuals.
+        bool CastShadows = false;
+    };
+
     // Slot i paints submesh i. One assigned material still covers every part; extra parts
     // beyond the list stay default instead of inheriting the last slot (that repeat made
     // material 2, then 3, look like they overpainted the whole mesh).

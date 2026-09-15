@@ -25,6 +25,7 @@ namespace Duality {
         void Shutdown() override;
 
         void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) override;
+        void BeginScene(const RenderView& view, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
 
         // ScenePanel draws transparent SpriteRenderer quads after opaque meshes. Keeping
@@ -34,6 +35,7 @@ namespace Duality {
         void SetDepthWriteEnabled(bool enabled);
 
         void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) override;
+        void DrawMesh(const MeshDrawCommand& command) override;
         uint32_t GetSubMeshCount(uint32_t meshHandle) const override;
 
         uint32_t LoadTexture(const std::string& path) override;
@@ -51,10 +53,17 @@ namespace Duality {
         GLShaderProgram m_Shader;
         int m_UniformViewProjection = -1;
         int m_UniformModel = -1;
+        int m_UniformNormalMatrix = -1;
         int m_UniformColor = -1;
         int m_UniformTexture = -1;
+        int m_UniformShadingMode = -1;
+        int m_UniformAmbientColor = -1;
+        int m_UniformLightDirection = -1;
+        int m_UniformLightColor = -1;
+        int m_UniformLightIntensity = -1;
         int m_AttribPosition = -1;
         int m_AttribTexCoord = -1;
+        int m_AttribNormal = -1;
 
         // 1x1 white pixel bound when textureId == 0, so DrawMesh can always sample the texture
         // uniformly in the shader instead of branching on whether one is bound.
@@ -70,6 +79,7 @@ namespace Duality {
 
         // Recomputed once per BeginScene, reused by every DrawMesh call in that bracket.
         glm::mat4 m_ViewProjection{ 1.0f };
+        RenderView m_RenderView{};
 
         std::unordered_map<std::string, uint32_t> m_TextureCache;
         uint32_t m_DrawCallCount = 0;

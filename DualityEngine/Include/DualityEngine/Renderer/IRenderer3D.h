@@ -7,6 +7,7 @@
 
 #include "DualityEngine/Renderer/MeshPrimitive.h"
 #include "DualityEngine/Renderer/ProjectionType.h"
+#include "DualityEngine/Renderer/RenderView.h"
 #include "DualityEngine/Renderer/Screen.h"
 
 namespace Duality {
@@ -54,6 +55,10 @@ namespace Duality {
         virtual void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear = true) = 0;
         virtual void EndScene() = 0;
 
+        // Forward-pipeline entry points. The legacy overloads remain for editor-only free
+        // camera preview code while SceneRenderer uses these resolved scene submissions.
+        virtual void BeginScene(const RenderView& view, const glm::vec4& clearColor, bool clear = true) = 0;
+
         // translation/rotationDegrees/scale, not a pre-composed model matrix -- same
         // reasoning as BeginScene above, and matches Scene::GetWorldTransform's own
         // TransformComponent{Translation,Rotation,Scale} shape exactly. textureId (0 = none)
@@ -70,6 +75,7 @@ namespace Duality {
         // `primitive` has no submesh concept, always drawn as one whole mesh) -- see
         // GetSubMeshCount below for how a caller knows how many indices are valid to pass here.
         virtual void DrawMesh(MeshPrimitive primitive, uint32_t meshHandle, uint32_t subMeshIndex, const glm::vec3& translation, const glm::vec3& rotationDegrees, const glm::vec3& scale, const glm::vec4& color, uint32_t textureId = 0) = 0;
+        virtual void DrawMesh(const MeshDrawCommand& command) = 0;
 
         // How many subMeshIndex values (0..count-1) are valid for DrawMesh against this
         // meshHandle -- 1 for meshHandle == 0 (a procedural primitive, always one whole-mesh

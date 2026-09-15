@@ -41,6 +41,11 @@ namespace Duality {
         return material;
     }
 
+    void MaterialLoader::SetRuntime(const std::string& path, const Material& material) {
+        if (!path.empty())
+            s_Cache[path] = material;
+    }
+
     bool MaterialLoader::Save(const std::string& path, const Material& material) {
         json root;
         Material temp = material; // FieldHandle::Get takes a plain (non-const) void*

@@ -8,10 +8,11 @@
 
 namespace Duality {
 
-    // Position + TexCoord only -- unlit (see IRenderer3D.h), so no normal is needed yet.
+    // Shared vertex layout for unlit and vertex-lit materials. Normal is object-space.
     struct MeshVertex {
         glm::vec3 Position;
         glm::vec2 TexCoord;
+        glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
     };
 
     // Flat, non-indexed triangle lists (GPU_TRIANGLES-compatible on both backends, matching

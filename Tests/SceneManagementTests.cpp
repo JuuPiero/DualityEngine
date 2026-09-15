@@ -9,8 +9,32 @@
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
+#include "DualityEngine/Renderer/SceneRenderer.h"
 
 using namespace Duality;
+
+namespace {
+    // RenderDirectionalBlobShadows is scene traversal/policy, so test it without an OpenGL
+    // context by recording the platform-neutral submissions it makes to IRenderer3D.
+    class RecordingRenderer3D final : public IRenderer3D {
+    public:
+        void Init() override {}
+        void Shutdown() override {}
+        void BeginScene(Screen, ProjectionType, const glm::vec3&, const glm::vec3&, float, float, float, float, float, const glm::vec4&, bool) override {}
+        void BeginScene(const RenderView&, const glm::vec4&, bool) override {}
+        void EndScene() override {}
+        void DrawMesh(MeshPrimitive, uint32_t, uint32_t, const glm::vec3&, const glm::vec3&, const glm::vec3&, const glm::vec4&, uint32_t) override {}
+        void DrawMesh(const MeshDrawCommand& command) override { Commands.push_back(command); }
+        uint32_t GetSubMeshCount(uint32_t) const override { return 1; }
+        uint32_t LoadTexture(const std::string&) override { return 0; }
+        uint32_t LoadMesh(const std::string&) override { return 0; }
+        void UnloadAllTextures() override {}
+        void UnloadAllMeshes() override {}
+        uint32_t GetDrawCallCount() const override { return static_cast<uint32_t>(Commands.size()); }
+
+        std::vector<MeshDrawCommand> Commands;
+    };
+}
 
 TEST_CASE("Scene::Clear() removes every entity and resets the root list") {
     Scene scene;
@@ -65,4 +89,75 @@ TEST_CASE("SceneSerializer::SerializeToJson/DeserializeFromJson round-trip in me
 TEST_CASE("DeserializeFromJson fails gracefully on a JSON object with no \"Entities\" key") {
     Scene scene;
     CHECK_SOFT(!SceneSerializer(scene).DeserializeFromJson(nlohmann::json::object()), "malformed snapshot is rejected, not silently accepted");
+}
+
+TEST_CASE("DirectionalLightComponent round-trips through a scene snapshot") {
+    Scene source;
+    Entity light = source.CreateEntity("Sun");
+    auto& authored = light.AddComponent<DirectionalLightComponent>();
+    authored.Color = { 0.25f, 0.5f, 0.75f };
+    authored.Intensity = 2.0f;
+    authored.CastShadows = true;
+
+    nlohmann::json snapshot = SceneSerializer(source).SerializeToJson();
+    Scene loaded;
+    CHECK(SceneSerializer(loaded).DeserializeFromJson(snapshot));
+
+    Entity restored = loaded.FindEntityInScreen(Screen::Top, "Sun");
+    CHECK(restored && restored.HasComponent<DirectionalLightComponent>());
+    const auto& result = restored.GetComponent<DirectionalLightComponent>();
+    CHECK_SOFT(result.Color.r == 0.25f && result.Color.g == 0.5f && result.Color.b == 0.75f, "light color survives serialization");
+    CHECK_SOFT(result.Intensity == 2.0f && result.CastShadows, "light intensity and shadow reservation survive serialization");
+}
+
+TEST_CASE("RenderView selects the first enabled directional light and preserves camera data") {
+    Scene scene;
+    Entity camera = scene.CreateEntity("Camera");
+    auto& cameraComponent = camera.AddComponent<CameraComponent>();
+    cameraComponent.Screen = Screen::Top;
+    cameraComponent.Primary = true;
+    cameraComponent.Projection = ProjectionType::Perspective;
+    cameraComponent.FovDegrees = 70.0f;
+    camera.GetComponent<TransformComponent>().Translation = { 1.0f, 2.0f, 3.0f };
+
+    Entity disabled = scene.CreateEntity("Disabled light");
+    disabled.AddComponent<DirectionalLightComponent>().Enabled = false;
+    Entity sun = scene.CreateEntity("Sun");
+      auto& sunData = sun.AddComponent<DirectionalLightComponent>();
+      sunData.Color = { 0.2f, 0.4f, 0.8f };
+      sunData.Intensity = 1.5f;
+      sunData.CastShadows = true;
+
+    RenderView view = BuildRenderView(scene, camera, Screen::Top);
+    CHECK_SOFT(view.Projection == ProjectionType::Perspective && view.FovDegrees == 70.0f, "RenderView copies the camera projection settings");
+    CHECK_SOFT(view.CameraPosition == glm::vec3(1.0f, 2.0f, 3.0f), "RenderView copies the camera world position");
+    CHECK_SOFT(view.MainLight.Enabled, "first enabled directional light is selected");
+      CHECK_SOFT(view.MainLight.Color == sunData.Color && view.MainLight.Intensity == 1.5f, "selected main light preserves its authored parameters");
+      CHECK_SOFT(view.MainLight.CastShadows, "selected main light preserves its Cast Shadows setting");
+      CHECK_SOFT(view.MainLight.Direction.z > 0.99f, "zero-rotation directional light points from the surface toward positive Z");
+  }
+
+TEST_CASE("Directional blob shadows submit a transparent depth-read-only plane onto a Plane receiver") {
+    Scene scene;
+    Entity receiver = scene.CreateEntity("Ground");
+    auto& receiverMesh = receiver.AddComponent<MeshRendererComponent>();
+    receiverMesh.Primitive = MeshPrimitive::Plane;
+    receiver.GetComponent<TransformComponent>().Scale = { 20.0f, 1.0f, 20.0f };
+
+    Entity caster = scene.CreateEntity("Caster");
+    caster.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Cube;
+    caster.GetComponent<TransformComponent>().Translation = { 1.0f, 4.0f, -2.0f };
+    caster.GetComponent<TransformComponent>().Scale = { 2.0f, 2.0f, 2.0f };
+
+    RenderView view;
+    view.MainLight.Enabled = true;
+    view.MainLight.CastShadows = true;
+    view.MainLight.Direction = { 0.0f, 1.0f, 0.0f }; // point-to-light; projection travels down.
+    RecordingRenderer3D renderer;
+    RenderDirectionalBlobShadows(renderer, scene, Screen::Top, view);
+
+    CHECK_SOFT(renderer.Commands.size() == 1, "one cube/one Plane receiver produces one shadow command");
+    const MeshDrawCommand& shadow = renderer.Commands.front();
+    CHECK_SOFT(shadow.Primitive == MeshPrimitive::Plane && shadow.AlphaBlend && !shadow.DepthWrite, "shadow is a transparent, depth-read-only Plane draw");
+    CHECK_SOFT(shadow.Translation.y > 0.0f && shadow.Translation.y < 0.1f, "shadow is offset just above the receiver to avoid z-fighting");
 }

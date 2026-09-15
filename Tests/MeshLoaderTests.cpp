@@ -10,6 +10,7 @@
 #include <filesystem>
 
 #include "DualityEngine/Asset/MeshLoader.h"
+#include "DualityEngine/Renderer/PrimitiveMeshes.h"
 
 using namespace Duality;
 
@@ -41,6 +42,8 @@ TEST_CASE("MeshLoader triangulates a quad-faced, no-UV (\"v//vn\") mesh correctl
     // 6 quad faces, fan-triangulated into 2 triangles (3 verts) each = 36 flat vertices.
     CHECK_SOFT(data.Vertices.size() == 36, "all 6 quad faces contributed triangles, not just the first vertex of each");
     CHECK_SOFT(data.BoundingRadius > 1.5f && data.BoundingRadius < 2.0f, "bounding radius matches a unit cube's corner distance (sqrt(3))");
+    if (!data.Vertices.empty())
+        CHECK_SOFT(data.Vertices[0].Normal.x < -0.99f, "v//vn records preserve the authored normal instead of replacing it with a generated one");
 
     std::filesystem::remove(path);
 }
@@ -54,8 +57,11 @@ TEST_CASE("MeshLoader still handles a plain triangle-only, textured mesh (\"v/vt
 
     const MeshData& data = MeshLoader::Load(path);
     CHECK_SOFT(data.Vertices.size() == 3, "a single triangle face produces exactly 3 vertices");
-    if (data.Vertices.size() == 3)
+    if (data.Vertices.size() == 3) {
         CHECK_SOFT(data.Vertices[1].TexCoord.x == 1.0f, "texcoord indices still resolve correctly for v/vt faces");
+        CHECK_SOFT(data.Vertices[0].Normal.z > 0.99f && data.Vertices[1].Normal.z > 0.99f && data.Vertices[2].Normal.z > 0.99f,
+            "position/UV-only OBJ triangles receive a stable generated face normal");
+    }
 
     std::filesystem::remove(path);
 }
@@ -63,6 +69,18 @@ TEST_CASE("MeshLoader still handles a plain triangle-only, textured mesh (\"v/vt
 TEST_CASE("MeshLoader returns empty Vertices for a nonexistent file") {
     const MeshData& data = MeshLoader::Load("this_mesh_does_not_exist.obj");
     CHECK_SOFT(data.Vertices.empty(), "missing file falls back to an empty mesh, not a crash");
+}
+
+TEST_CASE("Every procedural mesh supplies usable object-space normals") {
+    const MeshPrimitive primitives[] = {
+        MeshPrimitive::Cube, MeshPrimitive::Sphere, MeshPrimitive::Plane, MeshPrimitive::Capsule
+    };
+    for (MeshPrimitive primitive : primitives) {
+        const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(primitive);
+        CHECK_SOFT(!vertices.empty(), "procedural primitive contains vertices");
+        for (const MeshVertex& vertex : vertices)
+            CHECK_SOFT(glm::dot(vertex.Normal, vertex.Normal) > 0.99f, "procedural vertex normal is normalized and non-zero");
+    }
 }
 
 TEST_CASE("MeshLoader with no \"usemtl\" produces exactly one SubMesh spanning everything") {

@@ -69,6 +69,10 @@ namespace Duality {
         glUniformMatrix4fv(location, 1, GL_FALSE, &value[0][0]);
     }
 
+    void GLShaderProgram::SetUniformVec3(int location, const glm::vec3& value) const {
+        glUniform3f(location, value.r, value.g, value.b);
+    }
+
     void GLShaderProgram::SetUniformVec4(int location, const glm::vec4& value) const {
         glUniform4f(location, value.r, value.g, value.b, value.a);
     }

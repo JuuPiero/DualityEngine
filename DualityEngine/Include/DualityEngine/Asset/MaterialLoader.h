@@ -22,6 +22,14 @@ namespace Duality {
         // convention as a renderer's own LoadTexture cache).
         static Material Load(const std::string& path);
 
+        // Replaces a material only in the process-local cache. This is the safe bridge for
+        // runtime scripts that animate material properties: it immediately affects subsequent
+        // renderer Load() calls on desktop and 3DS, but never writes the source .mat (or tries
+        // to write romfs on device). The override remains shared by every renderer using this
+        // asset path until SetRuntime is called again or the process exits; per-renderer
+        // MaterialInstance isolation is a later pipeline feature.
+        static void SetRuntime(const std::string& path, const Material& material);
+
         // Writes `material` to `path` as JSON, overwriting it if it already exists -- used by
         // the Editor's "Create Material" flow.
         static bool Save(const std::string& path, const Material& material);
