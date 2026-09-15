@@ -2,12 +2,15 @@
 // Deserialize/Start dance lives in each real entry point's own main loop (DualityPlayer,
 // DualityPlayerDesktop, Application::Run), not in SceneManager itself -- SceneManager is
 // purely a request mailbox, so these tests only exercise that mailbox contract plus a
-// script calling SceneManager::RequestLoadScene during Play (same path Behaviour scripts use).
+// Behaviour calling ScriptScene during Play (the same EngineServices path GameScripts use).
 #include "TestFramework.h"
+
+#include <deque>
 
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneManager.h"
+#include "DualityEngine/Scripting/ScriptScene.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
 
 using namespace Duality;
@@ -16,7 +19,7 @@ namespace {
 
     class LoadSceneBehaviour : public Behaviour {
     public:
-        void OnUpdate(float) override { SceneManager::RequestLoadScene("Scenes/Level2.scene"); }
+        void OnUpdate(float) override { ScriptScene::LoadSceneAdditive("Scenes/Level2.scene"); }
     };
 
     void EnsureRegistered() {
@@ -37,12 +40,12 @@ TEST_CASE("SceneManager starts with no pending load") {
     // Other test cases in this same binary may have left a pending request behind
     // (SceneManager's state is process-global) -- consume it first so this test's own
     // checks aren't order-dependent on which TEST_CASE ran before it.
-    if (SceneManager::HasPendingLoad())
-        SceneManager::ConsumePendingLoad();
+    SceneManager::ClearPendingRequests();
     CHECK_SOFT(!SceneManager::HasPendingLoad(), "no pending load before anything requests one");
 }
 
 TEST_CASE("RequestLoadScene sets a pending load, ConsumePendingLoad clears it") {
+    SceneManager::ClearPendingRequests();
     SceneManager::RequestLoadScene("Scenes/Level2.scene");
     CHECK_SOFT(SceneManager::HasPendingLoad(), "a pending load is now set");
     std::string path = SceneManager::ConsumePendingLoad();
@@ -50,10 +53,9 @@ TEST_CASE("RequestLoadScene sets a pending load, ConsumePendingLoad clears it") 
     CHECK_SOFT(!SceneManager::HasPendingLoad(), "pending flag cleared after consuming");
 }
 
-TEST_CASE("Script SceneManager::RequestLoadScene works from a Behaviour OnUpdate") {
+TEST_CASE("ScriptScene additive load works from a Behaviour OnUpdate") {
     EnsureRegistered();
-    if (SceneManager::HasPendingLoad())
-        SceneManager::ConsumePendingLoad();
+    SceneManager::ClearPendingRequests();
 
     Scene scene;
     Entity e = scene.CreateEntity("Loader");
@@ -64,5 +66,22 @@ TEST_CASE("Script SceneManager::RequestLoadScene works from a Behaviour OnUpdate
     scene.OnRuntimeStop();
 
     CHECK_SOFT(SceneManager::HasPendingLoad(), "a script's scene-load call left a pending request");
-    CHECK_SOFT(SceneManager::ConsumePendingLoad() == "Scenes/Level2.scene", "the pending path matches what the script requested");
+    std::deque<SceneRequest> requests = SceneManager::ConsumePendingRequests();
+    CHECK_SOFT(requests.size() == 1, "the script produced exactly one request");
+    CHECK_SOFT(requests.front().Path == "Scenes/Level2.scene", "the pending path matches what the script requested");
+    CHECK_SOFT(requests.front().Mode == LoadSceneMode::Additive, "the script's additive mode survives the DLL-safe bridge");
+}
+
+TEST_CASE("SceneManager preserves ordered Single Additive and Unload requests") {
+    SceneManager::ClearPendingRequests();
+    SceneManager::RequestLoadScene("Scenes/Base.scene");
+    SceneManager::RequestLoadSceneAdditive("Scenes/Hud.scene");
+    SceneManager::RequestUnloadScene("Scenes/Hud.scene");
+
+    std::deque<SceneRequest> requests = SceneManager::ConsumePendingRequests();
+    CHECK_SOFT(requests.size() == 3, "none of several same-frame requests is overwritten");
+    CHECK_SOFT(requests[0].Type == SceneRequestType::Load && requests[0].Mode == LoadSceneMode::Single && requests[0].Path == "Scenes/Base.scene", "Single request remains first");
+    CHECK_SOFT(requests[1].Type == SceneRequestType::Load && requests[1].Mode == LoadSceneMode::Additive && requests[1].Path == "Scenes/Hud.scene", "Additive request retains its mode and order");
+    CHECK_SOFT(requests[2].Type == SceneRequestType::Unload && requests[2].Path == "Scenes/Hud.scene", "Unload request retains its target and order");
+    CHECK_SOFT(!SceneManager::HasPendingRequests(), "consuming the queue empties it completely");
 }

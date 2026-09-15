@@ -52,10 +52,20 @@ namespace {
     }
 
     bool LoadGameScripts() {
-        std::string path = GetBuildDirectory() + "/lib/GameScripts.dll";
-        HMODULE module = LoadLibraryA(path.c_str());
+        const std::string libraryDirectory = GetBuildDirectory() + "/lib/";
+        // CMake's Debug postfix is configuration-dependent. Tests must load the real script
+        // DLL in either Debug or Release instead of assuming only the release filename.
+        const char* candidates[] = { "GameScripts.dll", "GameScripts_Debug.dll" };
+        HMODULE module = nullptr;
+        std::string path;
+        for (const char* candidate : candidates) {
+            path = libraryDirectory + candidate;
+            module = LoadLibraryA(path.c_str());
+            if (module)
+                break;
+        }
         if (!module) {
-            Log::Error("ScriptContextDllBoundaryTests: could not load '" + path + "'");
+            Log::Error("ScriptContextDllBoundaryTests: could not load GameScripts.dll or GameScripts_Debug.dll from '" + libraryDirectory + "'");
             return false;
         }
         auto getFactories = reinterpret_cast<GetScriptFactoriesFn>(GetProcAddress(module, "GetScriptFactories"));
@@ -112,7 +122,9 @@ TEST_CASE("A real GameScripts.dll script reads Input/UIButton state across the D
         InputManager::SetAxis("Horizontal", 1.0f);
         scene.OnRuntimeUpdate(1.0f / 60.0f);
     }
-    CHECK_SOFT(player.GetComponent<TransformComponent>().Translation.x > startX + 5.0f,
+    // PlayerController uses Unity-style world units (MoveSpeed = 2 units/s), so 30 fixed
+    // frames should travel roughly one unit, not the legacy pixel-scale five-unit threshold.
+    CHECK_SOFT(player.GetComponent<TransformComponent>().Translation.x > startX + 0.5f,
         "Player moved right in response to a simulated Horizontal axis (Input::GetAxis actually works across the DLL boundary)");
 
     // Reset axis, simulate a RightButton UI click held for 30 frames -- exercises
@@ -127,7 +139,7 @@ TEST_CASE("A real GameScripts.dll script reads Input/UIButton state across the D
         rightButton.GetComponent<UIButtonComponent>().IsPressed = true;
         scene.OnRuntimeUpdate(1.0f / 60.0f);
     }
-    CHECK_SOFT(player.GetComponent<TransformComponent>().Translation.x > xBeforeButton + 5.0f,
+    CHECK_SOFT(player.GetComponent<TransformComponent>().Translation.x > xBeforeButton + 0.5f,
         "Player moved right in response to a simulated RightButton press (ScriptScene::FindEntityInScreen resolved it correctly in OnCreate)");
 
     scene.OnRuntimeStop();
@@ -191,7 +203,9 @@ TEST_CASE("A grounded player actually jumps (IsGrounded's raycast + Space key wo
         scene.OnRuntimeUpdate(1.0f / 60.0f);
     }
     float yAfterJump = player.GetComponent<TransformComponent>().Translation.y;
-    CHECK_SOFT(yAfterJump < stableY - 5.0f, "player rose (Y decreased, world +Y is down) after a simulated Space press while grounded");
+    // Sample after only five fixed frames: with the current 4.5 units/s jump and 9.81 gravity
+    // the expected visible rise is a fraction of a world unit, not five legacy pixels.
+    CHECK_SOFT(yAfterJump < stableY - 0.1f, "player rose (Y decreased, world +Y is down) after a simulated Space press while grounded");
     Log::Info("JumpTest: stableY=" + std::to_string(stableY) + " yAfterJump=" + std::to_string(yAfterJump));
 
     scene.OnRuntimeStop();

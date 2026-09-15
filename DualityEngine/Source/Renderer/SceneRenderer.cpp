@@ -121,15 +121,17 @@ namespace Duality {
         }
     }
 
-    void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor) {
+    void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
         Entity camera = scene.GetPrimaryCamera(screen);
 
         glm::vec4 effectiveClearColor = camera ? camera.GetComponent<CameraComponent>().Background : clearColor;
 
         if (camera)
-            RenderScreen3D(renderer3D, scene, screen, effectiveClearColor, true);
+            RenderScreen3D(renderer3D, scene, screen, effectiveClearColor, clear);
 
-        renderer2D.BeginScene(screen, effectiveClearColor, !camera);
+        // A camera's 3D pass already clears the base scene. With no camera, the 2D pass owns
+        // that clear. Neither pass clears while an additive scene is compositing on top.
+        renderer2D.BeginScene(screen, effectiveClearColor, clear && !camera);
 
         if (camera) {
             TransformComponent cameraTransform = scene.GetWorldTransform(camera);

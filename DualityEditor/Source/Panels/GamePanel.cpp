@@ -188,6 +188,8 @@ namespace Duality {
         // real cleanup, firing final OnDisable/OnDestroy and freeing the physics worlds, on the
         // scene that was actually playing -- only then is it safe to clear and reload).
         void StopPlaying(EditorContext& ctx) {
+            if (ctx.StopAdditiveRuntimeScenes)
+                ctx.StopAdditiveRuntimeScenes();
             ctx.SceneRef.OnRuntimeStop();
             ctx.SceneRef.Clear();
             SceneSerializer(ctx.SceneRef).DeserializeFromJson(nlohmann::json::parse(ctx.PlaySnapshot));

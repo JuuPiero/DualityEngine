@@ -503,8 +503,11 @@ namespace Duality {
     static void EngineServices_LogWarn(const char* message) { Log::Warn(message); }
     static void EngineServices_LogError(const char* message) { Log::Error(message); }
 
-    static void EngineServices_RequestLoadScene(const char* assetsRelativePath) {
-        SceneManager::RequestLoadScene(assetsRelativePath);
+    static void EngineServices_RequestLoadScene(const char* assetsRelativePath, int mode) {
+        SceneManager::EnqueueLoadRequest(assetsRelativePath ? assetsRelativePath : "", mode == static_cast<int>(LoadSceneMode::Additive) ? LoadSceneMode::Additive : LoadSceneMode::Single);
+    }
+    static void EngineServices_RequestUnloadScene(const char* assetsRelativePath) {
+        SceneManager::EnqueueUnloadRequest(assetsRelativePath ? assetsRelativePath : "");
     }
 
     static bool EngineServices_Instantiate(void* scenePtr, const char* prefabAssetGuid, unsigned int* outHandle) {
@@ -757,6 +760,7 @@ namespace Duality {
         &EngineServices_LogWarn,
         &EngineServices_LogError,
         &EngineServices_RequestLoadScene,
+        &EngineServices_RequestUnloadScene,
         &EngineServices_Instantiate,
         &EngineServices_LoadScriptableObject,
         &EngineServices_GetVelocity2D,

@@ -92,7 +92,9 @@ TEST_CASE("ScriptableObjectLoader round-trips through an actual disk parse") {
 
     ScriptableObjectLoader::Loaded reloaded = ScriptableObjectLoader::Load(path);
     CHECK(reloaded.Instance != nullptr);
-    CHECK_SOFT(reloaded.Instance != created.Instance, "UnloadAll actually dropped the old cached instance");
+    // The allocator is allowed to reuse the same address after UnloadAll destroys the old
+    // object, so pointer inequality is not a valid cache-eviction proof. The parsed persisted
+    // value below is the observable contract: it must come from disk, not the old cache.
     CHECK_SOFT(static_cast<TestSettingsData*>(reloaded.Instance)->Health == 33.0f, "Health survived a real save-to-disk + reparse round trip");
 
     std::filesystem::remove(path);

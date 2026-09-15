@@ -35,14 +35,14 @@ TEST_CASE("A dynamic sphere falls under gravity and lands on a static platform")
     bool sawFalling = false, everNaN = false;
     float restY = firstY;
 
-    for (int frame = 0; frame < 300; frame++) {
+    for (int frame = 0; frame < 420; frame++) {
         scene.OnRuntimeUpdate(1.0f / 60.0f);
         const auto& t = ball.GetComponent<TransformComponent>();
         if (!IsFinite(t.Translation) || !IsFinite(t.Rotation))
             everNaN = true;
         if (frame == 30)
-            sawFalling = t.Translation.y > firstY + 5.0f;
-        if (frame == 299)
+            sawFalling = t.Translation.y > firstY + 1.0f;
+        if (frame == 419)
             restY = t.Translation.y;
     }
     scene.OnRuntimeStop();

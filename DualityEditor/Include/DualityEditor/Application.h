@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -54,6 +55,7 @@ namespace Duality {
         void SaveSceneAsFromDialog();
         void EnterPrefabMode(const std::string& prefabPath);
         void ExitPrefabMode();
+        void StopAdditiveRuntimeScenes();
 
         // Declaration order matters here: m_Window must exist before any
         // GL-dependent member (m_Renderer, the Framebuffers) is
@@ -62,6 +64,13 @@ namespace Duality {
         Window m_Window;
         std::shared_ptr<Project> m_Project;
         Scene m_Scene;
+        // Only exists during Play. The edit hierarchy remains the primary open scene; loaded
+        // additive worlds are runtime-only and are discarded together with Play-mode changes.
+        struct AdditiveRuntimeScene {
+            std::string Path;
+            std::unique_ptr<Scene> Value;
+        };
+        std::vector<AdditiveRuntimeScene> m_AdditiveRuntimeScenes;
         SceneHistory m_SceneHistory;
         OpenGLRenderer2D m_Renderer;
         OpenGLRenderer3D m_Renderer3D;

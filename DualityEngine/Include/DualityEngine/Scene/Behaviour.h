@@ -23,8 +23,8 @@ namespace Duality {
     // Engine services (Input, Audio, Raycast, Debug.Log, scene lookup, Instantiate, ...)
     // live in the Scripting/ headers (Input, ScriptAudio, ScriptPhysics2D/3D,
     // ScriptDebug, ScriptScene) -- Unity-style static APIs bound via ScriptContext,
-    // which Scene sets before every lifecycle/collision callback. Scene loading uses
-    // SceneManager::RequestLoadScene directly (header-only, no EngineServices needed).
+    // which Scene sets before every lifecycle/collision callback. Use ScriptScene::LoadScene
+    // for scene transitions so desktop GameScripts DLL calls reach the host-owned queue.
     class Behaviour {
     public:
         virtual ~Behaviour() = default;

@@ -13,7 +13,10 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
+#include <memory>
 #include <utility>
+#include <vector>
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -73,11 +76,11 @@ namespace {
     // other's already-drawn content. Unlike the Editor (which gives each screen its own
     // offscreen Framebuffer object specifically to avoid this), there's only one real window
     // here, so scissoring is the simpler fix -- no second Framebuffer-like utility needed.
-    void RenderScreenIntoViewport(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor, int x, int y, int w, int h) {
+    void RenderScreenIntoViewport(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor, int x, int y, int w, int h, bool clear) {
         glViewport(x, y, w, h);
         glScissor(x, y, w, h);
         glEnable(GL_SCISSOR_TEST);
-        RenderScreen(renderer2D, renderer3D, scene, screen, clearColor);
+        RenderScreen(renderer2D, renderer3D, scene, screen, clearColor, clear);
         glDisable(GL_SCISSOR_TEST);
     }
 
@@ -201,6 +204,20 @@ int main() {
     SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/" + startScenePath);
     scene.OnRuntimeStart();
 
+    // The base Scene always exists. Additive scenes are independent worlds loaded after it;
+    // their update and render order is their load order, making overlays deterministic.
+    struct AdditiveScene {
+        std::string Path;
+        std::unique_ptr<Scene> Value;
+    };
+    std::string activeScenePath = startScenePath;
+    std::vector<AdditiveScene> additiveScenes;
+    auto stopAdditiveScenes = [&]() {
+        for (auto& loaded : additiveScenes)
+            loaded.Value->OnRuntimeStop();
+        additiveScenes.clear();
+    };
+
     double lastTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
@@ -233,40 +250,74 @@ int main() {
         // Before OnRuntimeUpdate, not after -- see DualityPlayer's own Main.cpp for why.
         UpdateUIInteractions(scene);
         UpdatePhysicsRaycasterInteractions(scene);
+        for (auto& loaded : additiveScenes) {
+            UpdateUIInteractions(*loaded.Value);
+            UpdatePhysicsRaycasterInteractions(*loaded.Value);
+        }
 
         double now = glfwGetTime();
         float deltaTime = static_cast<float>(now - lastTime);
         lastTime = now;
 
         scene.OnRuntimeUpdate(deltaTime);
+        for (auto& loaded : additiveScenes)
+            loaded.Value->OnRuntimeUpdate(deltaTime);
 
-        // A script-requested SceneManager.LoadScene is a deferred request (see
-        // SceneManager.h's own comment) -- safe to act on now, right after
-        // OnRuntimeUpdate returns and before this frame renders anything.
-        if (SceneManager::HasPendingLoad()) {
-            std::string pendingPath = SceneManager::ConsumePendingLoad();
-            scene.OnRuntimeStop();
-            // The old scene's textures/meshes are never referenced again once it's
-            // replaced -- freed here rather than left cached for the rest of the
-            // process's lifetime (see IRenderer2D::UnloadAllTextures's own comment).
-            renderer.UnloadAllTextures();
-            renderer.UnloadAllFonts();
-            renderer3D.UnloadAllTextures();
-            renderer3D.UnloadAllMeshes();
-            scene = Scene();
-            SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/" + pendingPath);
-            scene.OnRuntimeStart();
+        // Scene transitions are intentionally applied only after *all* loaded scenes have
+        // completed their update. A request therefore cannot destroy the Behaviour currently
+        // executing, while Additive scenes begin safely on the next render pass.
+        for (const SceneRequest& request : SceneManager::ConsumePendingRequests()) {
+            if (request.Type == SceneRequestType::Unload) {
+                auto found = std::find_if(additiveScenes.begin(), additiveScenes.end(), [&](const AdditiveScene& loaded) { return loaded.Path == request.Path; });
+                if (found != additiveScenes.end()) {
+                    found->Value->OnRuntimeStop();
+                    additiveScenes.erase(found);
+                }
+                continue;
+            }
+
+            if (request.Mode == LoadSceneMode::Single) {
+                stopAdditiveScenes();
+                scene.OnRuntimeStop();
+                // The old scene's textures/meshes are never referenced again once it is
+                // replaced -- free caches only for a true Single transition, never merely
+                // because one additive scene is unloaded (others may still share them).
+                renderer.UnloadAllTextures();
+                renderer.UnloadAllFonts();
+                renderer3D.UnloadAllTextures();
+                renderer3D.UnloadAllMeshes();
+                scene = Scene();
+                if (SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/" + request.Path)) {
+                    activeScenePath = request.Path;
+                    scene.OnRuntimeStart();
+                }
+                continue;
+            }
+
+            const bool alreadyLoaded = request.Path == activeScenePath || std::any_of(additiveScenes.begin(), additiveScenes.end(), [&](const AdditiveScene& loaded) { return loaded.Path == request.Path; });
+            if (alreadyLoaded)
+                continue;
+            auto loaded = std::make_unique<Scene>();
+            if (!SceneSerializer(*loaded).Deserialize(project->GetAssetsDirectory() + "/" + request.Path))
+                continue;
+            loaded->OnRuntimeStart();
+            additiveScenes.push_back({ request.Path, std::move(loaded) });
         }
 
         renderer.BeginFrame();
         ScreenViewport top = TopViewport(), bottom = BottomViewport();
-        RenderScreenIntoViewport(renderer, renderer3D, scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f }, top.X, top.Y, top.W, top.H);
-        RenderScreenIntoViewport(renderer, renderer3D, scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, bottom.X, bottom.Y, bottom.W, bottom.H);
+        RenderScreenIntoViewport(renderer, renderer3D, scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f }, top.X, top.Y, top.W, top.H, true);
+        for (auto& loaded : additiveScenes)
+            RenderScreenIntoViewport(renderer, renderer3D, *loaded.Value, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f }, top.X, top.Y, top.W, top.H, false);
+        RenderScreenIntoViewport(renderer, renderer3D, scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, bottom.X, bottom.Y, bottom.W, bottom.H, true);
+        for (auto& loaded : additiveScenes)
+            RenderScreenIntoViewport(renderer, renderer3D, *loaded.Value, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, bottom.X, bottom.Y, bottom.W, bottom.H, false);
         renderer.EndFrame();
 
         glfwSwapBuffers(window);
     }
 
+    stopAdditiveScenes();
     scene.OnRuntimeStop();
     AudioEngine::Shutdown();
     renderer.Shutdown();

@@ -4,6 +4,7 @@
 
 #include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Renderer/Screen.h"
+#include "DualityEngine/Scene/SceneManager.h"
 #include "DualityEngine/Scripting/ScriptContext.h"
 
 namespace Duality {
@@ -12,6 +13,18 @@ namespace Duality {
     // instantiation, and ScriptableObject loading. Uses ScriptContext's bound Scene.
     class ScriptScene {
     public:
+        // Unity-style deferred scene requests. Calling these from a Behaviour uses the
+        // EngineServices bridge, so they are safe across the desktop GameScripts DLL boundary.
+        static void LoadScene(const std::string& assetsRelativePath, LoadSceneMode mode = LoadSceneMode::Single) {
+            SceneManager::RequestLoadScene(assetsRelativePath, mode);
+        }
+        static void LoadSceneAdditive(const std::string& assetsRelativePath) {
+            LoadScene(assetsRelativePath, LoadSceneMode::Additive);
+        }
+        static void UnloadScene(const std::string& assetsRelativePath) {
+            SceneManager::RequestUnloadScene(assetsRelativePath);
+        }
+
         static Entity FindEntityInScreen(Screen screen, const std::string& name) {
             const EngineServices* services = ScriptContext::Services();
             void* scene = ScriptContext::Scene();

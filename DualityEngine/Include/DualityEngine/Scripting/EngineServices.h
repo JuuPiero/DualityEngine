@@ -52,10 +52,10 @@ namespace Duality {
         void (*LogWarn)(const char* message);
         void (*LogError)(const char* message);
 
-        // Unity's SceneManager.LoadScene -- `assetsRelativePath` is resolved against
-        // whichever platform's own Assets root is currently running (see SceneManager.h's
-        // own comment for why this is a deferred request, not an immediate swap).
-        void (*RequestLoadScene)(const char* assetsRelativePath);
+        // Deferred SceneManager bridge. `mode` maps to SceneManager's LoadSceneMode
+        // (0=Single, 1=Additive) but stays an int at this DLL ABI boundary.
+        void (*RequestLoadScene)(const char* assetsRelativePath, int mode);
+        void (*RequestUnloadScene)(const char* assetsRelativePath);
 
         // Unity's Object.Instantiate -- `scene` is the calling Behaviour's own
         // GetEntity().GetScene() (same per-call-not-baked-in reasoning as

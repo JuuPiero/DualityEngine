@@ -13,7 +13,10 @@
 #include <3ds.h>
 #include <citro3d.h>
 
+#include <algorithm>
 #include <fstream>
+#include <memory>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -134,6 +137,21 @@ int main(int argc, char* argv[]) {
     SceneSerializer(scene).Deserialize("romfs:/Scene.scene");
     scene.OnRuntimeStart();
 
+    // Additive worlds stay independent from the base scene. They are updated and rendered in
+    // load order, after the base scene, so a gameplay scene can keep a HUD/transition scene
+    // alive without serializing both into one file.
+    struct AdditiveScene {
+        std::string Path;
+        std::unique_ptr<Scene> Value;
+    };
+    std::string activeScenePath;
+    std::vector<AdditiveScene> additiveScenes;
+    auto stopAdditiveScenes = [&]() {
+        for (auto& loaded : additiveScenes)
+            loaded.Value->OnRuntimeStop();
+        additiveScenes.clear();
+    };
+
     N3DSLifecycleRequests lifecycleRequests;
     aptHookCookie lifecycleHook{};
     aptHook(&lifecycleHook, N3DSAptHook, &lifecycleRequests);
@@ -214,40 +232,74 @@ int main(int argc, char* argv[]) {
         // key-state updates above running before gameplay code.
         UpdateUIInteractions(scene);
         UpdatePhysicsRaycasterInteractions(scene);
+        for (auto& loaded : additiveScenes) {
+            UpdateUIInteractions(*loaded.Value);
+            UpdatePhysicsRaycasterInteractions(*loaded.Value);
+        }
 
         u64 now = svcGetSystemTick();
         float deltaTime = static_cast<float>(now - lastTick) / static_cast<float>(SYSCLOCK_ARM11);
         lastTick = now;
 
         scene.OnRuntimeUpdate(deltaTime);
+        for (auto& loaded : additiveScenes)
+            loaded.Value->OnRuntimeUpdate(deltaTime);
 
-        // A script-requested SceneManager.LoadScene is a deferred request (see
-        // SceneManager.h's own comment) -- safe to act on now, right after
-        // OnRuntimeUpdate returns and before this frame renders anything. The
-        // requested path resolves against the SAME "romfs:/Assets/" root
-        // BuildPipeline::CookAssets already cooks every non-startup-scene file into.
-        if (SceneManager::HasPendingLoad()) {
-            std::string pendingPath = SceneManager::ConsumePendingLoad();
-            scene.OnRuntimeStop();
-            renderer.UnloadAllTextures();
-            renderer.UnloadAllFonts();
-            renderer3D.UnloadAllTextures();
-            renderer3D.UnloadAllMeshes();
-            scene = Scene();
-            SceneSerializer(scene).Deserialize("romfs:/Assets/" + pendingPath);
-            scene.OnRuntimeStart();
+        // Deferred queue processing keeps scene destruction outside every Behaviour callback.
+        // The build cooker keeps non-start scenes at romfs:/Assets/, so both Single and
+        // Additive requests resolve through the same root.
+        for (const SceneRequest& request : SceneManager::ConsumePendingRequests()) {
+            if (request.Type == SceneRequestType::Unload) {
+                auto found = std::find_if(additiveScenes.begin(), additiveScenes.end(), [&](const AdditiveScene& loaded) { return loaded.Path == request.Path; });
+                if (found != additiveScenes.end()) {
+                    found->Value->OnRuntimeStop();
+                    additiveScenes.erase(found);
+                }
+                continue;
+            }
+
+            if (request.Mode == LoadSceneMode::Single) {
+                stopAdditiveScenes();
+                scene.OnRuntimeStop();
+                renderer.UnloadAllTextures();
+                renderer.UnloadAllFonts();
+                renderer3D.UnloadAllTextures();
+                renderer3D.UnloadAllMeshes();
+                scene = Scene();
+                if (SceneSerializer(scene).Deserialize("romfs:/Assets/" + request.Path)) {
+                    activeScenePath = request.Path;
+                    scene.OnRuntimeStart();
+                }
+                continue;
+            }
+
+            const bool alreadyLoaded = request.Path == activeScenePath || std::any_of(additiveScenes.begin(), additiveScenes.end(), [&](const AdditiveScene& loaded) { return loaded.Path == request.Path; });
+            if (alreadyLoaded)
+                continue;
+            auto loaded = std::make_unique<Scene>();
+            if (!SceneSerializer(*loaded).Deserialize("romfs:/Assets/" + request.Path))
+                continue;
+            loaded->OnRuntimeStart();
+            additiveScenes.push_back({ request.Path, std::move(loaded) });
         }
 
         renderer.BeginFrame();
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-        RenderScreen(renderer, renderer3D, scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f });
-        RenderScreen(renderer, renderer3D, scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
+        RenderScreen(renderer, renderer3D, scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f }, true);
+        for (auto& loaded : additiveScenes)
+            RenderScreen(renderer, renderer3D, *loaded.Value, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f }, false);
+        RenderScreen(renderer, renderer3D, scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, true);
+        for (auto& loaded : additiveScenes)
+            RenderScreen(renderer, renderer3D, *loaded.Value, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, false);
         C3D_FrameEnd(0);
         renderer.EndFrame();
     }
 
     aptUnhook(&lifecycleHook);
+    for (auto& loaded : additiveScenes)
+        loaded.Value->OnApplicationQuit();
     scene.OnApplicationQuit();
+    stopAdditiveScenes();
     scene.OnRuntimeStop();
     AudioEngine::Shutdown();
     renderer.Shutdown();

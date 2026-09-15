@@ -1,5 +1,6 @@
 #include "DualityEditor/Application.h"
 
+#include <algorithm>
 #include <filesystem>
 
 #define WIN32_LEAN_AND_MEAN
@@ -30,6 +31,15 @@
 #include "DualityEngine/Scene/SceneSerializer.h"
 
 namespace Duality {
+
+    void Application::StopAdditiveRuntimeScenes() {
+        for (auto& loaded : m_AdditiveRuntimeScenes)
+            loaded.Value->OnRuntimeStop();
+        m_AdditiveRuntimeScenes.clear();
+        // A Stop/Reload operation cancels work issued by the just-stopped scripts. Without
+        // this, a stale deferred request could reload a scene when the next Play begins.
+        SceneManager::ClearPendingRequests();
+    }
 
     // Derives the CMake build directory (e.g. ".../build-desktop") from this
     // executable's own path, so ScriptEngine can find/rebuild GameScripts.dll
@@ -513,6 +523,7 @@ namespace Duality {
             return;
 
         if (m_IsPlaying) {
+            StopAdditiveRuntimeScenes();
             m_Scene.OnRuntimeStop();
             m_IsPlaying = false;
         }
@@ -569,6 +580,7 @@ namespace Duality {
             return;
 
         if (m_IsPlaying) {
+            StopAdditiveRuntimeScenes();
             m_Scene.OnRuntimeStop();
             m_IsPlaying = false;
         }
@@ -659,37 +671,72 @@ namespace Duality {
                 // editing the Scene view.
                 UpdateUIInteractions(m_Scene);
                 UpdatePhysicsRaycasterInteractions(m_Scene);
-                m_Scene.OnRuntimeUpdate(deltaTime);
-
-                // A script-requested SceneManager.LoadScene is a deferred request (see
-                // SceneManager.h's own comment) -- safe to act on now, right after
-                // OnRuntimeUpdate returns. Stays in Play mode (m_IsPlaying untouched) --
-                // this is a scene-to-scene transition during Play, not a Stop. m_Selected
-                // is reset since the old Scene's entity handles don't survive the swap,
-                // same stale-handle precedent as OpenProjectFromDialog above.
-                if (SceneManager::HasPendingLoad()) {
-                    std::string pendingPath = SceneManager::ConsumePendingLoad();
-                    m_Scene.OnRuntimeStop();
-                    m_Renderer.UnloadAllTextures();
-                    m_Renderer.UnloadAllFonts();
-                    m_Renderer3D.UnloadAllTextures();
-                    m_Renderer3D.UnloadAllMeshes();
-                    m_Scene = Scene();
-                    m_Selected = Entity();
-                    m_SelectedEntities.clear();
-                    m_SelectedAssetPath.clear();
-                    m_SelectedAssetPaths.clear();
-                    SceneSerializer(m_Scene).Deserialize(m_Project->GetAssetsDirectory() + "/" + pendingPath);
-                    m_Scene.OnRuntimeStart();
+                for (auto& loaded : m_AdditiveRuntimeScenes) {
+                    UpdateUIInteractions(*loaded.Value);
+                    UpdatePhysicsRaycasterInteractions(*loaded.Value);
                 }
+                m_Scene.OnRuntimeUpdate(deltaTime);
+                for (auto& loaded : m_AdditiveRuntimeScenes)
+                    loaded.Value->OnRuntimeUpdate(deltaTime);
+
+                // All active worlds have now returned from OnRuntimeUpdate, so it is safe to
+                // process the deferred, ordered Single/Additive/Unload queue. Additive scenes
+                // intentionally remain runtime-only: Stop restores the original edit snapshot.
+                for (const SceneRequest& request : SceneManager::ConsumePendingRequests()) {
+                    if (request.Type == SceneRequestType::Unload) {
+                        auto found = std::find_if(m_AdditiveRuntimeScenes.begin(), m_AdditiveRuntimeScenes.end(), [&](const AdditiveRuntimeScene& loaded) { return loaded.Path == request.Path; });
+                        if (found != m_AdditiveRuntimeScenes.end()) {
+                            found->Value->OnRuntimeStop();
+                            m_AdditiveRuntimeScenes.erase(found);
+                        }
+                        continue;
+                    }
+
+                    if (request.Mode == LoadSceneMode::Single) {
+                        StopAdditiveRuntimeScenes();
+                        m_Scene.OnRuntimeStop();
+                        m_Renderer.UnloadAllTextures();
+                        m_Renderer.UnloadAllFonts();
+                        m_Renderer3D.UnloadAllTextures();
+                        m_Renderer3D.UnloadAllMeshes();
+                        m_Scene = Scene();
+                        m_Selected = Entity();
+                        m_SelectedEntities.clear();
+                        m_SelectedAssetPath.clear();
+                        m_SelectedAssetPaths.clear();
+                        if (SceneSerializer(m_Scene).Deserialize(m_Project->GetAssetsDirectory() + "/" + request.Path))
+                            m_Scene.OnRuntimeStart();
+                        continue;
+                    }
+
+                    const bool alreadyLoaded = std::any_of(m_AdditiveRuntimeScenes.begin(), m_AdditiveRuntimeScenes.end(), [&](const AdditiveRuntimeScene& loaded) { return loaded.Path == request.Path; });
+                    if (alreadyLoaded)
+                        continue;
+                    auto loaded = std::make_unique<Scene>();
+                    if (!SceneSerializer(*loaded).Deserialize(m_Project->GetAssetsDirectory() + "/" + request.Path))
+                        continue;
+                    loaded->OnRuntimeStart();
+                    m_AdditiveRuntimeScenes.push_back({ request.Path, std::move(loaded) });
+                }
+            } else if (!m_AdditiveRuntimeScenes.empty()) {
+                // Covers a Stop action taken by GamePanel during the previous UI frame.
+                StopAdditiveRuntimeScenes();
             }
 
             m_Renderer.BeginFrame();
             m_TopFramebuffer.Bind();
             RenderScreen(m_Renderer, m_Renderer3D, m_Scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f });
+            if (m_IsPlaying) {
+                for (auto& loaded : m_AdditiveRuntimeScenes)
+                    RenderScreen(m_Renderer, m_Renderer3D, *loaded.Value, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f }, false);
+            }
             m_TopFramebuffer.Unbind();
             m_BottomFramebuffer.Bind();
             RenderScreen(m_Renderer, m_Renderer3D, m_Scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
+            if (m_IsPlaying) {
+                for (auto& loaded : m_AdditiveRuntimeScenes)
+                    RenderScreen(m_Renderer, m_Renderer3D, *loaded.Value, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, false);
+            }
             m_BottomFramebuffer.Unbind();
             // Snapshotted here, before the Scene view's own (Editor-only) draws
             // below add to the same renderer's running total -- this is what a
@@ -752,7 +799,7 @@ namespace Duality {
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
                 m_Fps, m_GameDrawCallCount,
                 m_ScenePath, m_IsEditingPrefab, m_EditingPrefabPath, m_RequestOpenPrefabPath, m_RequestExitPrefabMode,
-                m_BuildDirectory, m_RepoRoot, m_PlaySnapshot,
+                m_BuildDirectory, m_RepoRoot, m_PlaySnapshot, [this]() { StopAdditiveRuntimeScenes(); },
                 m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog,
                 m_RequestBrowseExternalEditor, m_RequestBrowseIcon, m_ShowBuildSettings, m_ShowProjectSettings, m_ShowPackageManager, m_ShowPreferences
             };
@@ -857,8 +904,10 @@ namespace Duality {
             m_Window.EndFrame();
         }
 
-        if (m_IsPlaying)
+        if (m_IsPlaying) {
+            StopAdditiveRuntimeScenes();
             m_Scene.OnRuntimeStop();
+        }
 
         ScriptEngine::Shutdown();
         m_Renderer.Shutdown();

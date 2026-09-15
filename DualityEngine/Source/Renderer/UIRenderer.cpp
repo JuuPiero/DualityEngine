@@ -69,13 +69,18 @@ namespace Duality {
         } else {
             Entity canvas = FindOwningCanvas(scene, entity);
             if (!canvas) {
-                outTopLeft = { 0.0f, 0.0f };
-                outSize = { 0.0f, 0.0f };
-                return;
+                // ResolveUIRect is also used by migration, editor picking and layout helpers.
+                // Those callers need meaningful geometry before EnsureUIElementsHaveCanvas has
+                // upgraded a legacy/root rect. Rendering and pointer dispatch still require a
+                // Canvas through IsUIElementOnCanvas, so this fallback cannot make orphan UI
+                // visible or interactive by accident.
+                parentSize.x = rect.Screen == Screen::Top ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
+                parentSize.y = rect.Screen == Screen::Top ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
+            } else {
+                const CanvasComponent& canvasComponent = canvas.GetComponent<CanvasComponent>();
+                parentSize.x = (canvasComponent.Screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
+                parentSize.y = (canvasComponent.Screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
             }
-            const CanvasComponent& canvasComponent = canvas.GetComponent<CanvasComponent>();
-            parentSize.x = (canvasComponent.Screen == Screen::Top) ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
-            parentSize.y = (canvasComponent.Screen == Screen::Top) ? static_cast<float>(TopScreenHeight) : static_cast<float>(BottomScreenHeight);
         }
 
         // RectTransform-style resolution, per axis independently. AnchorMin==AnchorMax on an

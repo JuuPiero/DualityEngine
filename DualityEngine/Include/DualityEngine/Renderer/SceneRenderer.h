@@ -28,7 +28,10 @@ namespace Duality {
     // Editor's Game view and the real device show; the Editor's separate
     // Scene view (a free-roam editor-only camera, see OpenGLRenderer2D::
     // BeginCustomView) intentionally does not go through this function.
-    void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor);
+    // `clear` is true for the first/base scene of a screen each frame. Additive scenes pass
+    // false so their pixels composite over scenes loaded before them rather than erasing the
+    // framebuffer. Within an additive scene its own camera/layer/sort behavior is unchanged.
+    void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear = true);
 
     // The mesh half of RenderScreen's composited draw -- draws every (Transform, MeshRenderer)
     // entity in the scene through `screen`'s primary camera (world position/rotation,

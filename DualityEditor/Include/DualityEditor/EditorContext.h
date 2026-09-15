@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -107,6 +108,11 @@ namespace Duality {
         // not a live nlohmann::json, so this header doesn't need that include) since
         // EditorContext itself is rebuilt fresh every frame and can't hold state across one.
         std::string& PlaySnapshot;
+
+        // Owned by Application because additive runtime Scenes are deliberately not exposed
+        // to edit-mode panels. GamePanel calls this before Stop/Reload Scripts so no Behaviour
+        // from an additive scene can outlive the GameScripts module that owns it.
+        std::function<void()> StopAdditiveRuntimeScenes;
 
         // Set by MenuBarPanel when "Open Project..." is clicked; Application
         // checks this right after the menu bar renders and, if set, shows

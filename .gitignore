@@ -9,3 +9,4 @@ build-3ds-test
 # generated build output, not hand-authored source, regenerated fresh on every build.
 DualityPlayer/romfs/Assets/
 DualityPlayer/romfs/AssetManifest.json
+build-check
