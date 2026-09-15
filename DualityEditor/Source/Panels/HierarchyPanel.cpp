@@ -698,11 +698,6 @@ namespace Duality {
         ImGui::Begin("Hierarchy");
         NormalizeSelection(ctx, m_RangeAnchor);
 
-        if (ImGui::Button((std::string(EditorIcons::Add) + " Create Entity").c_str(), ImVec2(-1, 0))) {
-            SelectEntity(ctx, ctx.SceneRef.CreateEntity("Entity"), m_RangeAnchor, false, false);
-            MarkSceneDirty(ctx);
-        }
-
         ImGui::InputTextWithHint("##HierarchySearch", "Search...", m_SearchBuffer, sizeof(m_SearchBuffer));
 
         ImGui::Separator();
@@ -713,12 +708,61 @@ namespace Duality {
         if (m_SearchBuffer[0] != '\0') {
             DrawFilteredFlatList(ctx, m_SearchBuffer, m_PendingRemovals, m_RangeAnchor);
         } else {
-            // One real tree, not three display-only sections. Drop an entity onto
-            // Top or Bottom to make it a child and inherit that screen's layer.
-            // Copy protects this traversal from a drag-drop reparenting mutation.
-            std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
-            for (Entity entity : roots)
-                DrawEntityNode(entity, ctx, m_PendingRemovals, m_RangeAnchor);
+            // A Scene is the synthetic root of its own hierarchy, just like Unity's
+            // scene header.  It deliberately is NOT an Entity: it owns the root
+            // entity list today and will own one independent entity list per loaded
+            // scene once additive scene loading arrives.  Keeping that distinction
+            // now avoids having to migrate every existing scene to a fake root
+            // GameObject later.
+            std::filesystem::path scenePath(ctx.ScenePath);
+            std::string sceneName = scenePath.stem().string();
+            if (sceneName.empty())
+                sceneName = "Untitled Scene";
+            const std::string sceneLabel = std::string(EditorIcons::Map) + " " + sceneName;
+
+            ImGui::PushID("SceneHierarchyRoot");
+            ImGuiTreeNodeFlags sceneFlags = ImGuiTreeNodeFlags_OpenOnArrow |
+                ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
+            bool sceneOpen = ImGui::TreeNodeEx(sceneLabel.c_str(), sceneFlags);
+
+            // Dropping an existing entity on the Scene header reparents it to the
+            // real Scene root.  This is the same operation as dropping into the
+            // empty root-space below the tree, but the visible Scene node is the
+            // discoverable target users expect.
+            if (ImGui::BeginDragDropTarget()) {
+                AcceptReparentDrop(ctx, Entity{});
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+                    std::string guid = static_cast<const char*>(payload->Data);
+                    std::string path = AssetDatabase::ResolvePath(guid);
+                    if (!path.empty()) {
+                        Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path, {}, AssetRef{ guid });
+                        if (instance) {
+                            SelectEntity(ctx, instance, m_RangeAnchor, false, false);
+                            MarkSceneDirty(ctx);
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            // Right-clicking the scene header creates root entities.  The same
+            // menu is available on blank panel space; right-clicking an Entity
+            // row still produces its child-oriented menu below.
+            if (ImGui::BeginPopupContextItem("SceneRootContext")) {
+                DrawCreateObjectMenu(ctx);
+                ImGui::EndPopup();
+            }
+
+            if (sceneOpen) {
+                // Copy protects this traversal from a drag-drop reparenting
+                // mutation.  Top/Bottom remain ordinary child entities, so
+                // screen-layer inheritance keeps working exactly as before.
+                std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
+                for (Entity entity : roots)
+                    DrawEntityNode(entity, ctx, m_PendingRemovals, m_RangeAnchor);
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
 
         // Drop target filling the remaining panel space below the tree -- it moves
         // an entity back to the unlayered scene root. InvisibleButton
