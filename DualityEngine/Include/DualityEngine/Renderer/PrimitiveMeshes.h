@@ -8,11 +8,14 @@
 
 namespace Duality {
 
-    // Shared vertex layout for unlit and vertex-lit materials. Normal is object-space.
+    // Shared vertex layout for unlit and vertex-lit materials. Color is an optional
+    // baked vertex-light/AO multiplier: primitives and OBJ files without colour
+    // default to white, preserving existing material output byte-for-byte.
     struct MeshVertex {
         glm::vec3 Position;
         glm::vec2 TexCoord;
         glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
+        glm::vec4 Color{ 1.0f };
     };
 
     // Flat, non-indexed triangle lists (GPU_TRIANGLES-compatible on both backends, matching

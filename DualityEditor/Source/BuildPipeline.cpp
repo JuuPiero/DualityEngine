@@ -535,6 +535,9 @@ namespace Duality {
         // before it creates its render targets.
         json runtimeBuildSettings;
         runtimeBuildSettings["N3DSAntiAliasing"] = activeProject ? activeProject->GetConfig().N3DSAntiAliasing : 0;
+        runtimeBuildSettings["ShadowTechnique"] = activeProject
+            ? static_cast<int>(activeProject->GetConfig().ShadowTechnique)
+            : static_cast<int>(ShadowMode::BlobShadows);
         runtimeBuildSettings["PPU"] = activeProject ? activeProject->GetConfig().PPU : 100.0f;
         runtimeBuildSettings["Gravity"] = activeProject ? activeProject->GetConfig().Gravity : 9.81f;
         std::ofstream runtimeSettingsFile(std::filesystem::path(repoRoot) / "DualityPlayer" / "romfs" / "BuildSettings.json");

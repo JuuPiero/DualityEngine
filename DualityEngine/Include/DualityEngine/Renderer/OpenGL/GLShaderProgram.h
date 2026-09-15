@@ -1,5 +1,8 @@
 #pragma once
 
+#include <initializer_list>
+#include <utility>
+
 #include <glm/glm.hpp>
 
 namespace Duality {
@@ -21,7 +24,8 @@ namespace Duality {
         // the intermediate shader objects (they're not needed after linking). Compile/link
         // errors are reported via stderr, matching this code's own pre-extraction convention
         // (this runs before the engine's Log:: subsystem is necessarily useful to rely on).
-        void Init(const char* vertexSource, const char* fragmentSource);
+        void Init(const char* vertexSource, const char* fragmentSource,
+            std::initializer_list<std::pair<const char*, int>> attributeBindings = {});
         void Shutdown();
 
         void Bind() const;

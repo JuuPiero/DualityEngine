@@ -10,7 +10,9 @@
   "PackagesDirectory": "Packages",
   "ProductName": "",
   "ScenesInBuild": [],
+  "ScriptingDefines": [],
   "ScriptsDirectory": "Scripts",
+  "ShadowTechnique": 1,
   "StartScene": "",
   "Version": "0.1.0",
   "WorldUnitsVersion": 2

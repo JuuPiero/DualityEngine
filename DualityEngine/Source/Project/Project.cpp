@@ -68,6 +68,7 @@ namespace Duality {
         project->m_Config.StartScene = root.value("StartScene", "");
         project->m_Config.ScenesInBuild = root.value("ScenesInBuild", std::vector<std::string>{});
         project->m_Config.N3DSAntiAliasing = root.value("N3DSAntiAliasing", 0);
+        project->m_Config.ShadowTechnique = ShadowModeFromInt(root.value("ShadowTechnique", static_cast<int>(ShadowMode::BlobShadows)));
         project->m_Config.IconPath = root.value("IconPath", "");
         project->m_Config.ProductName = root.value("ProductName", "");
         // Project files before WorldUnitsVersion stored pixel-space scene data and used PPU
@@ -97,6 +98,7 @@ namespace Duality {
         root["StartScene"] = m_Config.StartScene;
         root["ScenesInBuild"] = m_Config.ScenesInBuild;
         root["N3DSAntiAliasing"] = m_Config.N3DSAntiAliasing;
+        root["ShadowTechnique"] = static_cast<int>(m_Config.ShadowTechnique);
         root["IconPath"] = m_Config.IconPath;
         root["ProductName"] = m_Config.ProductName;
         root["PPU"] = m_Config.PPU;

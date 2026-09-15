@@ -29,6 +29,7 @@
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer3D.h"
+#include "DualityEngine/Renderer/RenderSettings.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/PhysicsRaycaster.h"
@@ -195,6 +196,7 @@ int main() {
         Log::Error("DualityPlayerDesktop: could not load SampleProject -- expected it next to the repo root (" + repoRoot + ")");
         return 1;
     }
+    RenderSettings::SetShadowMode(project->GetConfig().ShadowTechnique);
     AssetDatabase::Refresh(project->GetAssetsDirectory());
 
     Scene scene;

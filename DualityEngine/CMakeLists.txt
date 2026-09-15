@@ -22,6 +22,7 @@ add_library(DualityEngine STATIC
     Source/Scene/EntitySerialization.cpp
     Source/Scene/PrefabSerializer.cpp
     Source/Renderer/SceneRenderer.cpp
+    Source/Renderer/RenderSettings.cpp
     Source/Renderer/DrawHelpers2D.cpp
     Source/Renderer/UIRenderer.cpp
     Source/Renderer/UIAnchor.cpp

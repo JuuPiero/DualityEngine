@@ -187,13 +187,14 @@ namespace Duality {
         AttrInfo_AddLoader(attrInfo, 0, GPU_FLOAT, 3); // v0 = position
         AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 2); // v1 = texcoord
         AttrInfo_AddLoader(attrInfo, 2, GPU_FLOAT, 3); // v2 = normal
-        AttrInfo_AddFixed(attrInfo, 3);                 // v3 = material color
-        C3D_FixedAttribSet(3, command.Color.r, command.Color.g, command.Color.b, command.Color.a);
+        AttrInfo_AddLoader(attrInfo, 3, GPU_FLOAT, 4); // v3 = imported/baked vertex color
+        AttrInfo_AddFixed(attrInfo, 4);                 // v4 = material color
+        C3D_FixedAttribSet(4, command.Color.r, command.Color.g, command.Color.b, command.Color.a);
 
         const PrimitiveGpuMesh& mesh = (command.MeshHandle != 0) ? m_ImportedMeshes[command.MeshHandle - 1] : m_Meshes[static_cast<int>(command.Primitive)];
         C3D_BufInfo* bufInfo = C3D_GetBufInfo();
         BufInfo_Init(bufInfo);
-        BufInfo_Add(bufInfo, mesh.VertexBuffer, sizeof(MeshVertex), 3, 0x210);
+        BufInfo_Add(bufInfo, mesh.VertexBuffer, sizeof(MeshVertex), 4, 0x3210);
 
         const bool vertexLit = command.ShadingMode == MaterialShadingMode::VertexLit && m_RenderView.MainLight.Enabled;
         const glm::vec3 ambient = vertexLit ? m_RenderView.AmbientColor : glm::vec3(1.0f);

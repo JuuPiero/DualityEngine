@@ -66,6 +66,28 @@ TEST_CASE("MeshLoader still handles a plain triangle-only, textured mesh (\"v/vt
     std::filesystem::remove(path);
 }
 
+TEST_CASE("MeshLoader imports OBJ vertex colors as baked-lighting multipliers") {
+    const char* obj =
+        // First two vertices use normalized RGB; third uses the byte-range form
+        // emitted by some DCC/exporter combinations. Alpha is optional in OBJ.
+        "v 0 0 0 1 0.25 0.5\n"
+        "v 1 0 0 0 1 0\n"
+        "v 0 1 0 64 128 255 255\n"
+        "f 1 2 3\n";
+    std::string path = WriteTempObj("duality_engine_test_vertex_colors.obj", obj);
+
+    const MeshData& data = MeshLoader::Load(path);
+    CHECK_SOFT(data.Vertices.size() == 3, "colored triangle still produces three vertices");
+    if (data.Vertices.size() == 3) {
+        CHECK_SOFT(data.Vertices[0].Color == glm::vec4(1.0f, 0.25f, 0.5f, 1.0f), "normalized OBJ vertex color is preserved");
+        CHECK_SOFT(data.Vertices[1].Color == glm::vec4(0.0f, 1.0f, 0.0f, 1.0f), "missing alpha defaults to one");
+        CHECK_SOFT(data.Vertices[2].Color.r > 0.24f && data.Vertices[2].Color.r < 0.26f && data.Vertices[2].Color.b == 1.0f,
+            "byte-range OBJ vertex colors are normalized during import");
+    }
+
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("MeshLoader returns empty Vertices for a nonexistent file") {
     const MeshData& data = MeshLoader::Load("this_mesh_does_not_exist.obj");
     CHECK_SOFT(data.Vertices.empty(), "missing file falls back to an empty mesh, not a crash");

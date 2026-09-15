@@ -15,6 +15,7 @@
 #include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer3D.h"
+#include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Scene.h"
 
@@ -86,6 +87,7 @@ namespace Duality {
         // draws would otherwise inflate it -- see Application::Run().
         const float& Fps;
         const uint32_t& GameDrawCallCount;
+        const SceneRenderStats& GameRenderStats;
 
         // Which file "Save Scene"/"Load Scene" operate on -- mutable (unlike most of the
         // other plain-data fields below, this used to be const) since SceneOps.h's

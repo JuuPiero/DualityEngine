@@ -142,6 +142,7 @@ namespace Duality {
         // overstate what a real dual-screen render pass actually costs.
         float m_Fps = 0.0f;
         uint32_t m_GameDrawCallCount = 0;
+        SceneRenderStats m_GameRenderStats{};
 
         SceneViewCamera m_TopSceneView;
         SceneViewCamera m_BottomSceneView;

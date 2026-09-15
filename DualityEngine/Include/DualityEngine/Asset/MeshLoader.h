@@ -30,7 +30,7 @@ namespace Duality {
     };
 
     // Loads a Wavefront ".obj" file into a flat MeshVertex list -- a small, hand-rolled parser
-    // (positions/texcoords/normals/triangulated faces; materials and negative/relative indices
+    // (positions/texcoords/normals/optional vertex colors/triangulated faces; materials and negative/relative indices
     // are not supported) chosen specifically because it has zero external dependencies
     // and is guaranteed to compile for devkitARM, unlike a full FBX/glTF library -- see
     // ROADMAP.md for that trade-off. MeshRendererComponent::Mesh (an AssetRef) resolves through

@@ -75,6 +75,10 @@ namespace Duality {
             std::vector<glm::vec3> positions;
             std::vector<glm::vec2> texcoords;
             std::vector<glm::vec3> normals;
+            // Many DCC tools export OBJ vertex colors as extra `v x y z r g b [a]`
+            // values. They are a compact baked-lighting/AO transport for static 3D
+            // worlds and cost no texture fetch or additional render pass on 3DS.
+            std::vector<glm::vec4> colors;
 
             // Vertex index (into data.Vertices) where the CURRENT part started -- closed out
             // into a real SubMesh when the next "usemtl" / "o" / "g" line is hit, or at EOF.
@@ -96,8 +100,17 @@ namespace Duality {
                     subMeshStart = vertexCount;
                 } else if (line[0] == 'v' && line[1] == ' ') {
                     glm::vec3 v{};
-                    std::sscanf(line + 2, "%f %f %f", &v.x, &v.y, &v.z);
+                    glm::vec4 color{ 1.0f };
+                    const int valueCount = std::sscanf(line + 2, "%f %f %f %f %f %f %f", &v.x, &v.y, &v.z,
+                        &color.r, &color.g, &color.b, &color.a);
+                    if (valueCount == 6)
+                        color.a = 1.0f;
+                    // A few exporters use byte-range OBJ colors. Normalize that
+                    // convention once at import rather than branching per vertex draw.
+                    if (valueCount >= 6 && std::max({ color.r, color.g, color.b, color.a }) > 1.0f)
+                        color /= 255.0f;
                     positions.push_back(v);
+                    colors.push_back(valueCount >= 6 ? glm::clamp(color, 0.0f, 1.0f) : glm::vec4(1.0f));
                 } else if (line[0] == 'v' && line[1] == 't') {
                     glm::vec2 vt{};
                     std::sscanf(line + 3, "%f %f", &vt.x, &vt.y);
@@ -125,10 +138,12 @@ namespace Duality {
                             ? texcoords[faceVertex.TexCoordIndex - 1] : glm::vec2(0.0f);
                         glm::vec3 normal = (faceVertex.NormalIndex >= 1 && faceVertex.NormalIndex <= static_cast<int>(normals.size()))
                             ? normals[faceVertex.NormalIndex - 1] : glm::vec3(0.0f);
+                        glm::vec4 color = (faceVertex.PositionIndex >= 1 && faceVertex.PositionIndex <= static_cast<int>(colors.size()))
+                            ? colors[faceVertex.PositionIndex - 1] : glm::vec4(1.0f);
                         const float normalLengthSq = glm::dot(normal, normal);
                         if (normalLengthSq > 0.000001f)
                             normal /= std::sqrt(normalLengthSq);
-                        data.Vertices.push_back({ pos, tex, normal });
+                        data.Vertices.push_back({ pos, tex, normal, color });
                     };
                     for (size_t i = 1; i + 1 < faceVerts.size(); i++) {
                         emit(faceVerts[0]);

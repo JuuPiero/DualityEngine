@@ -23,13 +23,16 @@ namespace Duality {
         }
     }
 
-    void GLShaderProgram::Init(const char* vertexSource, const char* fragmentSource) {
+    void GLShaderProgram::Init(const char* vertexSource, const char* fragmentSource,
+        std::initializer_list<std::pair<const char*, int>> attributeBindings) {
         unsigned int vertexShader = CompileShader(GL_VERTEX_SHADER, vertexSource);
         unsigned int fragmentShader = CompileShader(GL_FRAGMENT_SHADER, fragmentSource);
 
         m_Program = glCreateProgram();
         glAttachShader(m_Program, vertexShader);
         glAttachShader(m_Program, fragmentShader);
+        for (const auto& [name, location] : attributeBindings)
+            glBindAttribLocation(m_Program, location, name);
         glLinkProgram(m_Program);
 
         int success = 0;

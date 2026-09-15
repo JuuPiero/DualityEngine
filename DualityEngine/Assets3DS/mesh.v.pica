@@ -20,7 +20,8 @@
 .alias inpos v0 ; loaded, per-vertex (position)
 .alias intex v1 ; loaded, per-vertex (texcoord)
 .alias innrm v2 ; loaded, per-vertex object-space normal
-.alias inclr v3 ; fixed material color
+.alias invclr v3 ; loaded baked vertex color (white when the source has none)
+.alias inmat v4 ; fixed material color
 
 .proc main
 	; Force the w component of inpos to be 1.0
@@ -56,9 +57,13 @@
 	mul r4, lightColor, r4.xxxx
 	add r4, ambientColor, r4
 
-	; Modulate material color by the vertex-lighting result.
+	; Modulate material and imported baked vertex color by the lighting result.
 	mov outtc0, intex
-	mul outclr, inclr, r4
+	; PICA cannot use two v-registers as operands of one arithmetic instruction.
+	; Stage vertex color in a temporary first, then apply fixed material color.
+	mov r5, invclr
+	mul r5, r5, inmat
+	mul outclr, r5, r4
 
 	; We're finished
 	end

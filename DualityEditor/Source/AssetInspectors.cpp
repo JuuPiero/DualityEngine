@@ -193,6 +193,10 @@ namespace Duality {
 
         void DrawMaterialAsset(const std::string& path, EditorContext&) {
             Material material = MaterialLoader::Load(path);
+            ImGui::TextUnformatted("3D Material");
+            ImGui::TextDisabled("Unlit preserves authored color. VertexLit uses the scene's main Directional Light.");
+            ImGui::TextDisabled("Imported OBJ vertex colors multiply the material for baked AO/light; meshes without them stay white.");
+            ImGui::Separator();
             bool changed = false;
             for (auto& field : Material::Fields())
                 changed |= DrawFieldWidget(field, &material);

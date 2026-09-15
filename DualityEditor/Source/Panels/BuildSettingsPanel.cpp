@@ -14,6 +14,7 @@
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Project/Project.h"
+#include "DualityEngine/Renderer/RenderSettings.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 
 namespace Duality {
@@ -44,6 +45,34 @@ namespace Duality {
         if (ImGui::Combo("Anti-Aliasing", &antiAliasingMode, antiAliasingModes, IM_ARRAYSIZE(antiAliasingModes)))
             changed = true;
         ImGui::TextDisabled("Uses the 3DS display-transfer resolve. 2x2 can fall back to Off if VRAM is insufficient.");
+
+        ImGui::Spacing();
+        ImGui::TextUnformatted("3D Shadows");
+        const char* shadowModes[] = {
+            "Off",
+            "Blob Shadows (Recommended)",
+            "Shadow Maps (Experimental)"
+        };
+        int shadowMode = static_cast<int>(project->GetConfig().ShadowTechnique);
+        shadowMode = std::clamp(shadowMode, static_cast<int>(ShadowMode::Off), static_cast<int>(ShadowMode::ShadowMapsExperimental));
+        if (ImGui::Combo("Shadow Technique", &shadowMode, shadowModes, IM_ARRAYSIZE(shadowModes))) {
+            project->GetConfig().ShadowTechnique = ShadowModeFromInt(shadowMode);
+            // Apply immediately to both Game and Scene panels; the value will
+            // be persisted below and baked into the next 3DS build as well.
+            RenderSettings::SetShadowMode(project->GetConfig().ShadowTechnique);
+            changed = true;
+        }
+        switch (project->GetConfig().ShadowTechnique) {
+            case ShadowMode::Off:
+                ImGui::TextDisabled("Disables projected shadows. Directional lighting remains available.");
+                break;
+            case ShadowMode::BlobShadows:
+                ImGui::TextDisabled("Low-cost projected contact shadows on Mesh Plane receivers. Best default for Old/New 3DS.");
+                break;
+            case ShadowMode::ShadowMapsExperimental:
+                ImGui::TextDisabled("Desktop uses a 512px depth map; 3DS safely falls back to Blob Shadows.");
+                break;
+        }
         ImGui::Separator();
 
         ImGui::TextUnformatted("Scenes In Build");

@@ -23,6 +23,7 @@
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
+#include "DualityEngine/Renderer/RenderSettings.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/PhysicsRaycaster.h"
 #include "DualityEngine/Scene/Components.h"
@@ -96,6 +97,7 @@ namespace Duality {
 
         m_Renderer.Init();
         m_Renderer3D.Init();
+        RenderSettings::SetShadowMode(m_Project->GetConfig().ShadowTechnique);
         AudioEngine::Init();
 
         m_ScenePath = GetStartupScenePath(m_Project);
@@ -529,6 +531,7 @@ namespace Duality {
         }
 
         m_Project = project;
+        RenderSettings::SetShadowMode(m_Project->GetConfig().ShadowTechnique);
         m_Scene = Scene(); // old Entity handles (including m_Selected) don't survive this
         m_Selected = Entity();
         m_SelectedEntities.clear();
@@ -586,6 +589,7 @@ namespace Duality {
         }
 
         m_Project = project;
+        RenderSettings::SetShadowMode(m_Project->GetConfig().ShadowTechnique);
         m_Scene = Scene(); // old Entity handles (including m_Selected) don't survive this
         m_Selected = Entity();
         m_SelectedEntities.clear();
@@ -724,24 +728,25 @@ namespace Duality {
             }
 
             m_Renderer.BeginFrame();
+            m_GameRenderStats = {};
             m_TopFramebuffer.Bind();
-            RenderScreen(m_Renderer, m_Renderer3D, m_Scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f });
+            m_GameRenderStats += RenderScreen(m_Renderer, m_Renderer3D, m_Scene, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f });
             if (m_IsPlaying) {
                 for (auto& loaded : m_AdditiveRuntimeScenes)
-                    RenderScreen(m_Renderer, m_Renderer3D, *loaded.Value, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f }, false);
+                    m_GameRenderStats += RenderScreen(m_Renderer, m_Renderer3D, *loaded.Value, Screen::Top, { 0.08f, 0.08f, 0.12f, 1.0f }, false);
             }
             m_TopFramebuffer.Unbind();
             m_BottomFramebuffer.Bind();
-            RenderScreen(m_Renderer, m_Renderer3D, m_Scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
+            m_GameRenderStats += RenderScreen(m_Renderer, m_Renderer3D, m_Scene, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f });
             if (m_IsPlaying) {
                 for (auto& loaded : m_AdditiveRuntimeScenes)
-                    RenderScreen(m_Renderer, m_Renderer3D, *loaded.Value, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, false);
+                    m_GameRenderStats += RenderScreen(m_Renderer, m_Renderer3D, *loaded.Value, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, false);
             }
             m_BottomFramebuffer.Unbind();
             // Snapshotted here, before the Scene view's own (Editor-only) draws
             // below add to the same renderer's running total -- this is what a
             // real dual-screen render pass actually costs.
-            m_GameDrawCallCount = m_Renderer.GetDrawCallCount();
+            m_GameDrawCallCount = m_Renderer.GetDrawCallCount() + m_GameRenderStats.MeshDrawCalls;
             m_Renderer.EndFrame();
 
             m_Window.BeginFrame();
@@ -797,7 +802,7 @@ namespace Duality {
                 m_TopSceneView, m_BottomSceneView, m_ActiveGizmoMode, m_DraggingGizmoAxis, m_DraggingGizmoScreen,
                 m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
                 m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
-                m_Fps, m_GameDrawCallCount,
+                m_Fps, m_GameDrawCallCount, m_GameRenderStats,
                 m_ScenePath, m_IsEditingPrefab, m_EditingPrefabPath, m_RequestOpenPrefabPath, m_RequestExitPrefabMode,
                 m_BuildDirectory, m_RepoRoot, m_PlaySnapshot, [this]() { StopAdditiveRuntimeScenes(); },
                 m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog,

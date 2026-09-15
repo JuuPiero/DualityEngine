@@ -1,5 +1,6 @@
 {
   "Gravity": 9.8100004196167,
   "N3DSAntiAliasing": 2,
+  "ShadowTechnique": 1,
   "PPU": 100.0
 }

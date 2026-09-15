@@ -236,6 +236,10 @@ namespace Duality {
         // is an exact count, not an estimate -- see IRenderer2D::GetDrawCallCount).
         ImGui::SameLine();
         ImGui::TextDisabled("| FPS: %.0f  Draw Calls: %u", ctx.Fps, ctx.GameDrawCallCount);
+        ImGui::TextDisabled("Meshes: %u visible / %u culled  Lit: %u  Shadow map: %u  Blob: %u  Sprites: %u",
+            ctx.GameRenderStats.VisibleMeshes, ctx.GameRenderStats.CulledMeshes,
+            ctx.GameRenderStats.VertexLitDrawCalls, ctx.GameRenderStats.ShadowMapCasterDrawCalls, ctx.GameRenderStats.BlobShadowDrawCalls,
+            ctx.GameRenderStats.VisibleSprites);
 
         ImGui::Separator();
 

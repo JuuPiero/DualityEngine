@@ -55,6 +55,14 @@ namespace Duality {
         virtual void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear = true) = 0;
         virtual void EndScene() = 0;
 
+        // Optional depth-shadow extension. Backends that cannot safely provide
+        // a light-space render target (current 3DS path) return false; the
+        // scene renderer then uses its Blob Shadow fallback. Default no-op
+        // implementations deliberately keep small test renderers compatible.
+        virtual bool BeginDirectionalShadowMap(const ShadowMapPass&) { return false; }
+        virtual void DrawDirectionalShadowCaster(const MeshDrawCommand&) {}
+        virtual void EndDirectionalShadowMap() {}
+
         // Forward-pipeline entry points. The legacy overloads remain for editor-only free
         // camera preview code while SceneRenderer uses these resolved scene submissions.
         virtual void BeginScene(const RenderView& view, const glm::vec4& clearColor, bool clear = true) = 0;

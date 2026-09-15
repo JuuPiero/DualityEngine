@@ -10,6 +10,7 @@
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
+#include "DualityEngine/Renderer/RenderSettings.h"
 #include "DualityEngine/Scripting/MeshRenderer.h"
 
 using namespace Duality;
@@ -161,6 +162,49 @@ TEST_CASE("Directional blob shadows submit a transparent depth-read-only plane o
     const MeshDrawCommand& shadow = renderer.Commands.front();
     CHECK_SOFT(shadow.Primitive == MeshPrimitive::Plane && shadow.AlphaBlend && !shadow.DepthWrite, "shadow is a transparent, depth-read-only Plane draw");
     CHECK_SOFT(shadow.Translation.y > 0.0f && shadow.Translation.y < 0.1f, "shadow is offset just above the receiver to avoid z-fighting");
+}
+
+TEST_CASE("Project shadow modes preserve the requested value and use a safe current fallback") {
+    RenderSettings::SetShadowMode(ShadowMode::Off);
+    CHECK_SOFT(RenderSettings::GetEffectiveShadowMode() == ShadowMode::Off,
+        "Off prevents the renderer from submitting blob-shadow work");
+
+    RenderSettings::SetShadowMode(ShadowMode::BlobShadows);
+    CHECK_SOFT(RenderSettings::GetEffectiveShadowMode() == ShadowMode::BlobShadows,
+        "the recommended setting selects the implemented projected-blob pass");
+
+    RenderSettings::SetShadowMode(ShadowMode::ShadowMapsExperimental);
+    CHECK_SOFT(RenderSettings::GetShadowMode() == ShadowMode::ShadowMapsExperimental,
+        "the .dproj choice is retained for a future shadow-map backend");
+    CHECK_SOFT(RenderSettings::GetEffectiveShadowMode() == ShadowMode::ShadowMapsExperimental,
+        "the renderer receives the requested tier and its backend decides whether it can allocate a map");
+
+    RenderSettings::SetShadowMode(ShadowMode::BlobShadows); // do not leak global test state
+}
+
+TEST_CASE("RenderScreen3D frustum-culls mesh bounding spheres and reports renderer diagnostics") {
+    Scene scene;
+    Entity camera = scene.CreateEntity("Camera");
+    auto& cameraData = camera.AddComponent<CameraComponent>();
+    cameraData.Screen = Screen::Top;
+    cameraData.Primary = true;
+    cameraData.Projection = ProjectionType::Perspective;
+    cameraData.FovDegrees = 60.0f;
+    cameraData.NearPlane = 0.1f;
+    cameraData.FarPlane = 100.0f;
+
+    Entity visible = scene.CreateEntity("Visible");
+    visible.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Cube;
+    visible.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, -5.0f };
+
+    Entity outside = scene.CreateEntity("Outside frustum");
+    outside.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Cube;
+    outside.GetComponent<TransformComponent>().Translation = { 1000.0f, 0.0f, -5.0f };
+
+    RecordingRenderer3D renderer;
+    const SceneRenderStats stats = RenderScreen3D(renderer, scene, Screen::Top, { 0.0f, 0.0f, 0.0f, 1.0f });
+    CHECK_SOFT(stats.VisibleMeshes == 1 && stats.CulledMeshes == 1, "camera frustum accepts the near cube and rejects the off-screen cube");
+    CHECK_SOFT(stats.MeshDrawCalls == 1 && renderer.Commands.size() == 1, "diagnostics match the one platform-neutral mesh submission");
 }
 
 TEST_CASE("MeshRenderer runtime material color is per-renderer, non-serialized, and reaches the mesh pass") {

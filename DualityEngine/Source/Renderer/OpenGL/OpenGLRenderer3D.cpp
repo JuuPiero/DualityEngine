@@ -23,13 +23,20 @@ namespace Duality {
             "uniform vec3 u_LightDirection;\n"
             "uniform vec3 u_LightColor;\n"
             "uniform float u_LightIntensity;\n"
+            "uniform mat4 u_ShadowMatrix;\n"
+            "uniform int u_UseShadowMap;\n"
             "in vec3 a_Position;\n"
             "in vec2 a_TexCoord;\n"
             "in vec3 a_Normal;\n"
+            "in vec4 a_VertexColor;\n"
             "out vec2 v_TexCoord;\n"
             "out vec3 v_Lighting;\n"
+            "out vec4 v_VertexColor;\n"
+            "out vec4 v_ShadowPosition;\n"
             "void main() {\n"
             "    v_TexCoord = a_TexCoord;\n"
+            "    v_VertexColor = a_VertexColor;\n"
+            "    v_ShadowPosition = u_ShadowMatrix * u_Model * vec4(a_Position, 1.0);\n"
             "    v_Lighting = vec3(1.0);\n"
             "    if (u_ShadingMode != 0) {\n"
             // Keep the desktop shader at GLSL 1.30, the same compatibility profile used by
@@ -46,12 +53,34 @@ namespace Duality {
             "#version 130\n"
             "uniform sampler2D u_Texture;\n"
             "uniform vec4 u_Color;\n"
+            "uniform sampler2DShadow u_ShadowMap;\n"
+            "uniform int u_UseShadowMap;\n"
             "in vec2 v_TexCoord;\n"
             "in vec3 v_Lighting;\n"
+            "in vec4 v_VertexColor;\n"
+            "in vec4 v_ShadowPosition;\n"
             "out vec4 FragColor;\n"
             "void main() {\n"
-            "    FragColor = texture(u_Texture, v_TexCoord) * u_Color * vec4(v_Lighting, 1.0);\n"
+            "    float shadow = 1.0;\n"
+            "    if (u_UseShadowMap != 0 && v_ShadowPosition.w > 0.0) {\n"
+            "        vec3 lightClip = v_ShadowPosition.xyz / v_ShadowPosition.w;\n"
+            "        vec3 coord = lightClip * 0.5 + 0.5;\n"
+            "        if (coord.x >= 0.0 && coord.x <= 1.0 && coord.y >= 0.0 && coord.y <= 1.0 && coord.z >= 0.0 && coord.z <= 1.0)\n"
+            "            shadow = texture(u_ShadowMap, vec3(coord.xy, coord.z - 0.0015));\n"
+            "    }\n"
+            "    FragColor = texture(u_Texture, v_TexCoord) * u_Color * v_VertexColor * vec4(v_Lighting * mix(0.45, 1.0, shadow), 1.0);\n"
             "}\n";
+
+        const char* ShadowVertexShaderSource =
+            "#version 130\n"
+            "uniform mat4 u_ViewProjection;\n"
+            "uniform mat4 u_Model;\n"
+            "in vec3 a_Position;\n"
+            "void main() { gl_Position = u_ViewProjection * u_Model * vec4(a_Position, 1.0); }\n";
+
+        const char* ShadowFragmentShaderSource =
+            "#version 130\n"
+            "void main() {}\n";
 
         // T * Rz * Ry * Rx * S -- must match Citro3DRenderer::ComposeWorldMtx's composition
         // order exactly (see that function's own comment), or a multi-axis rotation would look
@@ -75,12 +104,16 @@ namespace Duality {
         mesh.AddFloatAttribute(m_AttribPosition, 3, sizeof(MeshVertex), offsetof(MeshVertex, Position));
         mesh.AddFloatAttribute(m_AttribTexCoord, 2, sizeof(MeshVertex), offsetof(MeshVertex, TexCoord));
         mesh.AddFloatAttribute(m_AttribNormal, 3, sizeof(MeshVertex), offsetof(MeshVertex, Normal));
+        mesh.AddFloatAttribute(m_AttribVertexColor, 4, sizeof(MeshVertex), offsetof(MeshVertex, Color));
         mesh.Unbind();
         return mesh;
     }
 
     void OpenGLRenderer3D::Init() {
-        m_Shader.Init(VertexShaderSource, FragmentShaderSource);
+        m_Shader.Init(VertexShaderSource, FragmentShaderSource, {
+            { "a_Position", 0 }, { "a_TexCoord", 1 }, { "a_Normal", 2 }, { "a_VertexColor", 3 }
+        });
+        m_ShadowShader.Init(ShadowVertexShaderSource, ShadowFragmentShaderSource, { { "a_Position", 0 } });
 
         m_UniformViewProjection = m_Shader.GetUniformLocation("u_ViewProjection");
         m_UniformModel = m_Shader.GetUniformLocation("u_Model");
@@ -92,9 +125,15 @@ namespace Duality {
         m_UniformLightDirection = m_Shader.GetUniformLocation("u_LightDirection");
         m_UniformLightColor = m_Shader.GetUniformLocation("u_LightColor");
         m_UniformLightIntensity = m_Shader.GetUniformLocation("u_LightIntensity");
+        m_UniformShadowMatrix = m_Shader.GetUniformLocation("u_ShadowMatrix");
+        m_UniformShadowMap = m_Shader.GetUniformLocation("u_ShadowMap");
+        m_UniformUseShadowMap = m_Shader.GetUniformLocation("u_UseShadowMap");
         m_AttribPosition = m_Shader.GetAttribLocation("a_Position");
         m_AttribTexCoord = m_Shader.GetAttribLocation("a_TexCoord");
         m_AttribNormal = m_Shader.GetAttribLocation("a_Normal");
+        m_AttribVertexColor = m_Shader.GetAttribLocation("a_VertexColor");
+        m_ShadowUniformViewProjection = m_ShadowShader.GetUniformLocation("u_ViewProjection");
+        m_ShadowUniformModel = m_ShadowShader.GetUniformLocation("u_Model");
 
         for (int i = 0; i < static_cast<int>(MeshPrimitive::Count); i++) {
             const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(static_cast<MeshPrimitive>(i));
@@ -108,6 +147,25 @@ namespace Duality {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glBindTexture(GL_TEXTURE_2D, 0);
+
+        glGenTextures(1, &m_ShadowDepthTexture);
+        glBindTexture(GL_TEXTURE_2D, m_ShadowDepthTexture);
+        constexpr int ShadowResolution = 512;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, ShadowResolution, ShadowResolution, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+        const float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glGenFramebuffers(1, &m_ShadowFramebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_ShadowFramebuffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_ShadowDepthTexture, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
     void OpenGLRenderer3D::Shutdown() {
@@ -118,6 +176,8 @@ namespace Duality {
         m_ImportedMeshes.clear();
         m_MeshCache.clear();
         glDeleteTextures(1, &m_WhiteTexture);
+        glDeleteFramebuffers(1, &m_ShadowFramebuffer);
+        glDeleteTextures(1, &m_ShadowDepthTexture);
         for (auto& [path, textureId] : m_TextureCache) {
             unsigned int id = textureId;
             glDeleteTextures(1, &id);
@@ -125,6 +185,7 @@ namespace Duality {
         m_TextureCache.clear();
 
         m_Shader.Shutdown();
+        m_ShadowShader.Shutdown();
     }
 
     void OpenGLRenderer3D::BeginScene(Screen /*screen*/, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) {
@@ -194,6 +255,53 @@ namespace Duality {
         m_Shader.Unbind();
     }
 
+    bool OpenGLRenderer3D::BeginDirectionalShadowMap(const ShadowMapPass& pass) {
+        if (m_ShadowFramebuffer == 0 || glCheckFramebufferStatus(GL_FRAMEBUFFER) == 0)
+            return false;
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &m_PreviousFramebuffer);
+        glGetIntegerv(GL_VIEWPORT, m_PreviousViewport);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_ShadowFramebuffer);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(m_PreviousFramebuffer));
+            return false;
+        }
+        glViewport(0, 0, 512, 512);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);
+        m_ActiveShadowPass = pass;
+        return true;
+    }
+
+    void OpenGLRenderer3D::DrawDirectionalShadowCaster(const MeshDrawCommand& command) {
+        m_ShadowShader.Bind();
+        const glm::mat4 model = ComposeWorldMtx(command.Translation, command.RotationDegrees, command.Scale);
+        m_ShadowShader.SetUniformMat4(m_ShadowUniformViewProjection, m_ActiveShadowPass.ViewProjection);
+        m_ShadowShader.SetUniformMat4(m_ShadowUniformModel, model);
+        const GLVertexArray& mesh = (command.MeshHandle != 0) ? m_ImportedMeshes[command.MeshHandle - 1] : m_Meshes[static_cast<int>(command.Primitive)];
+        mesh.Bind();
+        const std::vector<MeshData::SubMesh>& subMeshes = mesh.GetSubMeshes();
+        if (command.MeshHandle != 0 && command.SubMeshIndex < subMeshes.size()) {
+            const MeshData::SubMesh& subMesh = subMeshes[command.SubMeshIndex];
+            glDrawArrays(GL_TRIANGLES, static_cast<GLint>(subMesh.FirstVertex), static_cast<GLsizei>(subMesh.VertexCount));
+        } else {
+            glDrawArrays(GL_TRIANGLES, 0, mesh.GetVertexCount());
+        }
+        mesh.Unbind();
+    }
+
+    void OpenGLRenderer3D::EndDirectionalShadowMap() {
+        glCullFace(GL_BACK);
+        glDisable(GL_CULL_FACE);
+        glEnable(GL_BLEND);
+        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(m_PreviousFramebuffer));
+        glViewport(m_PreviousViewport[0], m_PreviousViewport[1], m_PreviousViewport[2], m_PreviousViewport[3]);
+        m_Shader.Unbind();
+    }
+
     void OpenGLRenderer3D::SetDepthWriteEnabled(bool enabled) {
         glDepthMask(enabled ? GL_TRUE : GL_FALSE);
     }
@@ -227,10 +335,16 @@ namespace Duality {
         m_Shader.SetUniformVec3(m_UniformLightDirection, m_RenderView.MainLight.Direction);
         m_Shader.SetUniformVec3(m_UniformLightColor, m_RenderView.MainLight.Color);
         glUniform1f(m_UniformLightIntensity, m_RenderView.MainLight.Intensity);
+        m_Shader.SetUniformMat4(m_UniformShadowMatrix, m_RenderView.ShadowMap.ViewProjection);
+        glUniform1i(m_UniformUseShadowMap, m_RenderView.HasShadowMap ? 1 : 0);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, command.TextureId != 0 ? command.TextureId : m_WhiteTexture);
         m_Shader.SetUniformInt(m_UniformTexture, 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, m_ShadowDepthTexture);
+        m_Shader.SetUniformInt(m_UniformShadowMap, 1);
+        glActiveTexture(GL_TEXTURE0);
 
         const GLVertexArray& mesh = (command.MeshHandle != 0) ? m_ImportedMeshes[command.MeshHandle - 1] : m_Meshes[static_cast<int>(command.Primitive)];
         mesh.Bind();
@@ -247,6 +361,9 @@ namespace Duality {
         mesh.Unbind();
 
         glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
     }
 
     uint32_t OpenGLRenderer3D::GetSubMeshCount(uint32_t meshHandle) const {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "DualityEngine/Asset/Material.h"
 #include "DualityEngine/Renderer/IRenderer2D.h"
 #include "DualityEngine/Renderer/IRenderer3D.h"
@@ -7,6 +9,30 @@
 #include "DualityEngine/Scene/Scene.h"
 
 namespace Duality {
+
+    // Per-screen CPU-side submission diagnostics. Counts are backend-neutral:
+    // they describe exactly what SceneRenderer accepted/rejected before a GPU
+    // draw, which makes them useful in the Editor and in headless tests.
+    struct SceneRenderStats {
+        uint32_t VisibleMeshes = 0;
+        uint32_t CulledMeshes = 0;
+        uint32_t MeshDrawCalls = 0;
+        uint32_t VertexLitDrawCalls = 0;
+        uint32_t ShadowMapCasterDrawCalls = 0;
+        uint32_t BlobShadowDrawCalls = 0;
+        uint32_t VisibleSprites = 0;
+
+        SceneRenderStats& operator+=(const SceneRenderStats& other) {
+            VisibleMeshes += other.VisibleMeshes;
+            CulledMeshes += other.CulledMeshes;
+            MeshDrawCalls += other.MeshDrawCalls;
+            VertexLitDrawCalls += other.VertexLitDrawCalls;
+            ShadowMapCasterDrawCalls += other.ShadowMapCasterDrawCalls;
+            BlobShadowDrawCalls += other.BlobShadowDrawCalls;
+            VisibleSprites += other.VisibleSprites;
+            return *this;
+        }
+    };
 
     // Shared per-screen render pass, used identically by DualityPlayer (real
     // 3DS screens) and DualityEditor's Game view (offscreen framebuffers) --
@@ -31,7 +57,7 @@ namespace Duality {
     // `clear` is true for the first/base scene of a screen each frame. Additive scenes pass
     // false so their pixels composite over scenes loaded before them rather than erasing the
     // framebuffer. Within an additive scene its own camera/layer/sort behavior is unchanged.
-    void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear = true);
+    SceneRenderStats RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear = true);
 
     // The mesh half of RenderScreen's composited draw -- draws every (Transform, MeshRenderer)
     // entity in the scene through `screen`'s primary camera (world position/rotation,
@@ -43,7 +69,7 @@ namespace Duality {
     // own no-camera behavior. `clear` is false when the caller's own sprite pass for this same
     // screen this frame already cleared it (or will clear it afterward) -- RenderScreen always
     // passes true here since the mesh pass runs first.
-    void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear = true);
+    SceneRenderStats RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear = true);
 
     // Builds the platform-neutral camera/light state consumed by the forward mesh pass.
     // Kept public for renderer diagnostics and headless tests; it does not allocate GPU state.
@@ -58,7 +84,7 @@ namespace Duality {
     // Draws the light's low-cost projected blob-shadow tier onto active Plane primitives. Each
     // non-plane mesh is projected along the selected light's ray direction. It is a deliberately
     // bounded alternative to shadow maps for 3DS; called after opaque meshes and before sprites.
-    void RenderDirectionalBlobShadows(IRenderer3D& renderer, Scene& scene, Screen screen, const RenderView& view, const CameraComponent* cameraFilter = nullptr);
+    uint32_t RenderDirectionalBlobShadows(IRenderer3D& renderer, Scene& scene, Screen screen, const RenderView& view, const CameraComponent* cameraFilter = nullptr);
 
     // Whichever AssetRef should currently be drawn for this entity's
     // sprite: its SpriteFlipbookComponent's current frame if it has one

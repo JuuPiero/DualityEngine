@@ -27,6 +27,9 @@ namespace Duality {
         void BeginScene(Screen screen, ProjectionType projection, const glm::vec3& cameraPosition, const glm::vec3& cameraRotationDegrees, float fovDegrees, float orthoHalfHeight, float aspectRatio, float nearPlane, float farPlane, const glm::vec4& clearColor, bool clear) override;
         void BeginScene(const RenderView& view, const glm::vec4& clearColor, bool clear) override;
         void EndScene() override;
+        bool BeginDirectionalShadowMap(const ShadowMapPass& pass) override;
+        void DrawDirectionalShadowCaster(const MeshDrawCommand& command) override;
+        void EndDirectionalShadowMap() override;
 
         // ScenePanel draws transparent SpriteRenderer quads after opaque meshes. Keeping
         // depth testing on but disabling depth writes for that pass prevents transparent
@@ -61,13 +64,25 @@ namespace Duality {
         int m_UniformLightDirection = -1;
         int m_UniformLightColor = -1;
         int m_UniformLightIntensity = -1;
+        int m_UniformShadowMatrix = -1;
+        int m_UniformShadowMap = -1;
+        int m_UniformUseShadowMap = -1;
         int m_AttribPosition = -1;
         int m_AttribTexCoord = -1;
         int m_AttribNormal = -1;
+        int m_AttribVertexColor = -1;
 
         // 1x1 white pixel bound when textureId == 0, so DrawMesh can always sample the texture
         // uniformly in the shader instead of branching on whether one is bound.
         unsigned int m_WhiteTexture = 0;
+        unsigned int m_ShadowFramebuffer = 0;
+        unsigned int m_ShadowDepthTexture = 0;
+        GLShaderProgram m_ShadowShader;
+        int m_ShadowUniformViewProjection = -1;
+        int m_ShadowUniformModel = -1;
+        ShadowMapPass m_ActiveShadowPass{};
+        int m_PreviousFramebuffer = 0;
+        int m_PreviousViewport[4]{ 0, 0, 0, 0 };
 
         GLVertexArray m_Meshes[static_cast<int>(MeshPrimitive::Count)]; // indexed by static_cast<int>(MeshPrimitive)
 

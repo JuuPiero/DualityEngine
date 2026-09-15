@@ -6,11 +6,14 @@
 #include <vector>
 
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
+#include "DualityEngine/Asset/MeshLoader.h"
 #include "DualityEngine/Physics/PhysicsUnits.h"
 #include "DualityEngine/Renderer/DrawHelpers2D.h"
+#include "DualityEngine/Renderer/RenderSettings.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Layer.h"
@@ -85,6 +88,18 @@ namespace Duality {
                 default:                      return 0.5f;
             }
         }
+
+        float MeshBoundingRadius(const MeshRendererComponent& mesh) {
+            if (!mesh.Mesh.Guid.empty()) {
+                const std::string path = AssetDatabase::ResolvePath(mesh.Mesh.Guid);
+                if (!path.empty()) {
+                    const float importedRadius = MeshLoader::Load(path).BoundingRadius;
+                    if (importedRadius > 0.0001f)
+                        return importedRadius;
+                }
+            }
+            return PrimitiveShadowRadius(mesh.Primitive);
+        }
     }
 
     RenderView BuildRenderView(Scene& scene, Entity camera, Screen screen) {
@@ -93,6 +108,7 @@ namespace Duality {
 
     void PopulateMainDirectionalLight(Scene& scene, RenderView& view) {
         view.MainLight = {};
+        view.ShadowTechnique = RenderSettings::GetEffectiveShadowMode();
         // Storage order is an EnTT implementation detail. Use canonical hierarchy order so the
         // Game renderer and the editor's free Scene camera make the same deterministic choice.
         for (Entity light : scene.GetHierarchyTraversalOrder()) {
@@ -187,13 +203,92 @@ namespace Duality {
         }
     }
 
-    void RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
+    static bool IsMeshVisibleInCamera(Scene& scene, Entity entity, const MeshRendererComponent& mesh,
+        const CameraComponent& camera, const TransformComponent& cameraTransform, Screen screen) {
+        const TransformComponent transform = scene.GetWorldTransform(entity);
+        const float largestScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
+        const float radius = MeshBoundingRadius(mesh) * largestScale;
+
+        // Camera local space uses -Z forward. A sphere test is deliberately
+        // conservative: false positives are cheap; a false negative would pop
+        // visible geometry. It provides an actual culling win without requiring
+        // per-mesh bounds buffers on a memory-limited 3DS.
+        const glm::mat4 inverseCameraRotation = glm::inverse(RotationMatrix(cameraTransform.Rotation));
+        const glm::vec3 localPosition = glm::vec3(inverseCameraRotation * glm::vec4(transform.Translation - cameraTransform.Translation, 0.0f));
+        const float depth = -localPosition.z;
+        if (depth + radius < camera.NearPlane || depth - radius > camera.FarPlane)
+            return false;
+
+        float screenWidth = 0.0f, screenHeight = 0.0f;
+        ScreenExtents(screen, screenWidth, screenHeight);
+        if (camera.Projection == ProjectionType::Perspective) {
+            if (depth < -radius)
+                return false;
+            const float halfHeight = std::tan(glm::radians(camera.FovDegrees) * 0.5f) * std::max(depth, 0.0f);
+            const float halfWidth = halfHeight * (screenWidth / screenHeight);
+            return std::abs(localPosition.x) <= halfWidth + radius && std::abs(localPosition.y) <= halfHeight + radius;
+        }
+
+        const float halfHeight = screenHeight * 0.5f / camera.Zoom;
+        const float halfWidth = halfHeight * (screenWidth / screenHeight);
+        return std::abs(localPosition.x) <= halfWidth + radius && std::abs(localPosition.y) <= halfHeight + radius;
+    }
+
+    static ShadowMapPass BuildDirectionalShadowMapPass(const RenderView& view) {
+        const glm::mat4 cameraRotation = RotationMatrix(view.CameraRotationDegrees);
+        const glm::vec3 cameraForward = glm::normalize(glm::vec3(cameraRotation * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+        // A compact, camera-following orthographic region makes the experimental
+        // map useful for gameplay geometry near the viewer without allocating a
+        // huge precision-starved target. Static baked vertex colors remain the
+        // correct solution for distant environment lighting on 3DS.
+        const glm::vec3 center = view.CameraPosition + cameraForward * std::min(view.FarPlane * 0.25f, 24.0f);
+        const glm::vec3 toLight = glm::normalize(view.MainLight.Direction);
+        const glm::vec3 eye = center + toLight * 48.0f;
+        const glm::vec3 up = std::abs(glm::dot(toLight, glm::vec3(0.0f, 1.0f, 0.0f))) > 0.95f
+            ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+        ShadowMapPass pass;
+        pass.ViewProjection = glm::ortho(-24.0f, 24.0f, -24.0f, 24.0f, 1.0f, 96.0f) * glm::lookAt(eye, center, up);
+        return pass;
+    }
+
+    static uint32_t RenderDirectionalShadowMap(IRenderer3D& renderer, Scene& scene, Screen screen,
+        RenderView& view, const CameraComponent& cameraFilter) {
+        if (view.ShadowTechnique != ShadowMode::ShadowMapsExperimental || !view.MainLight.Enabled || !view.MainLight.CastShadows)
+            return 0;
+        view.ShadowMap = BuildDirectionalShadowMapPass(view);
+        if (!renderer.BeginDirectionalShadowMap(view.ShadowMap))
+            return 0;
+
+        uint32_t submitted = 0;
+        for (auto handle : scene.Registry().view<TransformComponent, MeshRendererComponent>()) {
+            if (!ShouldRenderOnScreen(scene, handle, screen, &cameraFilter))
+                continue;
+            Entity entity(handle, &scene);
+            const auto& mesh = entity.GetComponent<MeshRendererComponent>();
+            if (!mesh.Enabled || !scene.IsEffectivelyActive(entity))
+                continue;
+            const TransformComponent transform = scene.GetWorldTransform(entity);
+            const uint32_t meshHandle = ResolveMeshGeometry(renderer, mesh.Mesh);
+            const uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
+            for (uint32_t i = 0; i < subMeshCount; ++i) {
+                renderer.DrawDirectionalShadowCaster(MeshDrawCommand{ mesh.Primitive, meshHandle, i,
+                    transform.Translation, transform.Rotation, transform.Scale });
+                submitted++;
+            }
+        }
+        renderer.EndDirectionalShadowMap();
+        view.HasShadowMap = submitted > 0;
+        return submitted;
+    }
+
+    SceneRenderStats RenderScreen(IRenderer2D& renderer2D, IRenderer3D& renderer3D, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
+        SceneRenderStats stats;
         Entity camera = scene.GetPrimaryCamera(screen);
 
         glm::vec4 effectiveClearColor = camera ? camera.GetComponent<CameraComponent>().Background : clearColor;
 
         if (camera)
-            RenderScreen3D(renderer3D, scene, screen, effectiveClearColor, clear);
+            stats += RenderScreen3D(renderer3D, scene, screen, effectiveClearColor, clear);
 
         // A camera's 3D pass already clears the base scene. With no camera, the 2D pass owns
         // that clear. Neither pass clears while an additive scene is compositing on top.
@@ -261,6 +356,7 @@ namespace Duality {
                     DrawNineSlice(renderer2D, topLeft, size, sprite.Color, textureId, sprite.SliceBorder);
                 else
                     DrawSpriteQuad(renderer2D, topLeft, size, sprite.Color, transform.Rotation.z, textureId, sprite.FlipX, sprite.FlipY, uv);
+                stats.VisibleSprites++;
             }
 
             auto tileView = scene.Registry().view<TransformComponent, TilemapComponent>();
@@ -355,17 +451,18 @@ namespace Duality {
         RenderScreenUI(renderer2D, scene, screen);
 
         renderer2D.EndScene();
+        return stats;
     }
 
-    void RenderDirectionalBlobShadows(IRenderer3D& renderer, Scene& scene, Screen screen, const RenderView& view, const CameraComponent* cameraFilter) {
-        if (!view.MainLight.Enabled || !view.MainLight.CastShadows)
-            return;
+    uint32_t RenderDirectionalBlobShadows(IRenderer3D& renderer, Scene& scene, Screen screen, const RenderView& view, const CameraComponent* cameraFilter) {
+        if (view.HasShadowMap || view.ShadowTechnique == ShadowMode::Off || !view.MainLight.Enabled || !view.MainLight.CastShadows)
+            return 0;
 
         // RenderView stores the direction from a shaded point TOWARD the light. A projected
         // shadow travels the other way, from the caster toward the receiver plane.
         const float lightDirectionLength = glm::length(view.MainLight.Direction);
         if (lightDirectionLength <= 0.0001f)
-            return;
+            return 0;
         const glm::vec3 rayDirection = -view.MainLight.Direction / lightDirectionLength;
 
         struct Receiver {
@@ -386,13 +483,14 @@ namespace Duality {
                 receivers.push_back({ transform, normal });
         }
         if (receivers.empty())
-            return;
+            return 0;
 
         // A small translucent projected quad is the intentionally hardware-safe shadow tier:
         // no depth target, texture allocation or second camera pass. It looks best on a large
         // horizontal Plane ground receiver; rotated planes also work because the intersection
         // and shadow quad both use the receiver's world-space normal/rotation.
         constexpr glm::vec4 ShadowColor{ 0.015f, 0.02f, 0.04f, 0.38f };
+        uint32_t submitted = 0;
         for (auto handle : scene.Registry().view<TransformComponent, MeshRendererComponent>()) {
             if (!ShouldRenderOnScreen(scene, handle, screen, cameraFilter))
                 continue;
@@ -420,17 +518,26 @@ namespace Duality {
                 shadow.AlphaBlend = true;
                 shadow.DepthWrite = false;
                 renderer.DrawMesh(shadow);
+                submitted++;
             }
         }
+        return submitted;
     }
 
-    void RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
+    SceneRenderStats RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
+        SceneRenderStats stats;
         Entity camera = scene.GetPrimaryCamera(screen);
         if (!camera)
-            return;
+            return stats;
 
         const auto& cameraComponent = camera.GetComponent<CameraComponent>();
+        const TransformComponent cameraTransform = scene.GetWorldTransform(camera);
         RenderView renderView = BuildRenderView(scene, camera, screen);
+        stats.ShadowMapCasterDrawCalls = RenderDirectionalShadowMap(renderer, scene, screen, renderView, cameraComponent);
+        // Citro3D intentionally declines the optional shadow target today. Its
+        // current result stays useful and safe by falling back to blob shadows.
+        if (renderView.ShadowTechnique == ShadowMode::ShadowMapsExperimental && !renderView.HasShadowMap)
+            renderView.ShadowTechnique = ShadowMode::BlobShadows;
         renderer.BeginScene(renderView, clearColor, clear);
 
         auto view = scene.Registry().view<TransformComponent, MeshRendererComponent>();
@@ -442,7 +549,13 @@ namespace Duality {
             auto& mesh = view.get<MeshRendererComponent>(handle);
             if (!mesh.Enabled)
                 continue;
-            TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
+            Entity entity(handle, &scene);
+            if (!IsMeshVisibleInCamera(scene, entity, mesh, cameraComponent, cameraTransform, screen)) {
+                stats.CulledMeshes++;
+                continue;
+            }
+            stats.VisibleMeshes++;
+            TransformComponent transform = scene.GetWorldTransform(entity);
             uint32_t meshHandle = ResolveMeshGeometry(renderer, mesh.Mesh);
 
             uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
@@ -456,12 +569,17 @@ namespace Duality {
                     material.Color = mesh.RuntimeMaterialColor;
                 uint32_t textureId = ResolveMeshTexture(renderer, material.Texture);
                 renderer.DrawMesh(MeshDrawCommand{ mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId, material.ShadingMode });
+                stats.MeshDrawCalls++;
+                if (material.ShadingMode == MaterialShadingMode::VertexLit && renderView.MainLight.Enabled)
+                    stats.VertexLitDrawCalls++;
             }
         }
 
-        RenderDirectionalBlobShadows(renderer, scene, screen, renderView, &cameraComponent);
+        stats.BlobShadowDrawCalls = RenderDirectionalBlobShadows(renderer, scene, screen, renderView, &cameraComponent);
+        stats.MeshDrawCalls += stats.BlobShadowDrawCalls;
 
         renderer.EndScene();
+        return stats;
     }
 
 }

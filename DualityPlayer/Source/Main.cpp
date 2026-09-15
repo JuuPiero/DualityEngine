@@ -27,6 +27,7 @@
 #include "DualityEngine/Reflection/Reflection.h"
 #include "DualityEngine/Renderer/N3DS/Citro2DRenderer.h"
 #include "DualityEngine/Renderer/N3DS/Citro3DRenderer.h"
+#include "DualityEngine/Renderer/RenderSettings.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/PhysicsRaycaster.h"
@@ -74,7 +75,7 @@ namespace {
         }
     }
 
-    int LoadN3DSAntiAliasingMode() {
+    int LoadN3DSBuildSettings() {
         std::ifstream file("romfs:/BuildSettings.json");
         if (!file)
             return 0;
@@ -83,6 +84,7 @@ namespace {
             file >> settings;
             int mode = settings.value("N3DSAntiAliasing", 0);
             PhysicsUnits::SetRuntimeOverride(settings.value("PPU", settings.value("PixelsPerMeter", 100.0f)), settings.value("Gravity", 9.81f));
+            RenderSettings::SetShadowMode(ShadowModeFromInt(settings.value("ShadowTechnique", static_cast<int>(ShadowMode::BlobShadows))));
             return mode < 0 ? 0 : (mode > 2 ? 2 : mode);
         } catch (const nlohmann::json::parse_error&) {
             return 0;
@@ -116,7 +118,7 @@ int main(int argc, char* argv[]) {
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
 
     Citro2DRenderer renderer;
-    renderer.Init(LoadN3DSAntiAliasingMode());
+    renderer.Init(LoadN3DSBuildSettings());
     Citro3DRenderer renderer3D;
     renderer3D.Init();
     // Both renderers must draw into the SAME physical-screen render targets -- see
