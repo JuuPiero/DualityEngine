@@ -449,6 +449,11 @@ namespace Duality {
             for (uint32_t i = 0; i < subMeshCount; i++) {
                 const AssetRef& materialRef = MaterialForSubMesh(mesh.Materials, i);
                 Material material = ResolveMeshMaterial(materialRef);
+                // Script-side material animation is a per-renderer property override, not a
+                // mutation of the shared MaterialLoader cache. It deliberately replaces only
+                // the material Color property; Texture and VertexLit/Unlit remain authored.
+                if (mesh.HasRuntimeMaterialColor)
+                    material.Color = mesh.RuntimeMaterialColor;
                 uint32_t textureId = ResolveMeshTexture(renderer, material.Texture);
                 renderer.DrawMesh(MeshDrawCommand{ mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId, material.ShadingMode });
             }

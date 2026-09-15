@@ -35,15 +35,3 @@ TEST_CASE("Material::Load returns defaults for a nonexistent file") {
     CHECK_SOFT(material.Texture.Guid.empty(), "default Texture is unassigned");
     CHECK_SOFT(material.ShadingMode == MaterialShadingMode::Unlit, "missing and legacy materials default to backward-compatible Unlit");
 }
-
-TEST_CASE("MaterialLoader::SetRuntime overrides only the process-local material cache") {
-    const std::string path = "runtime_only_material.mat";
-    Material runtime;
-    runtime.Color = { 0.1f, 0.8f, 0.3f, 0.6f };
-    runtime.ShadingMode = MaterialShadingMode::VertexLit;
-
-    MaterialLoader::SetRuntime(path, runtime);
-    const Material loaded = MaterialLoader::Load(path);
-    CHECK_SOFT(loaded.Color == runtime.Color, "runtime Color is immediately returned to the renderer");
-    CHECK_SOFT(loaded.ShadingMode == MaterialShadingMode::VertexLit, "runtime override preserves all material fields");
-}

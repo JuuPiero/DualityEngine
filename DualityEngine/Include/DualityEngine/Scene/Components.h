@@ -93,6 +93,14 @@ namespace Duality {
         // falls back to that same default. A procedural Primitive (Mesh empty/unresolved)
         // has no submesh concept -- only index 0 is ever used.
         std::vector<AssetRef> Materials;
+        // Runtime material-property override, deliberately excluded from reflection and scene
+        // serialization. Behaviour code can animate one renderer's Material Color without
+        // modifying the shared .mat asset or requiring a compiled engine symbol across the
+        // hot-reload GameScripts DLL boundary. Texture and ShadingMode still come from the
+        // assigned material; when enabled this value replaces that material's Color property.
+        // This is the first, color-only slice of a future MaterialPropertyBlock/MaterialInstance.
+        bool HasRuntimeMaterialColor = false;
+        glm::vec4 RuntimeMaterialColor{ 1.0f, 1.0f, 1.0f, 1.0f };
         // Guid of an imported ".obj" mesh (see Asset/MeshLoader.h) -- empty/unresolved falls
         // back to the procedural Primitive above, same convention as Materials/Texture.
         AssetRef Mesh;

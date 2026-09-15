@@ -10,6 +10,7 @@
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
+#include "DualityEngine/Scripting/MeshRenderer.h"
 
 using namespace Duality;
 
@@ -160,4 +161,32 @@ TEST_CASE("Directional blob shadows submit a transparent depth-read-only plane o
     const MeshDrawCommand& shadow = renderer.Commands.front();
     CHECK_SOFT(shadow.Primitive == MeshPrimitive::Plane && shadow.AlphaBlend && !shadow.DepthWrite, "shadow is a transparent, depth-read-only Plane draw");
     CHECK_SOFT(shadow.Translation.y > 0.0f && shadow.Translation.y < 0.1f, "shadow is offset just above the receiver to avoid z-fighting");
+}
+
+TEST_CASE("MeshRenderer runtime material color is per-renderer, non-serialized, and reaches the mesh pass") {
+    Scene scene;
+    Entity camera = scene.CreateEntity("Camera");
+    auto& cameraData = camera.AddComponent<CameraComponent>();
+    cameraData.Screen = Screen::Top;
+    cameraData.Primary = true;
+
+    Entity cube = scene.CreateEntity("Cube");
+    cube.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Cube;
+    MeshRenderer scriptingApi(cube);
+    const glm::vec4 animatedColor{ 0.1f, 0.8f, 0.3f, 0.65f };
+    scriptingApi.SetMaterialColor(animatedColor);
+
+    CHECK_SOFT(scriptingApi.HasMaterialColor(), "the scripting facade stores a color override on this renderer");
+    CHECK_SOFT(scriptingApi.GetMaterialColor() == animatedColor, "the scripting facade returns the assigned runtime color");
+    CHECK_SOFT(SceneSerializer(scene).SerializeToJson().dump().find("RuntimeMaterialColor") == std::string::npos,
+        "runtime material color is not authored scene data");
+
+    RecordingRenderer3D renderer;
+    RenderScreen3D(renderer, scene, Screen::Top, { 0.0f, 0.0f, 0.0f, 1.0f });
+    CHECK_SOFT(renderer.Commands.size() == 1, "the cube emits one mesh command");
+    CHECK_SOFT(renderer.Commands.front().Color == animatedColor,
+        "SceneRenderer replaces only the material Color with the per-renderer runtime override");
+
+    scriptingApi.ClearMaterialColor();
+    CHECK_SOFT(!scriptingApi.HasMaterialColor(), "the override can be cleared when a Behaviour is destroyed");
 }

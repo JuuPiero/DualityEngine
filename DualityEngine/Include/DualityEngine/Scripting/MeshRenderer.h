@@ -41,6 +41,32 @@ namespace Duality {
                 m_Entity.GetComponent<MeshRendererComponent>().Materials = materials;
         }
 
+        // A per-renderer, runtime-only override of the assigned material's Color property.
+        // It preserves that material's Texture and ShadingMode, never writes its .mat file, and
+        // is safe for desktop hot-reload scripts because it only touches ECS component data.
+        void SetMaterialColor(const glm::vec4& color) {
+            if (*this) {
+                auto& component = m_Entity.GetComponent<MeshRendererComponent>();
+                component.RuntimeMaterialColor = color;
+                component.HasRuntimeMaterialColor = true;
+            }
+        }
+
+        void ClearMaterialColor() {
+            if (*this)
+                m_Entity.GetComponent<MeshRendererComponent>().HasRuntimeMaterialColor = false;
+        }
+
+        bool HasMaterialColor() const {
+            return *this && m_Entity.GetComponent<MeshRendererComponent>().HasRuntimeMaterialColor;
+        }
+
+        glm::vec4 GetMaterialColor() const {
+            return HasMaterialColor()
+                ? m_Entity.GetComponent<MeshRendererComponent>().RuntimeMaterialColor
+                : glm::vec4(1.0f);
+        }
+
     private:
         Entity m_Entity;
     };
