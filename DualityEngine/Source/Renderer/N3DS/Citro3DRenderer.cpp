@@ -11,6 +11,7 @@
 // DualityEngine/Assets3DS/mesh.v.pica's compiled .shbin -- mesh_shbin/mesh_shbin_size are
 // generated symbols (bin2s), not something this project's own source defines.
 #include "mesh_shbin.h"
+#include "mesh_skin_shbin.h"
 
 namespace Duality {
 
@@ -61,6 +62,17 @@ namespace Duality {
         m_UniformLightColor = shaderInstanceGetUniformLocation(m_ShaderProgram.vertexShader, "lightColor");
         m_UniformAmbientColor = shaderInstanceGetUniformLocation(m_ShaderProgram.vertexShader, "ambientColor");
 
+        m_SkinShaderDvlb = DVLB_ParseFile((u32*)mesh_skin_shbin, mesh_skin_shbin_size);
+        shaderProgramInit(&m_SkinShaderProgram);
+        shaderProgramSetVsh(&m_SkinShaderProgram, &m_SkinShaderDvlb->DVLE[0]);
+        m_SkinUniformProjection = shaderInstanceGetUniformLocation(m_SkinShaderProgram.vertexShader, "projection");
+        m_SkinUniformModelView = shaderInstanceGetUniformLocation(m_SkinShaderProgram.vertexShader, "modelView");
+        m_SkinUniformLightVector = shaderInstanceGetUniformLocation(m_SkinShaderProgram.vertexShader, "lightVec");
+        m_SkinUniformLightColor = shaderInstanceGetUniformLocation(m_SkinShaderProgram.vertexShader, "lightColor");
+        m_SkinUniformAmbientColor = shaderInstanceGetUniformLocation(m_SkinShaderProgram.vertexShader, "ambientColor");
+        m_SkinUniformBones = shaderInstanceGetUniformLocation(m_SkinShaderProgram.vertexShader, "bones");
+        m_SkinUniformBoneIndexScale = shaderInstanceGetUniformLocation(m_SkinShaderProgram.vertexShader, "boneIndexScale");
+
         // No C3D_RenderTargetCreate/SetOutput here -- see SetScreenTargets's own comment.
 
         for (int i = 0; i < static_cast<int>(MeshPrimitive::Count); i++) {
@@ -92,6 +104,9 @@ namespace Duality {
         shaderProgramFree(&m_ShaderProgram);
         DVLB_Free(m_ShaderDvlb);
         m_ShaderDvlb = nullptr;
+        shaderProgramFree(&m_SkinShaderProgram);
+        DVLB_Free(m_SkinShaderDvlb);
+        m_SkinShaderDvlb = nullptr;
         // C3D_Fini is the caller's responsibility, see Init()'s comment.
     }
 
@@ -166,10 +181,18 @@ namespace Duality {
     void Citro3DRenderer::DrawMesh(const MeshDrawCommand& command) {
         m_DrawCallCount++;
 
+        const bool skinned = command.SkinMatrices != nullptr && command.SkinMatrixCount > 0 && command.SkinMatrixCount <= 24;
+        shaderProgram_s* program = skinned ? &m_SkinShaderProgram : &m_ShaderProgram;
+        const int uniformProjection = skinned ? m_SkinUniformProjection : m_UniformProjection;
+        const int uniformModelView = skinned ? m_SkinUniformModelView : m_UniformModelView;
+        const int uniformLightVector = skinned ? m_SkinUniformLightVector : m_UniformLightVector;
+        const int uniformLightColor = skinned ? m_SkinUniformLightColor : m_UniformLightColor;
+        const int uniformAmbientColor = skinned ? m_SkinUniformAmbientColor : m_UniformAmbientColor;
+
         // Re-bind everything -- citro2d's own draws on the other screen this same frame will
         // have mutated this exact same global C3D state in between (see this class's own
         // header comment).
-        C3D_BindProgram(&m_ShaderProgram);
+        C3D_BindProgram(program);
 
         // Match the desktop projected-shadow path: alpha compositing stays enabled (opaque
         // meshes have alpha 1 so this is equivalent to replace), while transparent shadow quads
@@ -188,13 +211,20 @@ namespace Duality {
         AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 2); // v1 = texcoord
         AttrInfo_AddLoader(attrInfo, 2, GPU_FLOAT, 3); // v2 = normal
         AttrInfo_AddLoader(attrInfo, 3, GPU_FLOAT, 4); // v3 = imported/baked vertex color
-        AttrInfo_AddFixed(attrInfo, 4);                 // v4 = material color
-        C3D_FixedAttribSet(4, command.Color.r, command.Color.g, command.Color.b, command.Color.a);
+        if (skinned) {
+            AttrInfo_AddLoader(attrInfo, 4, GPU_UNSIGNED_BYTE, 4); // v4 = local palette bone ids
+            AttrInfo_AddLoader(attrInfo, 5, GPU_FLOAT, 4);         // v5 = influence weights
+            AttrInfo_AddFixed(attrInfo, 6);                         // v6 = material color
+            C3D_FixedAttribSet(6, command.Color.r, command.Color.g, command.Color.b, command.Color.a);
+        } else {
+            AttrInfo_AddFixed(attrInfo, 4);                         // v4 = material color
+            C3D_FixedAttribSet(4, command.Color.r, command.Color.g, command.Color.b, command.Color.a);
+        }
 
         const PrimitiveGpuMesh& mesh = (command.MeshHandle != 0) ? m_ImportedMeshes[command.MeshHandle - 1] : m_Meshes[static_cast<int>(command.Primitive)];
         C3D_BufInfo* bufInfo = C3D_GetBufInfo();
         BufInfo_Init(bufInfo);
-        BufInfo_Add(bufInfo, mesh.VertexBuffer, sizeof(MeshVertex), 4, 0x3210);
+        BufInfo_Add(bufInfo, mesh.VertexBuffer, sizeof(MeshVertex), skinned ? 6 : 4, skinned ? 0x543210 : 0x3210);
 
         const bool vertexLit = command.ShadingMode == MaterialShadingMode::VertexLit && m_RenderView.MainLight.Enabled;
         const glm::vec3 ambient = vertexLit ? m_RenderView.AmbientColor : glm::vec3(1.0f);
@@ -209,9 +239,9 @@ namespace Duality {
                     m_RenderView.MainLight.Direction.z, 0.0f));
             lightDirection = glm::normalize(glm::vec3(viewSpaceLight.x, viewSpaceLight.y, viewSpaceLight.z));
         }
-        C3D_FVUnifSet(GPU_VERTEX_SHADER, m_UniformLightVector, lightDirection.x, lightDirection.y, lightDirection.z, 0.0f);
-        C3D_FVUnifSet(GPU_VERTEX_SHADER, m_UniformLightColor, lightColor.x, lightColor.y, lightColor.z, 1.0f);
-        C3D_FVUnifSet(GPU_VERTEX_SHADER, m_UniformAmbientColor, ambient.x, ambient.y, ambient.z, 1.0f);
+        C3D_FVUnifSet(GPU_VERTEX_SHADER, uniformLightVector, lightDirection.x, lightDirection.y, lightDirection.z, 0.0f);
+        C3D_FVUnifSet(GPU_VERTEX_SHADER, uniformLightColor, lightColor.x, lightColor.y, lightColor.z, 1.0f);
+        C3D_FVUnifSet(GPU_VERTEX_SHADER, uniformAmbientColor, ambient.x, ambient.y, ambient.z, 1.0f);
 
         if (command.TextureId != 0) {
             C3D_TexBind(0, &m_Textures[command.TextureId - 1]);
@@ -231,8 +261,18 @@ namespace Duality {
         C3D_Mtx modelView;
         Mtx_Multiply(&modelView, &m_View, &model);
 
-        C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, m_UniformProjection, &m_Projection);
-        C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, m_UniformModelView, &modelView);
+        C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uniformProjection, &m_Projection);
+        C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, uniformModelView, &modelView);
+        if (skinned) {
+            C3D_FVUnifSet(GPU_VERTEX_SHADER, m_SkinUniformBoneIndexScale, 3.0f, 3.0f, 3.0f, 3.0f);
+            for (uint32_t bone = 0; bone < command.SkinMatrixCount; ++bone) {
+                const glm::mat4& matrix = command.SkinMatrices[bone];
+                // GLM is column-major; PICA's dp4 rows need the transposed scalar view.
+                for (int row = 0; row < 3; ++row)
+                    C3D_FVUnifSet(GPU_VERTEX_SHADER, m_SkinUniformBones + static_cast<int>(bone * 3 + row),
+                        matrix[0][row], matrix[1][row], matrix[2][row], matrix[3][row]);
+            }
+        }
 
         // An imported mesh with real submesh ranges draws only that one slice; everything else
         // (procedural primitives, or an imported mesh with no material-group boundaries at all)
@@ -310,6 +350,24 @@ namespace Duality {
 
         m_MeshCache[path] = meshHandle; // cache failures too, matching LoadTexture above
         return meshHandle;
+    }
+
+    uint32_t Citro3DRenderer::CreateDynamicMesh(const MeshData& data) {
+        if (data.Vertices.empty()) return 0;
+        const size_t byteSize = data.Vertices.size() * sizeof(MeshVertex);
+        void* buffer = linearAlloc(byteSize);
+        if (!buffer) return 0;
+        memcpy(buffer, data.Vertices.data(), byteSize);
+        m_ImportedMeshes.push_back({ buffer, static_cast<int>(data.Vertices.size()), data.SubMeshes });
+        return static_cast<uint32_t>(m_ImportedMeshes.size());
+    }
+
+    void Citro3DRenderer::UpdateDynamicMesh(uint32_t meshHandle, const MeshData& data) {
+        if (meshHandle == 0 || meshHandle > m_ImportedMeshes.size()) return;
+        auto& mesh = m_ImportedMeshes[meshHandle - 1];
+        if (static_cast<int>(data.Vertices.size()) != mesh.VertexCount) return;
+        memcpy(mesh.VertexBuffer, data.Vertices.data(), data.Vertices.size() * sizeof(MeshVertex));
+        mesh.SubMeshes = data.SubMeshes;
     }
 
     void Citro3DRenderer::UnloadAllTextures() {

@@ -5,6 +5,7 @@ add_library(DualityEngine STATIC
     Source/Asset/MaterialLoader.cpp
     Source/Asset/PhysicsMaterialLoader.cpp
     Source/Asset/MeshLoader.cpp
+    Source/Asset/AnimationClipLoader.cpp
     Source/Asset/ScriptableObjectLoader.cpp
     Source/Asset/TextureImportSettings.cpp
     Source/Asset/AudioImportSettings.cpp
@@ -71,8 +72,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         ${CMAKE_CURRENT_SOURCE_DIR}/Assets3DS/mesh.v.pica
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mesh.shbin
     )
+    ctr_add_shader_library(mesh_skin_shader
+        ${CMAKE_CURRENT_SOURCE_DIR}/Assets3DS/mesh_skin.v.pica
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mesh_skin.shbin
+    )
     dkp_add_embedded_binary_library(mesh_shader_embed mesh_shader)
-    target_link_libraries(DualityEngine PUBLIC mesh_shader_embed)
+    dkp_add_embedded_binary_library(mesh_skin_shader_embed mesh_skin_shader)
+    target_link_libraries(DualityEngine PUBLIC mesh_shader_embed mesh_skin_shader_embed)
 else()
     target_sources(DualityEngine PRIVATE
         Source/Renderer/OpenGL/OpenGLRenderer2D.cpp

@@ -1,3 +1,120 @@
 {
-    "guid": "5a4e5fa99015f12b9d517e18c5083419"
+  "ModelImporter": {
+    "Children": [
+      {
+        "AssetGuid": "f6295fec0b6fb8fca0be1efa5062737d",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_0.dmesh",
+        "Detail": "169 vertices, 232 triangles, 0 bones, cooked .dmesh",
+        "Index": 0,
+        "Name": "5_Megaman_1_0_0.002",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "242cb95cbee82b04b862dc7087077ff9",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_1.dmesh",
+        "Detail": "87 vertices, 68 triangles, 0 bones, cooked .dmesh",
+        "Index": 1,
+        "Name": "5_Megaman_1_0_0.003",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "7c4edfb61ac92e877e899e0a373dfb3c",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_2.dmesh",
+        "Detail": "3340 vertices, 4138 triangles, 0 bones, cooked .dmesh",
+        "Index": 2,
+        "Name": "5_Megaman_1_0_0.007",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "79e2da8ebbd57684adec5ee8e0fb30e5",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_3.dmesh",
+        "Detail": "3993 vertices, 3484 triangles, 0 bones, cooked .dmesh",
+        "Index": 3,
+        "Name": "FalzaArmor.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "a7158b1f01088cd07201a96eafd1e90f",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_4.dmesh",
+        "Detail": "423 vertices, 334 triangles, 0 bones, cooked .dmesh",
+        "Index": 4,
+        "Name": "FalzaBuster",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "df2b1b32977ed5882a99dba15d526347",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_5.dmesh",
+        "Detail": "3319 vertices, 4138 triangles, 0 bones, cooked .dmesh",
+        "Index": 5,
+        "Name": "5_Megaman_1_0_0.004",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "48d4aa0996a07de2937ebdfff4d9b671",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_6.dmesh",
+        "Detail": "164 vertices, 232 triangles, 0 bones, cooked .dmesh",
+        "Index": 6,
+        "Name": "5_Megaman_1_0_0.005",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "30a33954e1d1deea24cf9f5a63293df9",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_7.dmesh",
+        "Detail": "85 vertices, 68 triangles, 0 bones, cooked .dmesh",
+        "Index": 7,
+        "Name": "5_Megaman_1_0_0.006",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "2 vertices, 1 triangles, 0 bones, cook failed",
+        "Index": 8,
+        "Name": "GregarArmor",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "0457ddf2b32beb70883c8d125b5e7dd5",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_9.dmesh",
+        "Detail": "4404 vertices, 3598 triangles, 0 bones, cooked .dmesh",
+        "Index": 9,
+        "Name": "GregarArmor",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "84a815dad71e4a13f17946a95fa8a7dc",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\5a4e5fa99015f12b9d517e18c5083419\\mesh_10.dmesh",
+        "Detail": "453 vertices, 356 triangles, 0 bones, cooked .dmesh",
+        "Index": 10,
+        "Name": "GregarBuster",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 0,
+        "Name": "DefaultMaterial",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 1,
+        "Name": "Falza",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 2,
+        "Name": "Gregar",
+        "Type": "Material"
+      }
+    ],
+    "Version": 1
+  },
+  "guid": "5a4e5fa99015f12b9d517e18c5083419"
 }

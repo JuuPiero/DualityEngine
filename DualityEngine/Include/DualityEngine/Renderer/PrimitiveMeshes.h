@@ -1,8 +1,10 @@
 #pragma once
 
 #include <vector>
+#include <cstdint>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/type_precision.hpp>
 
 #include "DualityEngine/Renderer/MeshPrimitive.h"
 
@@ -16,6 +18,13 @@ namespace Duality {
         glm::vec2 TexCoord;
         glm::vec3 Normal{ 0.0f, 1.0f, 0.0f };
         glm::vec4 Color{ 1.0f };
+        // Four influences are the cross-platform ceiling. Static/procedural meshes retain the
+        // zero-weight default and therefore cost nothing in the ordinary MeshRenderer path.
+        // Cooked skinned partitions contain at most 24 bones, so four byte-sized local
+        // indices are sufficient. This removes 12 bytes from every skinned vertex compared
+        // with the old u32 layout and maps directly to PICA's GPU_UNSIGNED_BYTE attribute.
+        glm::u8vec4 BoneIndices{ 0 };
+        glm::vec4 BoneWeights{ 0.0f };
     };
 
     // Flat, non-indexed triangle lists (GPU_TRIANGLES-compatible on both backends, matching

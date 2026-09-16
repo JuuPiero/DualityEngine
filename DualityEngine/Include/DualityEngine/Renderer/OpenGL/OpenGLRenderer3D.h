@@ -43,6 +43,8 @@ namespace Duality {
 
         uint32_t LoadTexture(const std::string& path) override;
         uint32_t LoadMesh(const std::string& path) override;
+        uint32_t CreateDynamicMesh(const MeshData& mesh) override;
+        void UpdateDynamicMesh(uint32_t meshHandle, const MeshData& mesh) override;
         void UnloadAllTextures() override;
         void UnloadAllMeshes() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
@@ -67,10 +69,14 @@ namespace Duality {
         int m_UniformShadowMatrix = -1;
         int m_UniformShadowMap = -1;
         int m_UniformUseShadowMap = -1;
+        int m_UniformSkinned = -1;
+        int m_UniformBones = -1;
         int m_AttribPosition = -1;
         int m_AttribTexCoord = -1;
         int m_AttribNormal = -1;
         int m_AttribVertexColor = -1;
+        int m_AttribBoneIndices = -1;
+        int m_AttribBoneWeights = -1;
 
         // 1x1 white pixel bound when textureId == 0, so DrawMesh can always sample the texture
         // uniformly in the shader instead of branching on whether one is bound.
@@ -80,6 +86,8 @@ namespace Duality {
         GLShaderProgram m_ShadowShader;
         int m_ShadowUniformViewProjection = -1;
         int m_ShadowUniformModel = -1;
+        int m_ShadowUniformSkinned = -1;
+        int m_ShadowUniformBones = -1;
         ShadowMapPass m_ActiveShadowPass{};
         int m_PreviousFramebuffer = 0;
         int m_PreviousViewport[4]{ 0, 0, 0, 0 };

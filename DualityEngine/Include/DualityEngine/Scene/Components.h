@@ -107,6 +107,41 @@ namespace Duality {
         int SortOrder = 0;
     };
 
+    // Minimal transform-animation player. Clip refers to a cooked .anim child from a source
+    // model. The player applies the channel whose node name matches this entity name (or the
+    // sole channel in a one-node clip); full skeleton-to-hierarchy binding is a later layer.
+    struct AnimationComponent {
+        bool Enabled = true;
+        AssetRef Clip;
+        bool PlayOnAwake = true;
+        bool Loop = true;
+        float Speed = 1.0f;
+        bool Playing = true;
+
+        // Runtime state: reset when Play starts and never serialized into a scene.
+        float Time = 0.0f;
+    };
+
+    // CPU-skinned model path. Bones is ordered exactly as MeshData::Bones (the imported
+    // bone list shown by the model sub-asset); each entry references a scene entity carrying
+    // that bone's animated Transform. RuntimeMeshHandle is renderer-owned and not serialized.
+    struct SkinnedMeshRendererComponent {
+        bool Enabled = true;
+        AssetRef Mesh;
+        std::vector<AssetRef> Materials;
+        std::vector<EntityRef> Bones;
+        int SortOrder = 0;
+        // Renderer-owned caches: the animated pose is calculated at most once for an unchanged
+        // skeleton, then shared by Top/Bottom/Scene rendering. They are deliberately omitted
+        // from reflection/serialization.
+        std::vector<glm::mat4> RuntimeSkinMatrices;
+        std::vector<glm::mat4> RuntimePaletteMatrices;
+        std::string RuntimeMeshPath;
+        uint64_t RuntimePoseSignature = 0;
+        uint64_t RuntimeDynamicPoseSignature = 0;
+        uint32_t RuntimeMeshHandle = 0;
+    };
+
     // One enabled directional light is selected for each RenderView. Its direction derives
     // from this entity's world rotation; color/intensity stay authored data.
     struct DirectionalLightComponent {

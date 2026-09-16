@@ -55,6 +55,8 @@ namespace Duality {
         // MeshLoader::Load (shared, cross-platform), then uploaded to a linearAlloc'd buffer
         // the same way the 3 built-in primitives are at Init() time.
         uint32_t LoadMesh(const std::string& path) override;
+        uint32_t CreateDynamicMesh(const MeshData& mesh) override;
+        void UpdateDynamicMesh(uint32_t meshHandle, const MeshData& mesh) override;
         void UnloadAllTextures() override;
         void UnloadAllMeshes() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
@@ -83,11 +85,20 @@ namespace Duality {
 
         DVLB_s* m_ShaderDvlb = nullptr;
         shaderProgram_s m_ShaderProgram{};
+        DVLB_s* m_SkinShaderDvlb = nullptr;
+        shaderProgram_s m_SkinShaderProgram{};
         int m_UniformProjection = -1;
         int m_UniformModelView = -1;
         int m_UniformLightVector = -1;
         int m_UniformLightColor = -1;
         int m_UniformAmbientColor = -1;
+        int m_SkinUniformProjection = -1;
+        int m_SkinUniformModelView = -1;
+        int m_SkinUniformLightVector = -1;
+        int m_SkinUniformLightColor = -1;
+        int m_SkinUniformAmbientColor = -1;
+        int m_SkinUniformBones = -1;
+        int m_SkinUniformBoneIndexScale = -1;
 
         C3D_Mtx m_Projection{};
         C3D_Mtx m_View{}; // inverse of the camera's own world transform, set in BeginScene, read in DrawMesh

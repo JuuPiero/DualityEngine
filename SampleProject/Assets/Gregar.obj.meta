@@ -1,3 +1,72 @@
 {
-    "guid": "314148b51db32e5e11a96d782e3fa3cf"
+  "ModelImporter": {
+    "Children": [
+      {
+        "AssetGuid": "afe01482e60fea304a348818fe63d7d5",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\314148b51db32e5e11a96d782e3fa3cf\\mesh_0.dmesh",
+        "Detail": "3319 vertices, 4138 triangles, 0 bones, cooked .dmesh",
+        "Index": 0,
+        "Name": "5_Megaman_1_0_0.004",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "31c0e73f7b713b76787ed3109c4db1c6",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\314148b51db32e5e11a96d782e3fa3cf\\mesh_1.dmesh",
+        "Detail": "164 vertices, 232 triangles, 0 bones, cooked .dmesh",
+        "Index": 1,
+        "Name": "5_Megaman_1_0_0.005",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "686a7d730aa629eb77afe0beb6662c38",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\314148b51db32e5e11a96d782e3fa3cf\\mesh_2.dmesh",
+        "Detail": "85 vertices, 68 triangles, 0 bones, cooked .dmesh",
+        "Index": 2,
+        "Name": "5_Megaman_1_0_0.006",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "2 vertices, 1 triangles, 0 bones, cook failed",
+        "Index": 3,
+        "Name": "GregarArmor",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "c9bae3d53bf55a3eae2f0129d42068a0",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\314148b51db32e5e11a96d782e3fa3cf\\mesh_4.dmesh",
+        "Detail": "4404 vertices, 3598 triangles, 0 bones, cooked .dmesh",
+        "Index": 4,
+        "Name": "GregarArmor",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "045c1c5cf181a9ea34cff1a3e492b140",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\314148b51db32e5e11a96d782e3fa3cf\\mesh_5.dmesh",
+        "Detail": "453 vertices, 356 triangles, 0 bones, cooked .dmesh",
+        "Index": 5,
+        "Name": "GregarBuster",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 0,
+        "Name": "DefaultMaterial",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 1,
+        "Name": "Gregar",
+        "Type": "Material"
+      }
+    ],
+    "Version": 1
+  },
+  "guid": "314148b51db32e5e11a96d782e3fa3cf"
 }

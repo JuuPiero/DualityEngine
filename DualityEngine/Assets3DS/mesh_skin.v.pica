@@ -1,0 +1,120 @@
+; PICA200 skinned forward mesh shader. Cooked V3 .dmesh files partition triangles into
+; palettes of <= 24 bones. Each affine 3x4 bone uses three fvec uniforms (72 total), keeping
+; this shader at 83/96 vectors including the camera and lighting uniforms.
+
+.fvec projection[4], modelView[4], lightVec, lightColor, ambientColor, bones[72], boneIndexScale
+
+.constf myconst(0.0, 1.0, -1.0, 3.0)
+.alias zeros myconst.xxxx
+.alias ones  myconst.yyyy
+
+.out outpos position
+.out outtc0 texcoord0
+.out outclr color
+
+.alias inpos v0
+.alias intex v1
+.alias innrm v2
+.alias invclr v3
+.alias inbone v4
+.alias inweight v5
+.alias inmat v6
+
+.proc main
+	; Object-space position (r0) and normal (r1). r2/r3 accumulate the four weighted
+	; affine transforms. Relative uniform addressing is supplied by PICA's a0 register.
+	mov r0.xyz, inpos
+	mov r0.w, ones
+	mov r1.xyz, innrm
+	mov r1.w, zeros
+	mov r2, zeros
+	mov r3, zeros
+	mov r8, boneIndexScale
+	mul r8, inbone, r8
+	mova a0.xy, r8
+
+	; Influence 0 (a0.x)
+	dp4 r4.x, bones[a0.x+0], r0
+	dp4 r4.y, bones[a0.x+1], r0
+	dp4 r4.z, bones[a0.x+2], r0
+	mov r4.w, ones
+	mad r2, r4, inweight.xxxx, r2
+	dp4 r4.x, bones[a0.x+0], r1
+	dp4 r4.y, bones[a0.x+1], r1
+	dp4 r4.z, bones[a0.x+2], r1
+	mov r4.w, zeros
+	mad r3, r4, inweight.xxxx, r3
+
+	; Influence 1 (a0.y)
+	dp4 r4.x, bones[a0.y+0], r0
+	dp4 r4.y, bones[a0.y+1], r0
+	dp4 r4.z, bones[a0.y+2], r0
+	mov r4.w, ones
+	mad r2, r4, inweight.yyyy, r2
+	dp4 r4.x, bones[a0.y+0], r1
+	dp4 r4.y, bones[a0.y+1], r1
+	dp4 r4.z, bones[a0.y+2], r1
+	mov r4.w, zeros
+	mad r3, r4, inweight.yyyy, r3
+
+	mova a0.xy, r8.zw
+	; Influence 2 (a0.x)
+	dp4 r4.x, bones[a0.x+0], r0
+	dp4 r4.y, bones[a0.x+1], r0
+	dp4 r4.z, bones[a0.x+2], r0
+	mov r4.w, ones
+	mad r2, r4, inweight.zzzz, r2
+	dp4 r4.x, bones[a0.x+0], r1
+	dp4 r4.y, bones[a0.x+1], r1
+	dp4 r4.z, bones[a0.x+2], r1
+	mov r4.w, zeros
+	mad r3, r4, inweight.zzzz, r3
+
+	; Influence 3 (a0.y)
+	dp4 r4.x, bones[a0.y+0], r0
+	dp4 r4.y, bones[a0.y+1], r0
+	dp4 r4.z, bones[a0.y+2], r0
+	mov r4.w, ones
+	mad r2, r4, inweight.wwww, r2
+	dp4 r4.x, bones[a0.y+0], r1
+	dp4 r4.y, bones[a0.y+1], r1
+	dp4 r4.z, bones[a0.y+2], r1
+	mov r4.w, zeros
+	mad r3, r4, inweight.wwww, r3
+
+	; Vertices without influences (a valid case in a partially-rigged model) retain their
+	; bind pose rather than collapsing to the origin.
+	add r7.x, inweight.x, inweight.y
+	add r7.x, r7.x, inweight.z
+	add r7.x, r7.x, inweight.w
+	add r7.x, ones, -r7.x
+	mad r0, r0, r7.xxxx, r2
+	mad r1, r1, r7.xxxx, r3
+
+	; model-view and projection.
+	dp4 r5.x, modelView[0], r0
+	dp4 r5.y, modelView[1], r0
+	dp4 r5.z, modelView[2], r0
+	dp4 r5.w, modelView[3], r0
+	dp4 outpos.x, projection[0], r5
+	dp4 outpos.y, projection[1], r5
+	dp4 outpos.z, projection[2], r5
+	dp4 outpos.w, projection[3], r5
+
+	dp4 r5.x, modelView[0], r1
+	dp4 r5.y, modelView[1], r1
+	dp4 r5.z, modelView[2], r1
+	dp3 r6.x, r5, r5
+	rsq r6.x, r6.x
+	mul r5.xyz, r5, r6.xxxx
+	dp3 r6.x, lightVec, r5
+	max r6.x, zeros, r6.x
+	mul r6, lightColor, r6.xxxx
+	add r6, ambientColor, r6
+
+	mov outtc0, intex
+	mov r7, invclr
+	mul r7, r7, inmat
+	mul outclr, r7, r6
+	end
+.end

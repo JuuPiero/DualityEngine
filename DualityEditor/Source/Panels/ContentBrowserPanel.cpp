@@ -11,6 +11,7 @@
 
 #include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/ModelImporter.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
@@ -258,6 +259,14 @@ namespace Duality {
         return { EditorIcons::File, "FILE", IM_COL32(180, 185, 200, 255) };
     }
 
+    static const char* GetModelChildIcon(const std::string& type) {
+        if (type == "Mesh") return EditorIcons::Cube;
+        if (type == "Material") return EditorIcons::Material;
+        if (type == "Texture") return EditorIcons::Image;
+        if (type == "Animation") return EditorIcons::Play;
+        return EditorIcons::File;
+    }
+
     static void DrawFileIcon(ImDrawList* drawList, ImVec2 min, ImVec2 max, const std::filesystem::path& path) {
         const FileIconInfo info = GetFileIconInfo(path);
         const ImU32 fill = IM_COL32(40, 47, 62, 255);
@@ -332,6 +341,10 @@ namespace Duality {
             // Meta sidecars are database bookkeeping, never project assets in their own right.
             if (!entry.is_directory(error) && entry.path().extension() == ".meta")
                 continue;
+            // Generated Mesh/Animation children are browsed below their source model, not as
+            // a second implementation-detail folder beside user-authored assets.
+            if (entry.is_directory(error) && entry.path().filename() == ".duality-import")
+                continue;
             if (!error)
                 children.push_back(entry.path());
         }
@@ -355,17 +368,20 @@ namespace Duality {
 
             const bool selected = std::find(ctx.SelectedAssetPaths.begin(), ctx.SelectedAssetPaths.end(), child.string()) !=
                 ctx.SelectedAssetPaths.end();
-            ImGuiTreeNodeFlags fileFlags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen |
-                ImGuiTreeNodeFlags_SpanAvailWidth;
+            const ModelImportInfo& model = ModelImporter::Inspect(child);
+            const bool hasModelChildren = model.Valid && !model.Children.empty();
+            ImGuiTreeNodeFlags fileFlags = ImGuiTreeNodeFlags_SpanAvailWidth;
+            if (!hasModelChildren)
+                fileFlags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
             if (selected)
                 fileFlags |= ImGuiTreeNodeFlags_Selected;
             const FileIconInfo icon = GetFileIconInfo(child);
             const std::string fileLabel = std::string(icon.Glyph) + " " + child.filename().string();
-            ImGui::TreeNodeEx(child.string().c_str(), fileFlags, "%s", fileLabel.c_str());
+            const bool modelOpen = ImGui::TreeNodeEx(child.string().c_str(), fileFlags, "%s", fileLabel.c_str());
 
             const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
             const bool doubleClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
-            if (!IsPackagesView(child) && ImGui::BeginDragDropSource()) {
+            if (!IsPackagesView(child) && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                 const std::string guid = AssetMeta::EnsureMetaFile(child);
                 AssetDatabase::Register(guid, child.string());
                 ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
@@ -378,6 +394,25 @@ namespace Duality {
                 // grid there first so Shift-click behaves the same from either Project view.
                 m_CurrentDirectory = child.parent_path();
                 SelectAsset(ctx, child, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
+            }
+            if (hasModelChildren && modelOpen) {
+                for (const ModelSubAssetInfo& subAsset : model.Children) {
+                    const std::string childLabel = std::string(GetModelChildIcon(subAsset.Type)) + " " +
+                        subAsset.Name + "  " + subAsset.Detail;
+                    ImGui::TreeNodeEx((child.string() + "#" + subAsset.Type + std::to_string(subAsset.Index)).c_str(),
+                        ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth,
+                        "%s", childLabel.c_str());
+                    // Cooked mesh/animation children have their own stable .meta GUID, so they
+                    // use the exact AssetRef drag contract as an ordinary file. Inventory-only
+                    // Material/Texture entries deliberately remain labels until those importers
+                    // create first-class .mat/texture assets too.
+                    if (!subAsset.AssetGuid.empty() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                        ImGui::SetDragDropPayload("ASSET_GUID", subAsset.AssetGuid.c_str(), subAsset.AssetGuid.size() + 1);
+                        ImGui::Text("%s %s", GetModelChildIcon(subAsset.Type), subAsset.Name.c_str());
+                        ImGui::EndDragDropSource();
+                    }
+                }
+                ImGui::TreePop();
             }
             if (doubleClicked && child.extension() == ".scene") {
                 if (!ctx.IsEditingPrefab)
@@ -655,8 +690,12 @@ namespace Duality {
         std::filesystem::copy_file(sourceFile, destination, std::filesystem::copy_options::overwrite_existing, error);
         if (error)
             Log::Error("ContentBrowserPanel: failed to import '" + sourceFile.string() + "': " + error.message());
-        else
+        else {
+            ModelImporter::Invalidate(destination);
+            if (ModelImporter::IsSupported(destination))
+                ModelImporter::Inspect(destination); // extract parent-model child inventory immediately on drop
             Log::Info("Imported asset: " + destination.string());
+        }
     }
 
     void ContentBrowserPanel::OnImGuiRender(EditorContext& ctx) {
@@ -755,6 +794,9 @@ namespace Duality {
             const std::filesystem::path& path = entry.path();
             bool isDirectory = entry.is_directory();
 
+            if (isDirectory && path.filename() == ".duality-import")
+                continue;
+
             // ".meta" sidecars are bookkeeping, not browsable assets in
             // their own right -- Unity/Unreal hide them from their asset
             // views the same way.
@@ -773,6 +815,8 @@ namespace Duality {
             }
 
             std::string name = path.filename().string();
+            const ModelImportInfo& model = !isDirectory ? ModelImporter::Inspect(path) : ModelImportInfo{};
+            const bool hasModelChildren = model.Valid && !model.Children.empty();
 
             ImGui::PushID(name.c_str());
             ImGui::BeginGroup();
@@ -792,7 +836,7 @@ namespace Duality {
             bool pressed = ImGui::InvisibleButton("##thumb", ImVec2(thumbnailSize, thumbnailSize));
             bool doubleClicked = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
 
-            if (!readOnlyPackages && !isDirectory && !guid.empty() && ImGui::BeginDragDropSource()) {
+            if (!readOnlyPackages && !isDirectory && !guid.empty() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                 ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
                 ImGui::Text("%s", name.c_str());
                 ImGui::EndDragDropSource();
@@ -823,6 +867,14 @@ namespace Duality {
                 else if (ImGui::IsItemDeactivated())
                     CommitRename(ctx); // fires on both Enter and click-away
             } else {
+                if (hasModelChildren) {
+                    const bool expanded = m_ExpandedModelPaths.count(path.string()) != 0;
+                    if (ImGui::ArrowButton("##modelChildren", expanded ? ImGuiDir_Down : ImGuiDir_Right)) {
+                        if (expanded) m_ExpandedModelPaths.erase(path.string());
+                        else m_ExpandedModelPaths.insert(path.string());
+                    }
+                    ImGui::SameLine(0.0f, 2.0f);
+                }
                 ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + thumbnailSize);
                 ImGui::TextWrapped("%s", name.c_str());
                 ImGui::PopTextWrapPos();
@@ -855,8 +907,15 @@ namespace Duality {
             const bool selected = !isDirectory &&
                 std::find(ctx.SelectedAssetPaths.begin(), ctx.SelectedAssetPaths.end(), path.string()) != ctx.SelectedAssetPaths.end();
             if (selected) {
-                ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                // Columns installs a per-column clip rectangle. The asset group's label can be
+                // wider/taller than that temporary clip, which used to cut the selection outline
+                // in half. The item bounds are already known; only the outline needs full-window
+                // clipping.
+                ImDrawList* selectionDrawList = ImGui::GetWindowDrawList();
+                selectionDrawList->PushClipRectFullScreen();
+                selectionDrawList->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
                     IM_COL32(80, 160, 255, 255), 3.0f, 0, 2.0f);
+                selectionDrawList->PopClipRect();
             }
 
             if (doubleClicked && isDirectory) {
@@ -888,6 +947,49 @@ namespace Duality {
 
             ImGui::PopID();
             ImGui::NextColumn();
+
+            // Expanded model children are normal grid tiles immediately after their source
+            // model, rather than a vertical list inside the model's narrow column. This matches
+            // the Project-window mental model: Mesh / Material / Texture / Animation are
+            // sibling sub-assets which can be scanned and dragged horizontally.
+            if (hasModelChildren && m_ExpandedModelPaths.count(path.string()) != 0) {
+                for (const ModelSubAssetInfo& subAsset : model.Children) {
+                    const std::string childId = path.string() + "#" + subAsset.Type + std::to_string(subAsset.Index);
+                    const std::string label = std::string(GetModelChildIcon(subAsset.Type)) + " " + subAsset.Name;
+                    ImGui::PushID(childId.c_str());
+                    ImGui::BeginGroup();
+                    const ImVec2 childIconMin = ImGui::GetCursorScreenPos();
+                    const ImVec2 childIconMax(childIconMin.x + thumbnailSize, childIconMin.y + thumbnailSize);
+                    ImGui::InvisibleButton("##modelChildThumb", ImVec2(thumbnailSize, thumbnailSize));
+                    const bool childHovered = ImGui::IsItemHovered();
+                    // Must be called while InvisibleButton remains LastItemData. Calling it
+                    // after EndGroup made ImGui attempt a drag source on an ID-less group,
+                    // triggering its explicit assertion in imgui.cpp:14398 when a mesh child
+                    // was clicked.
+                    if (!subAsset.AssetGuid.empty() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                        ImGui::SetDragDropPayload("ASSET_GUID", subAsset.AssetGuid.c_str(), subAsset.AssetGuid.size() + 1);
+                        ImGui::Text("%s", label.c_str());
+                        ImGui::EndDragDropSource();
+                    }
+                    ImDrawList* childDrawList = ImGui::GetWindowDrawList();
+                    const ImU32 fill = childHovered ? IM_COL32(53, 67, 90, 255) : IM_COL32(40, 47, 62, 255);
+                    childDrawList->AddRectFilled(childIconMin, childIconMax, fill, 5.0f);
+                    childDrawList->AddRect(childIconMin, childIconMax, IM_COL32(95, 125, 170, 255), 5.0f, 0, 1.5f);
+                    const char* glyph = GetModelChildIcon(subAsset.Type);
+                    const ImVec2 glyphSize = ImGui::CalcTextSize(glyph);
+                    childDrawList->AddText(ImVec2(childIconMin.x + (thumbnailSize - glyphSize.x) * 0.5f,
+                        childIconMin.y + (thumbnailSize - glyphSize.y) * 0.5f), IM_COL32(190, 215, 255, 255), glyph);
+                    ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + thumbnailSize);
+                    ImGui::TextWrapped("%s", subAsset.Name.c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::TextDisabled("%s", subAsset.Type.c_str());
+                    ImGui::EndGroup();
+                    if (childHovered && !subAsset.Detail.empty())
+                        ImGui::SetTooltip("%s", subAsset.Detail.c_str());
+                    ImGui::PopID();
+                    ImGui::NextColumn();
+                }
+            }
         }
 
         ImGui::Columns(1);

@@ -102,6 +102,23 @@ namespace Duality {
             MakeField("Sort Order", &MeshRendererComponent::SortOrder),
         });
 
+        TypeRegistry::Register<AnimationComponent>("Animation", false, {
+            MakeField("Enabled", &AnimationComponent::Enabled),
+            MakeField("Clip", &AnimationComponent::Clip),
+            MakeField("Play On Awake", &AnimationComponent::PlayOnAwake),
+            MakeField("Loop", &AnimationComponent::Loop),
+            MakeField("Speed", &AnimationComponent::Speed),
+            MakeField("Playing", &AnimationComponent::Playing),
+        });
+
+        TypeRegistry::Register<SkinnedMeshRendererComponent>("Skinned Mesh Renderer", false, {
+            MakeField("Enabled", &SkinnedMeshRendererComponent::Enabled),
+            MakeField("Mesh", &SkinnedMeshRendererComponent::Mesh),
+            MakeField("Materials", &SkinnedMeshRendererComponent::Materials),
+            MakeField("Bones", &SkinnedMeshRendererComponent::Bones),
+            MakeField("Sort Order", &SkinnedMeshRendererComponent::SortOrder),
+        });
+
         TypeRegistry::Register<DirectionalLightComponent>("Directional Light", false, {
             MakeField("Enabled", &DirectionalLightComponent::Enabled),
             MakeField("Color", &DirectionalLightComponent::Color),

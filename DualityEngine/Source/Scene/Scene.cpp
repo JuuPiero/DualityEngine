@@ -1262,6 +1262,12 @@ namespace Duality {
         s_RuntimeElapsedTime = 0.0f;
         s_RuntimeFrameCount = 0;
 
+        for (auto handle : m_Registry.view<AnimationComponent>()) {
+            auto& animation = m_Registry.get<AnimationComponent>(handle);
+            animation.Time = 0.0f;
+            animation.Playing = animation.PlayOnAwake;
+        }
+
         Physics2DWorld* world2D = new Physics2DWorld();
         world2D->World = new b2World(b2Vec2(0.0f, PhysicsUnits::PhysicsGravity()));
         world2D->Listener = new Box2DContactListener();

@@ -26,6 +26,7 @@
 #include <nlohmann/json.hpp>
 
 #include "DualityEditor/ScriptEngine.h"
+#include "DualityEditor/ModelImporter.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Asset/AudioImportSettings.h"
@@ -312,6 +313,15 @@ namespace Duality {
         if (!fs::exists(assetsDir)) {
             Log::Warn("BuildPipeline: assets directory '" + assetsDirectory + "' does not exist, skipping asset cook");
             return true; // a project with no assets yet is valid, not a failure
+        }
+
+        // Ensure source-model children exist before resolving scene AssetRefs for the
+        // dependency cook. This also covers a project built before its Content Browser has
+        // ever shown the FBX/glTF file.
+        for (const auto& entry : fs::recursive_directory_iterator(assetsDir, fs::directory_options::skip_permission_denied)) {
+            std::error_code importError;
+            if (entry.is_regular_file(importError) && !importError && ModelImporter::IsSupported(entry.path()))
+                ModelImporter::Inspect(entry.path());
         }
 
         bool dependencyDiscoverySucceeded = false;

@@ -4,16 +4,18 @@
   "EnabledPackages": [],
   "Gravity": 9.8100004196167,
   "IconPath": "",
-  "N3DSAntiAliasing": 0,
+  "N3DSAntiAliasing": 2,
   "Name": "SampleProject",
   "PPU": 100.0,
   "PackagesDirectory": "Packages",
   "ProductName": "",
-  "ScenesInBuild": [],
+  "ScenesInBuild": [
+    "Scene.scene"
+  ],
   "ScriptingDefines": [],
   "ScriptsDirectory": "Scripts",
-  "ShadowTechnique": 1,
-  "StartScene": "",
+  "ShadowTechnique": 2,
+  "StartScene": "Scene.scene",
   "Version": "0.1.0",
   "WorldUnitsVersion": 2
 }

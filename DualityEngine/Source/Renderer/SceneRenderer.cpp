@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 #include <vector>
 
@@ -99,6 +100,81 @@ namespace Duality {
                 }
             }
             return PrimitiveShadowRadius(mesh.Primitive);
+        }
+
+        glm::mat4 TransformMatrix(const TransformComponent& transform) {
+            glm::mat4 matrix = glm::translate(glm::mat4(1.0f), transform.Translation);
+            matrix *= RotationMatrix(transform.Rotation);
+            return glm::scale(matrix, transform.Scale);
+        }
+
+        uint64_t HashMatrix(uint64_t hash, const glm::mat4& matrix) {
+            // A pose cache must not rely on a global frame counter: editor Scene/Game previews
+            // can render the same scene through multiple cameras in one frame. Bit hashing the
+            // already-calculated world transforms avoids re-skinning vertices for each view.
+            for (int column = 0; column < 4; ++column) for (int row = 0; row < 4; ++row) {
+                uint32_t bits = 0;
+                std::memcpy(&bits, &matrix[column][row], sizeof(bits));
+                hash ^= bits;
+                hash *= 1099511628211ull;
+            }
+            return hash;
+        }
+
+        void RefreshSkinPose(Scene& scene, Entity owner, SkinnedMeshRendererComponent& skin, const MeshData& source) {
+            std::unordered_map<std::string, Entity> namedBones;
+            for (Entity candidate : scene.GetHierarchyTraversalOrder())
+                if (candidate.HasComponent<NameComponent>()) namedBones[candidate.GetComponent<NameComponent>().Name] = candidate;
+
+            const glm::mat4 ownerWorld = TransformMatrix(scene.GetWorldTransform(owner));
+            const glm::mat4 inverseOwner = glm::inverse(ownerWorld);
+            uint64_t signature = HashMatrix(1469598103934665603ull, ownerWorld);
+            std::vector<glm::mat4> matrices(source.Bones.size(), glm::mat4(1.0f));
+            for (size_t i = 0; i < source.Bones.size(); ++i) {
+                Entity bone;
+                if (i < skin.Bones.size() && skin.Bones[i].Handle != EntityRef::Invalid) {
+                    const entt::entity handle = static_cast<entt::entity>(skin.Bones[i].Handle);
+                    if (scene.Registry().valid(handle)) bone = Entity(handle, &scene);
+                }
+                if (!bone) {
+                    auto found = namedBones.find(source.Bones[i].Name);
+                    if (found != namedBones.end()) bone = found->second;
+                }
+                if (bone) {
+                    const glm::mat4 boneWorld = TransformMatrix(scene.GetWorldTransform(bone));
+                    signature = HashMatrix(signature, boneWorld);
+                    matrices[i] = inverseOwner * boneWorld * source.Bones[i].Offset;
+                } else {
+                    // Include the missing-bone state so adding a matching entity invalidates
+                    // the pose on the next view without a scene-wide renderer reset.
+                    signature ^= static_cast<uint64_t>(i + 1);
+                    signature *= 1099511628211ull;
+                }
+            }
+            if (skin.RuntimePoseSignature != signature || skin.RuntimeSkinMatrices.size() != matrices.size()) {
+                skin.RuntimeSkinMatrices = std::move(matrices);
+                skin.RuntimePoseSignature = signature;
+            }
+        }
+
+        MeshData SkinMesh(const MeshData& source, const std::vector<glm::mat4>& matrices) {
+            MeshData result = source;
+            if (source.Bones.empty() || matrices.empty()) return result;
+            for (size_t vertexIndex = 0; vertexIndex < result.Vertices.size(); ++vertexIndex) {
+                MeshVertex& vertex = result.Vertices[vertexIndex];
+                glm::vec4 position(0.0f), normal(0.0f); float total = 0.0f;
+                for (int influence = 0; influence < 4; ++influence) {
+                    const float weight = vertex.BoneWeights[influence];
+                    const uint32_t index = vertexIndex < source.LegacyBoneIndices.size()
+                        ? source.LegacyBoneIndices[vertexIndex][influence] : vertex.BoneIndices[influence];
+                    if (weight <= 0.0f || index >= matrices.size()) continue;
+                    position += matrices[index] * glm::vec4(vertex.Position, 1.0f) * weight;
+                    normal += matrices[index] * glm::vec4(vertex.Normal, 0.0f) * weight;
+                    total += weight;
+                }
+                if (total > 0.0f) { vertex.Position = glm::vec3(position) / total; vertex.Normal = glm::normalize(glm::vec3(normal)); }
+            }
+            return result;
         }
     }
 
@@ -274,6 +350,39 @@ namespace Duality {
                 renderer.DrawDirectionalShadowCaster(MeshDrawCommand{ mesh.Primitive, meshHandle, i,
                     transform.Translation, transform.Rotation, transform.Scale });
                 submitted++;
+            }
+        }
+        // V3 skinned meshes keep source vertices on the GPU. Submit the same local palette to
+        // the desktop depth shader so an animated character's shadow matches its visible pose.
+        // Citro3D declines this pass and continues using the existing blob-shadow fallback.
+        for (auto handle : scene.Registry().view<TransformComponent, SkinnedMeshRendererComponent>()) {
+            if (!ShouldRenderOnScreen(scene, handle, screen, &cameraFilter)) continue;
+            Entity entity(handle, &scene);
+            auto& skin = entity.GetComponent<SkinnedMeshRendererComponent>();
+            if (!skin.Enabled || skin.Mesh.Guid.empty() || !scene.IsEffectivelyActive(entity)) continue;
+            const std::string path = AssetDatabase::ResolvePath(skin.Mesh.Guid);
+            if (path.empty()) continue;
+            const MeshData& source = MeshLoader::Load(path);
+            if (source.Vertices.empty()) continue;
+            RefreshSkinPose(scene, entity, skin, source);
+            const TransformComponent transform = scene.GetWorldTransform(entity);
+            const uint32_t meshHandle = ResolveMeshGeometry(renderer, skin.Mesh);
+            for (uint32_t i = 0; i < renderer.GetSubMeshCount(meshHandle); ++i) {
+                const MeshData::SubMesh* subMesh = i < source.SubMeshes.size() ? &source.SubMeshes[i] : nullptr;
+                if (subMesh && !subMesh->BonePalette.empty()) {
+                    skin.RuntimePaletteMatrices.clear();
+                    skin.RuntimePaletteMatrices.reserve(subMesh->BonePalette.size());
+                    for (uint16_t bone : subMesh->BonePalette)
+                        skin.RuntimePaletteMatrices.push_back(bone < skin.RuntimeSkinMatrices.size() ? skin.RuntimeSkinMatrices[bone] : glm::mat4(1.0f));
+                    renderer.DrawDirectionalShadowCaster(MeshDrawCommand{ MeshPrimitive::Cube, meshHandle, i,
+                        transform.Translation, transform.Rotation, transform.Scale, {}, 0, MaterialShadingMode::Unlit, false, true,
+                        skin.RuntimePaletteMatrices.data(), static_cast<uint32_t>(skin.RuntimePaletteMatrices.size()) });
+                    submitted++;
+                } else if (source.Bones.empty()) {
+                    renderer.DrawDirectionalShadowCaster(MeshDrawCommand{ MeshPrimitive::Cube, meshHandle, i,
+                        transform.Translation, transform.Rotation, transform.Scale });
+                    submitted++;
+                }
             }
         }
         renderer.EndDirectionalShadowMap();
@@ -569,6 +678,58 @@ namespace Duality {
                     material.Color = mesh.RuntimeMaterialColor;
                 uint32_t textureId = ResolveMeshTexture(renderer, material.Texture);
                 renderer.DrawMesh(MeshDrawCommand{ mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId, material.ShadingMode });
+                stats.MeshDrawCalls++;
+                if (material.ShadingMode == MaterialShadingMode::VertexLit && renderView.MainLight.Enabled)
+                    stats.VertexLitDrawCalls++;
+            }
+        }
+
+        auto skinnedView = scene.Registry().view<TransformComponent, SkinnedMeshRendererComponent>();
+        for (auto handle : skinnedView) {
+            Entity entity(handle, &scene);
+            if (!ShouldRenderOnScreen(scene, handle, screen, &cameraComponent) || !scene.IsEffectivelyActive(entity)) continue;
+            auto& skin = skinnedView.get<SkinnedMeshRendererComponent>(handle);
+            if (!skin.Enabled || skin.Mesh.Guid.empty()) continue;
+            const std::string path = AssetDatabase::ResolvePath(skin.Mesh.Guid);
+            if (path.empty()) continue;
+            const MeshData& source = MeshLoader::Load(path);
+            if (source.Vertices.empty()) continue;
+            RefreshSkinPose(scene, entity, skin, source);
+            const TransformComponent transform = scene.GetWorldTransform(entity);
+            const uint32_t meshHandle = ResolveMeshGeometry(renderer, skin.Mesh);
+            const uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
+            for (uint32_t i = 0; i < subMeshCount; ++i) {
+                Material material = ResolveMeshMaterial(MaterialForSubMesh(skin.Materials, i));
+                const MeshData::SubMesh* subMesh = i < source.SubMeshes.size() ? &source.SubMeshes[i] : nullptr;
+                if (subMesh && !subMesh->BonePalette.empty()) {
+                    skin.RuntimePaletteMatrices.clear();
+                    skin.RuntimePaletteMatrices.reserve(subMesh->BonePalette.size());
+                    for (uint16_t bone : subMesh->BonePalette)
+                        skin.RuntimePaletteMatrices.push_back(bone < skin.RuntimeSkinMatrices.size() ? skin.RuntimeSkinMatrices[bone] : glm::mat4(1.0f));
+                    renderer.DrawMesh(MeshDrawCommand{ MeshPrimitive::Cube, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale,
+                        material.Color, ResolveMeshTexture(renderer, material.Texture), material.ShadingMode, false, true,
+                        skin.RuntimePaletteMatrices.data(), static_cast<uint32_t>(skin.RuntimePaletteMatrices.size()) });
+                } else if (source.Bones.empty()) {
+                    // A model may be placed on a SkinnedMeshRenderer before it has a rig; draw
+                    // it through the normal static path instead of allocating a mutable copy.
+                    renderer.DrawMesh(MeshDrawCommand{ MeshPrimitive::Cube, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale,
+                        material.Color, ResolveMeshTexture(renderer, material.Texture), material.ShadingMode });
+                } else {
+                    // V2 assets predate per-draw palettes. Keep them functional, but update the
+                    // CPU-deformed buffer only when their pose changes -- never once per screen.
+                    if (skin.RuntimeMeshPath != path || skin.RuntimeMeshHandle == 0 || skin.RuntimeDynamicPoseSignature != skin.RuntimePoseSignature) {
+                        MeshData deformed = SkinMesh(source, skin.RuntimeSkinMatrices);
+                        if (skin.RuntimeMeshPath != path || skin.RuntimeMeshHandle == 0)
+                            skin.RuntimeMeshHandle = renderer.CreateDynamicMesh(deformed);
+                        else
+                            renderer.UpdateDynamicMesh(skin.RuntimeMeshHandle, deformed);
+                        skin.RuntimeMeshPath = path;
+                        skin.RuntimeDynamicPoseSignature = skin.RuntimePoseSignature;
+                    }
+                    if (skin.RuntimeMeshHandle == 0) continue;
+                    renderer.DrawMesh(MeshDrawCommand{ MeshPrimitive::Cube, skin.RuntimeMeshHandle, i, transform.Translation, transform.Rotation, transform.Scale,
+                        material.Color, ResolveMeshTexture(renderer, material.Texture), material.ShadingMode });
+                }
                 stats.MeshDrawCalls++;
                 if (material.ShadingMode == MaterialShadingMode::VertexLit && renderView.MainLight.Enabled)
                     stats.VertexLitDrawCalls++;

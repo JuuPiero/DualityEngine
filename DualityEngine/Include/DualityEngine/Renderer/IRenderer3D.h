@@ -11,6 +11,7 @@
 #include "DualityEngine/Renderer/Screen.h"
 
 namespace Duality {
+    struct MeshData;
 
     // Backend-agnostic 3D renderer interface -- deliberately separate from IRenderer2D, not a
     // superset of it: a pixel-space quad and a perspective-projected mesh don't share enough
@@ -101,6 +102,11 @@ namespace Duality {
         // failed or the file didn't resolve to any vertices). Cached by path internally, same
         // convention as LoadTexture.
         virtual uint32_t LoadMesh(const std::string& path) = 0;
+
+        // Per-entity mutable upload for CPU-skinned meshes. Unlike LoadMesh this is never
+        // cached by path: two characters sharing one .dmesh must keep independent poses.
+        virtual uint32_t CreateDynamicMesh(const MeshData&) { return 0; }
+        virtual void UpdateDynamicMesh(uint32_t, const MeshData&) {}
 
         // Same "free everything cached, meant for scene transitions" contract as
         // IRenderer2D::UnloadAllTextures -- see that method's own comment. Separate from

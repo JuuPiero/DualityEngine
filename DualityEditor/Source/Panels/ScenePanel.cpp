@@ -76,8 +76,10 @@ namespace Duality {
 
         bool IsMeshAsset(const std::string& guid) {
             const std::string extension = AssetExtension(guid);
-            return extension == ".obj" || extension == ".mesh";
+            return extension == ".obj" || extension == ".mesh" || extension == ".dmesh";
         }
+
+        bool IsAnimationAsset(const std::string& guid) { return AssetExtension(guid) == ".anim"; }
 
         bool IsMaterialAsset(const std::string& guid) { return AssetExtension(guid) == ".mat"; }
         bool IsAudioAsset(const std::string& guid) {
@@ -174,6 +176,8 @@ namespace Duality {
                 entity.AddComponent<MeshRendererComponent>().Materials = { AssetRef{ guid } };
             } else if (IsAudioAsset(guid)) {
                 entity.AddComponent<AudioSourceComponent>().Clip = AssetRef{ guid };
+            } else if (IsAnimationAsset(guid)) {
+                entity.AddComponent<AnimationComponent>().Clip = AssetRef{ guid };
             } else {
                 ctx.SceneRef.DestroyEntity(entity);
                 return;
@@ -195,7 +199,7 @@ namespace Duality {
             const std::string activeGuid = draggingAsset ? static_cast<const char*>(activePayload->Data) : std::string{};
             const bool draggingPrefab = draggingAsset && IsPrefabAsset(activeGuid);
             const bool draggingWorldResource = draggingAsset &&
-                (IsMeshAsset(activeGuid) || IsMaterialAsset(activeGuid) || IsAudioAsset(activeGuid));
+                (IsMeshAsset(activeGuid) || IsMaterialAsset(activeGuid) || IsAudioAsset(activeGuid) || IsAnimationAsset(activeGuid));
             if (draggingAsset && (draggingPrefab || IsImageAsset(activeGuid) || draggingWorldResource)) {
                 ImDrawList* drawList = ImGui::GetWindowDrawList();
                 const ImU32 border = willCreateUI ? IM_COL32(84, 210, 170, 255) : IM_COL32(85, 160, 255, 255);
@@ -204,7 +208,8 @@ namespace Duality {
                     : (IsMeshAsset(activeGuid) ? "Drop mesh: create Mesh Renderer"
                     : (IsMaterialAsset(activeGuid) ? "Drop material: create Mesh Renderer"
                     : (IsAudioAsset(activeGuid) ? "Drop audio: create Audio Source"
-                    : (willCreateUI ? "Drop image: create UI Image" : "Drop image: create Sprite"))));
+                    : (IsAnimationAsset(activeGuid) ? "Drop animation: create Animation"
+                    : (willCreateUI ? "Drop image: create UI Image" : "Drop image: create Sprite")))));
                 const ImVec2 textSize = ImGui::CalcTextSize(hint);
                 const ImVec2 textPos{ imagePos.x + (imageSize.x - textSize.x) * 0.5f, imagePos.y + 10.0f };
                 drawList->AddRectFilled(ImVec2(textPos.x - 6.0f, textPos.y - 3.0f),

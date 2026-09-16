@@ -64,6 +64,11 @@ namespace Duality {
         // legacy opaque contract. Alpha-blended draws must normally disable depth writes.
         bool AlphaBlend = false;
         bool DepthWrite = true;
+        // Non-owning, synchronous skinning palette. SceneRenderer builds this once when a
+        // character's pose changes; a backend consumes it during this DrawMesh call only.
+        // Null/zero preserves the regular static-mesh path exactly.
+        const glm::mat4* SkinMatrices = nullptr;
+        uint32_t SkinMatrixCount = 0;
     };
 
 }

@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <unordered_set>
 
 #include "DualityEditor/ThumbnailCache.h"
 
@@ -102,6 +103,9 @@ namespace Duality {
         // actual OpenPopup until after that menu has closed.
         bool m_RequestCreateScriptDialog = false;
         std::string m_RangeAnchorPath;
+        // Source-model paths whose Assimp-discovered children are currently visible in the grid.
+        // The same inventory is always available as a tree child in the left Project pane.
+        std::unordered_set<std::string> m_ExpandedModelPaths;
 
         // Empty = no delete confirmation open; otherwise the path awaiting a Yes/Cancel
         // decision in the modal popup rendered at the bottom of OnImGuiRender.

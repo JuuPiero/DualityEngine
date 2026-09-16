@@ -14,6 +14,7 @@ add_executable(DualityEditor
     Source/AssetInspectors.cpp
     Source/SceneOps.cpp
     Source/EditorSettings.cpp
+    Source/ModelImporter.cpp
     Source/Panels/MenuBarPanel.cpp
     Source/Panels/HierarchyPanel.cpp
     Source/Panels/PropertiesPanel.cpp
@@ -35,7 +36,7 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(GLEW REQUIRED)
 
 target_include_directories(DualityEditor PRIVATE Include)
-target_link_libraries(DualityEditor PRIVATE DualityEngine glfw GLEW::GLEW opengl32 comdlg32 ImGui stb)
+target_link_libraries(DualityEditor PRIVATE DualityEngine glfw GLEW::GLEW opengl32 comdlg32 ImGui stb assimp::assimp)
 
 # Keep editor-only visual assets next to the executable for both IDE launches and a copied
 # desktop editor folder. They are never included by DualityPlayer / the 3DS build.

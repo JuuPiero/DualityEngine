@@ -17,6 +17,7 @@ add_executable(DualityEngineTests
     AssetImportSettingsTests.cpp
     MaterialTests.cpp
     MeshLoaderTests.cpp
+    ModelRuntimeAssetTests.cpp
     RigidbodyAPITests.cpp
     DualityPropertyTests.cpp
     SceneManagementTests.cpp

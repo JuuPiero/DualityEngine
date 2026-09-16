@@ -1,10 +1,12 @@
 #include "DualityEngine/Asset/MeshLoader.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <unordered_map>
 #include <utility>
 
@@ -72,6 +74,87 @@ namespace Duality {
         if (!file) {
             Log::Warn("MeshLoader: could not open '" + path + "'");
         } else {
+            std::string extension = std::filesystem::path(path).extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            if (extension == ".dmesh") {
+                // Fixed little-endian layout written by ModelImporter: magic/version/counts,
+                // then explicit float fields (never raw glm structs, whose padding differs by ABI).
+                char magic[4]{};
+                uint32_t version = 0, vertexCount = 0, subMeshCount = 0, boneCount = 0;
+                float radius = 0.0f;
+                const bool validHeader = std::fread(magic, 1, sizeof(magic), file) == sizeof(magic) &&
+                    std::fread(&version, sizeof(version), 1, file) == 1 &&
+                    std::fread(&vertexCount, sizeof(vertexCount), 1, file) == 1 &&
+                    std::fread(&subMeshCount, sizeof(subMeshCount), 1, file) == 1 &&
+                    std::fread(&radius, sizeof(radius), 1, file) == 1 &&
+                    std::memcmp(magic, "DMSH", 4) == 0 && (version >= 1 && version <= 3) &&
+                    (version == 1 || std::fread(&boneCount, sizeof(boneCount), 1, file) == 1);
+                if (!validHeader) {
+                    Log::Warn("MeshLoader: invalid .dmesh '" + path + "'");
+                } else {
+                    bool valid = true;
+                    for (uint32_t i = 0; i < boneCount && valid; ++i) {
+                        uint32_t length = 0;
+                        if (std::fread(&length, sizeof(length), 1, file) != 1 || length > 4096) { valid = false; break; }
+                        MeshData::Bone bone;
+                        bone.Name.resize(length);
+                        if (length && std::fread(bone.Name.data(), 1, length, file) != length) { valid = false; break; }
+                        if (std::fread(&bone.Offset[0][0], sizeof(float), 16, file) != 16) { valid = false; break; }
+                        data.Bones.push_back(std::move(bone));
+                    }
+                    data.Vertices.resize(vertexCount);
+                    for (MeshVertex& vertex : data.Vertices) {
+                        float values[12]{};
+                        if (std::fread(values, sizeof(float), 12, file) != 12) { valid = false; break; }
+                        vertex.Position = { values[0], values[1], values[2] };
+                        vertex.TexCoord = { values[3], values[4] };
+                        vertex.Normal = { values[5], values[6], values[7] };
+                        vertex.Color = { values[8], values[9], values[10], values[11] };
+                        if (version == 2) {
+                            // Version 2 stored global u32 bone ids. Keep it loadable as a
+                            // CPU-skin fallback, while all newly cooked V3 assets use local
+                            // byte palette ids.
+                            uint32_t legacyIndices[4]{};
+                            if (std::fread(legacyIndices, sizeof(uint32_t), 4, file) != 4 ||
+                                std::fread(&vertex.BoneWeights, sizeof(float), 4, file) != 4) { valid = false; break; }
+                            for (int influence = 0; influence < 4; ++influence)
+                                vertex.BoneIndices[influence] = static_cast<uint8_t>(std::min<uint32_t>(legacyIndices[influence], 255));
+                            data.LegacyBoneIndices.push_back({ legacyIndices[0], legacyIndices[1], legacyIndices[2], legacyIndices[3] });
+                        } else if (version == 3 &&
+                            (std::fread(&vertex.BoneIndices, sizeof(uint8_t), 4, file) != 4 ||
+                             std::fread(&vertex.BoneWeights, sizeof(float), 4, file) != 4)) { valid = false; break; }
+                    }
+                    for (uint32_t i = 0; valid && i < subMeshCount; ++i) {
+                        MeshData::SubMesh subMesh;
+                        if (std::fread(&subMesh.FirstVertex, sizeof(uint32_t), 1, file) != 1 ||
+                            std::fread(&subMesh.VertexCount, sizeof(uint32_t), 1, file) != 1 ||
+                            subMesh.FirstVertex + subMesh.VertexCount > vertexCount) { valid = false; break; }
+                        if (version == 3) {
+                            uint32_t paletteCount = 0;
+                            if (std::fread(&paletteCount, sizeof(paletteCount), 1, file) != 1 || paletteCount > 24) {
+                                valid = false; break;
+                            }
+                            subMesh.BonePalette.resize(paletteCount);
+                            if (paletteCount && std::fread(subMesh.BonePalette.data(), sizeof(uint16_t), paletteCount, file) != paletteCount) {
+                                valid = false; break;
+                            }
+                            for (uint16_t bone : subMesh.BonePalette)
+                                if (bone >= boneCount) { valid = false; break; }
+                        }
+                        data.SubMeshes.push_back(subMesh);
+                    }
+                    if (!valid) {
+                        data = {};
+                        Log::Warn("MeshLoader: truncated .dmesh '" + path + "'");
+                    } else {
+                        data.BoundingRadius = radius;
+                    }
+                }
+                std::fclose(file);
+                return s_Cache.emplace(path, std::move(data)).first->second;
+            }
             std::vector<glm::vec3> positions;
             std::vector<glm::vec2> texcoords;
             std::vector<glm::vec3> normals;

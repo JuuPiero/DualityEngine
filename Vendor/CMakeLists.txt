@@ -117,6 +117,24 @@ target_include_directories(BulletDynamics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/bul
 # --- Desktop-only editor dependencies -------------------------------------
 # Never pulled in for the 3DS configure (the Editor itself is desktop-only).
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
+    # Assimp is deliberately an Editor/cooker-only dependency.  Its imported scene is converted
+    # to Duality's cooked .dmesh asset before a 3DS build; neither this target nor Assimp's
+    # parsers may be linked into DualityPlayer on device.  The vendored snapshot was pruned to
+    # the shared core plus Obj, FBX and glTF/glTF2 importer sources -- see assimp/DUALITY_VENDOR.md.
+    # EXCLUDE_FROM_ALL validates that the subset configures, without making existing desktop
+    # builds compile an importer before MeshCooker actually links it.
+    set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_FBX_IMPORTER ON CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_GLTF_IMPORTER ON CACHE BOOL "" FORCE)
+    set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+    set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/assimp EXCLUDE_FROM_ALL)
+
     # GLFW + GLEW come from the mingw-w64 package repo (prebuilt, with CMake
     # config files) rather than being built from source -- this sidesteps
     # GLAD's offline code-generation step entirely.

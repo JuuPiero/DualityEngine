@@ -37,4 +37,12 @@ namespace Duality {
             static_cast<GLsizei>(stride), reinterpret_cast<void*>(offset));
     }
 
+    void GLVertexArray::AddUnsignedByteAttribute(int location, int componentCount, size_t stride, size_t offset) {
+        glEnableVertexAttribArray(static_cast<GLuint>(location));
+        // The skin shader receives vec4 rather than uvec4 so GLSL 1.30 converts these raw,
+        // non-normalized local palette ids to exact small float values.
+        glVertexAttribPointer(static_cast<GLuint>(location), componentCount, GL_UNSIGNED_BYTE, GL_FALSE,
+            static_cast<GLsizei>(stride), reinterpret_cast<void*>(offset));
+    }
+
 }

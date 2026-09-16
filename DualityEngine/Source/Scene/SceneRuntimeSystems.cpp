@@ -7,7 +7,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include <glm/gtc/quaternion.hpp>
+
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/AnimationClipLoader.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Scene.h"
 
@@ -160,6 +163,45 @@ namespace Duality {
                         break;
                     }
                 }
+            }
+        }
+
+        // One Animation component drives every imported channel whose node name resolves to a
+        // scene entity. This lets a rig root play a whole skeleton; a one-channel clip remains
+        // convenient for an ordinary moving prop.
+        for (auto handle : scene.Registry().view<AnimationComponent, TransformComponent, NameComponent>()) {
+            Entity entity(handle, &scene);
+            if (!scene.IsEffectivelyActive(entity))
+                continue;
+            auto& animation = scene.Registry().get<AnimationComponent>(handle);
+            if (!animation.Enabled || !animation.Playing || animation.Clip.Guid.empty())
+                continue;
+            const std::string path = AssetDatabase::ResolvePath(animation.Clip.Guid);
+            if (path.empty())
+                continue;
+            const AnimationClipData& clip = AnimationClipLoader::Load(path);
+            if (clip.Duration <= 0.0f)
+                continue;
+            animation.Time += std::max(0.0f, deltaTime) * std::max(0.0f, animation.Speed);
+            if (animation.Time >= clip.Duration) {
+                if (animation.Loop)
+                    animation.Time = std::fmod(animation.Time, clip.Duration);
+                else {
+                    animation.Time = clip.Duration;
+                    animation.Playing = false;
+                }
+            }
+            std::unordered_map<std::string, entt::entity> namedEntities;
+            for (auto candidate : scene.Registry().view<NameComponent>())
+                namedEntities[scene.Registry().get<NameComponent>(candidate).Name] = candidate;
+            for (const AnimationChannel& channel : clip.Channels) {
+                auto found = namedEntities.find(channel.NodeName);
+                if (found == namedEntities.end() || !scene.Registry().all_of<TransformComponent>(found->second)) continue;
+                auto& transform = scene.Registry().get<TransformComponent>(found->second);
+                transform.Translation = AnimationClipLoader::Sample(channel.PositionKeys, animation.Time, transform.Translation);
+                transform.Scale = AnimationClipLoader::Sample(channel.ScaleKeys, animation.Time, transform.Scale);
+                const glm::quat current = glm::quat(glm::radians(transform.Rotation));
+                transform.Rotation = glm::degrees(glm::eulerAngles(AnimationClipLoader::Sample(channel.RotationKeys, animation.Time, current)));
             }
         }
 

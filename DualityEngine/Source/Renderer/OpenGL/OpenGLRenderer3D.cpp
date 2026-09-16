@@ -25,28 +25,39 @@ namespace Duality {
             "uniform float u_LightIntensity;\n"
             "uniform mat4 u_ShadowMatrix;\n"
             "uniform int u_UseShadowMap;\n"
+            "uniform int u_Skinned;\n"
+            "uniform mat4 u_Bones[24];\n"
             "in vec3 a_Position;\n"
             "in vec2 a_TexCoord;\n"
             "in vec3 a_Normal;\n"
             "in vec4 a_VertexColor;\n"
+            "in vec4 a_BoneIndices;\n"
+            "in vec4 a_BoneWeights;\n"
             "out vec2 v_TexCoord;\n"
             "out vec3 v_Lighting;\n"
             "out vec4 v_VertexColor;\n"
             "out vec4 v_ShadowPosition;\n"
             "void main() {\n"
+            "    vec4 localPosition = vec4(a_Position, 1.0);\n"
+            "    vec3 localNormal = a_Normal;\n"
+            "    if (u_Skinned != 0) {\n"
+            "        mat4 skin = a_BoneWeights.x * u_Bones[int(a_BoneIndices.x)] + a_BoneWeights.y * u_Bones[int(a_BoneIndices.y)] + a_BoneWeights.z * u_Bones[int(a_BoneIndices.z)] + a_BoneWeights.w * u_Bones[int(a_BoneIndices.w)];\n"
+            "        localPosition = skin * localPosition;\n"
+            "        localNormal = mat3(skin) * localNormal;\n"
+            "    }\n"
             "    v_TexCoord = a_TexCoord;\n"
             "    v_VertexColor = a_VertexColor;\n"
-            "    v_ShadowPosition = u_ShadowMatrix * u_Model * vec4(a_Position, 1.0);\n"
+            "    v_ShadowPosition = u_ShadowMatrix * u_Model * localPosition;\n"
             "    v_Lighting = vec3(1.0);\n"
             "    if (u_ShadingMode != 0) {\n"
             // Keep the desktop shader at GLSL 1.30, the same compatibility profile used by
             // the editor and ImGui backend. GLSL 1.30 does not reliably provide inverse(),
             // so the inverse-transpose normal matrix is calculated on the CPU per draw.
-            "        vec3 normal = normalize(u_NormalMatrix * a_Normal);\n"
+            "        vec3 normal = normalize(u_NormalMatrix * localNormal);\n"
             "        float diffuse = max(dot(normal, normalize(u_LightDirection)), 0.0);\n"
             "        v_Lighting = u_AmbientColor + u_LightColor * (u_LightIntensity * diffuse);\n"
             "    }\n"
-            "    gl_Position = u_ViewProjection * u_Model * vec4(a_Position, 1.0);\n"
+            "    gl_Position = u_ViewProjection * u_Model * localPosition;\n"
             "}\n";
 
         const char* FragmentShaderSource =
@@ -75,8 +86,16 @@ namespace Duality {
             "#version 130\n"
             "uniform mat4 u_ViewProjection;\n"
             "uniform mat4 u_Model;\n"
+            "uniform int u_Skinned;\n"
+            "uniform mat4 u_Bones[24];\n"
             "in vec3 a_Position;\n"
-            "void main() { gl_Position = u_ViewProjection * u_Model * vec4(a_Position, 1.0); }\n";
+            "in vec4 a_BoneIndices;\n"
+            "in vec4 a_BoneWeights;\n"
+            "void main() {\n"
+            "  vec4 position = vec4(a_Position, 1.0);\n"
+            "  if (u_Skinned != 0) { mat4 skin = a_BoneWeights.x * u_Bones[int(a_BoneIndices.x)] + a_BoneWeights.y * u_Bones[int(a_BoneIndices.y)] + a_BoneWeights.z * u_Bones[int(a_BoneIndices.z)] + a_BoneWeights.w * u_Bones[int(a_BoneIndices.w)]; position = skin * position; }\n"
+            "  gl_Position = u_ViewProjection * u_Model * position;\n"
+            "}\n";
 
         const char* ShadowFragmentShaderSource =
             "#version 130\n"
@@ -105,15 +124,19 @@ namespace Duality {
         mesh.AddFloatAttribute(m_AttribTexCoord, 2, sizeof(MeshVertex), offsetof(MeshVertex, TexCoord));
         mesh.AddFloatAttribute(m_AttribNormal, 3, sizeof(MeshVertex), offsetof(MeshVertex, Normal));
         mesh.AddFloatAttribute(m_AttribVertexColor, 4, sizeof(MeshVertex), offsetof(MeshVertex, Color));
+        mesh.AddUnsignedByteAttribute(m_AttribBoneIndices, 4, sizeof(MeshVertex), offsetof(MeshVertex, BoneIndices));
+        mesh.AddFloatAttribute(m_AttribBoneWeights, 4, sizeof(MeshVertex), offsetof(MeshVertex, BoneWeights));
         mesh.Unbind();
         return mesh;
     }
 
     void OpenGLRenderer3D::Init() {
         m_Shader.Init(VertexShaderSource, FragmentShaderSource, {
-            { "a_Position", 0 }, { "a_TexCoord", 1 }, { "a_Normal", 2 }, { "a_VertexColor", 3 }
+            { "a_Position", 0 }, { "a_TexCoord", 1 }, { "a_Normal", 2 }, { "a_VertexColor", 3 },
+            { "a_BoneIndices", 4 }, { "a_BoneWeights", 5 }
         });
-        m_ShadowShader.Init(ShadowVertexShaderSource, ShadowFragmentShaderSource, { { "a_Position", 0 } });
+        m_ShadowShader.Init(ShadowVertexShaderSource, ShadowFragmentShaderSource,
+            { { "a_Position", 0 }, { "a_BoneIndices", 4 }, { "a_BoneWeights", 5 } });
 
         m_UniformViewProjection = m_Shader.GetUniformLocation("u_ViewProjection");
         m_UniformModel = m_Shader.GetUniformLocation("u_Model");
@@ -128,12 +151,18 @@ namespace Duality {
         m_UniformShadowMatrix = m_Shader.GetUniformLocation("u_ShadowMatrix");
         m_UniformShadowMap = m_Shader.GetUniformLocation("u_ShadowMap");
         m_UniformUseShadowMap = m_Shader.GetUniformLocation("u_UseShadowMap");
+        m_UniformSkinned = m_Shader.GetUniformLocation("u_Skinned");
+        m_UniformBones = m_Shader.GetUniformLocation("u_Bones[0]");
         m_AttribPosition = m_Shader.GetAttribLocation("a_Position");
         m_AttribTexCoord = m_Shader.GetAttribLocation("a_TexCoord");
         m_AttribNormal = m_Shader.GetAttribLocation("a_Normal");
         m_AttribVertexColor = m_Shader.GetAttribLocation("a_VertexColor");
+        m_AttribBoneIndices = m_Shader.GetAttribLocation("a_BoneIndices");
+        m_AttribBoneWeights = m_Shader.GetAttribLocation("a_BoneWeights");
         m_ShadowUniformViewProjection = m_ShadowShader.GetUniformLocation("u_ViewProjection");
         m_ShadowUniformModel = m_ShadowShader.GetUniformLocation("u_Model");
+        m_ShadowUniformSkinned = m_ShadowShader.GetUniformLocation("u_Skinned");
+        m_ShadowUniformBones = m_ShadowShader.GetUniformLocation("u_Bones[0]");
 
         for (int i = 0; i < static_cast<int>(MeshPrimitive::Count); i++) {
             const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(static_cast<MeshPrimitive>(i));
@@ -281,6 +310,10 @@ namespace Duality {
         const glm::mat4 model = ComposeWorldMtx(command.Translation, command.RotationDegrees, command.Scale);
         m_ShadowShader.SetUniformMat4(m_ShadowUniformViewProjection, m_ActiveShadowPass.ViewProjection);
         m_ShadowShader.SetUniformMat4(m_ShadowUniformModel, model);
+        const bool skinned = command.SkinMatrices != nullptr && command.SkinMatrixCount > 0 && command.SkinMatrixCount <= 24;
+        glUniform1i(m_ShadowUniformSkinned, skinned ? 1 : 0);
+        if (skinned)
+            glUniformMatrix4fv(m_ShadowUniformBones, static_cast<GLsizei>(command.SkinMatrixCount), GL_FALSE, &command.SkinMatrices[0][0][0]);
         const GLVertexArray& mesh = (command.MeshHandle != 0) ? m_ImportedMeshes[command.MeshHandle - 1] : m_Meshes[static_cast<int>(command.Primitive)];
         mesh.Bind();
         const std::vector<MeshData::SubMesh>& subMeshes = mesh.GetSubMeshes();
@@ -337,6 +370,10 @@ namespace Duality {
         glUniform1f(m_UniformLightIntensity, m_RenderView.MainLight.Intensity);
         m_Shader.SetUniformMat4(m_UniformShadowMatrix, m_RenderView.ShadowMap.ViewProjection);
         glUniform1i(m_UniformUseShadowMap, m_RenderView.HasShadowMap ? 1 : 0);
+        const bool skinned = command.SkinMatrices != nullptr && command.SkinMatrixCount > 0 && command.SkinMatrixCount <= 24;
+        glUniform1i(m_UniformSkinned, skinned ? 1 : 0);
+        if (skinned)
+            glUniformMatrix4fv(m_UniformBones, static_cast<GLsizei>(command.SkinMatrixCount), GL_FALSE, &command.SkinMatrices[0][0][0]);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, command.TextureId != 0 ? command.TextureId : m_WhiteTexture);
@@ -399,6 +436,22 @@ namespace Duality {
 
         m_MeshCache[path] = meshHandle; // cache failures too, matching LoadTexture above
         return meshHandle;
+    }
+
+    uint32_t OpenGLRenderer3D::CreateDynamicMesh(const MeshData& data) {
+        if (data.Vertices.empty()) return 0;
+        m_ImportedMeshes.push_back(UploadGpuMesh(data.Vertices));
+        m_ImportedMeshes.back().SetSubMeshes(data.SubMeshes);
+        return static_cast<uint32_t>(m_ImportedMeshes.size());
+    }
+
+    void OpenGLRenderer3D::UpdateDynamicMesh(uint32_t meshHandle, const MeshData& data) {
+        if (meshHandle == 0 || meshHandle > m_ImportedMeshes.size()) return;
+        GLVertexArray& mesh = m_ImportedMeshes[meshHandle - 1];
+        mesh.Bind();
+        mesh.SetVertexData(data.Vertices.data(), data.Vertices.size() * sizeof(MeshVertex), static_cast<int>(data.Vertices.size()));
+        mesh.SetSubMeshes(data.SubMeshes);
+        mesh.Unbind();
     }
 
     void OpenGLRenderer3D::UnloadAllTextures() {
