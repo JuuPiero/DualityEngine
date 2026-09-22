@@ -21,6 +21,10 @@ namespace Duality {
         // devenv.exe) -- PreferencesPanel's "Browse..."/"Open Project in External Editor".
         // Empty until the user picks one.
         std::string ExternalEditorPath;
+
+        // One of Blue, Pink, Dark. This is editor-wide rather than project-wide: a project
+        // should never force a collaborator's desktop UI colors.
+        std::string ColorTheme = "Blue";
     };
 
 }

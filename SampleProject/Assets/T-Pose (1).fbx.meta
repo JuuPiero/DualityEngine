@@ -1,0 +1,192 @@
+{
+  "ModelImporter": {
+    "Children": [
+      {
+        "AssetGuid": "2edaf6726b3c9077461392a43069bc41",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_0.dmesh",
+        "Detail": "1221 vertices, 1504 triangles, 22 bones, cooked .dmesh",
+        "Index": 0,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "20b4257adb8a8c68018058f527a907c1",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_1.dmesh",
+        "Detail": "3876 vertices, 3984 triangles, 22 bones, cooked .dmesh",
+        "Index": 1,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "34104a47fb3e7e3e20295b6933ad57a1",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_2.dmesh",
+        "Detail": "644 vertices, 640 triangles, 22 bones, cooked .dmesh",
+        "Index": 2,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "0fb20b91454506fb2e981b0295b55e14",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_3.dmesh",
+        "Detail": "7156 vertices, 7824 triangles, 22 bones, cooked .dmesh",
+        "Index": 3,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "9f9c3ff76292f2fd517c4a6e7335b0d6",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_4.dmesh",
+        "Detail": "1453 vertices, 1920 triangles, 22 bones, cooked .dmesh",
+        "Index": 4,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "8d15618775f50d9f3a54bb555bc0ac50",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_5.dmesh",
+        "Detail": "10669 vertices, 11400 triangles, 22 bones, cooked .dmesh",
+        "Index": 5,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "8a219828ae245eac0e056aa29b737cc4",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_6.dmesh",
+        "Detail": "2713 vertices, 3968 triangles, 22 bones, cooked .dmesh",
+        "Index": 6,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "a341a71fc89582c54fb6851e5b30c551",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_7.dmesh",
+        "Detail": "476 vertices, 512 triangles, 22 bones, cooked .dmesh",
+        "Index": 7,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "693e08cd6ddf87e7d925df501e546710",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_8.dmesh",
+        "Detail": "211 vertices, 208 triangles, 22 bones, cooked .dmesh",
+        "Index": 8,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "64e6bdc8f4ef9cb1fd4d8c0ea49d9f47",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_9.dmesh",
+        "Detail": "3535 vertices, 2304 triangles, 22 bones, cooked .dmesh",
+        "Index": 9,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "b2ea7c263b08f744266fb55cc57107c1",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\mesh_10.dmesh",
+        "Detail": "611 vertices, 976 triangles, 22 bones, cooked .dmesh",
+        "Index": 10,
+        "Name": "Cylinder.001",
+        "Type": "Mesh"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 0,
+        "Name": "mt_scrren top",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 1,
+        "Name": "mt_white",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 2,
+        "Name": "mt_black",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 3,
+        "Name": "mt_jacket",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 4,
+        "Name": "mt_gold",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 5,
+        "Name": "mt_pink",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 6,
+        "Name": "mt_pink_white",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 7,
+        "Name": "mt_d_pink",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 8,
+        "Name": "mt_screen",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 9,
+        "Name": "black",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "",
+        "AssetPath": "",
+        "Detail": "source material",
+        "Index": 10,
+        "Name": "mt_eyes",
+        "Type": "Material"
+      },
+      {
+        "AssetGuid": "ff1e07cf4f1ba8bb0e7e9110e158a4ba",
+        "AssetPath": "SampleProject/Assets\\.duality-import\\3cedc98a45109310a1d8bf4968f3046b\\animation_0.anim",
+        "Detail": "14 channels, 0.033333 sec, cooked .anim",
+        "Index": 0,
+        "Name": "mixamo.com",
+        "Type": "Animation"
+      }
+    ],
+    "Version": 1
+  },
+  "guid": "3cedc98a45109310a1d8bf4968f3046b"
+}

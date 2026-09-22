@@ -14,6 +14,7 @@ add_executable(DualityEditor
     Source/AssetInspectors.cpp
     Source/SceneOps.cpp
     Source/EditorSettings.cpp
+    Source/EditorTheme.cpp
     Source/ModelImporter.cpp
     Source/Panels/MenuBarPanel.cpp
     Source/Panels/HierarchyPanel.cpp

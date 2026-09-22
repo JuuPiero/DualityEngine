@@ -7,7 +7,7 @@
 #include "D:/Workspace/CPP/DualityEngine/GameScripts/Include/FeatureShowcaseBehaviour.h"
 #include "D:/Workspace/CPP/DualityEngine/GameScripts/Include/PatrolEnemyBehaviour.h"
 #include "D:/Workspace/CPP/DualityEngine/GameScripts/Include/PlayerController.h"
-#include "D:/Workspace/CPP/DualityEngine/SampleProject/Assets/Scripts/ProjectDemoBehaviour.h"
+#include "D:/Workspace/CPP/Tripple-Fruit-Duality/Assets/Scripts/GameManager.h"
 
 std::vector<::Duality::FieldHandle> BounceWobble::Fields() {
     return {
@@ -66,9 +66,9 @@ std::vector<::Duality::FieldHandle> PlayerController::Fields() {
     };
 }
 
-std::vector<::Duality::FieldHandle> ProjectDemoBehaviour::Fields() {
+std::vector<::Duality::FieldHandle> GameManager::Fields() {
     return {
-        ::Duality::MakeField("Speed", &ProjectDemoBehaviour::Speed),
+        ::Duality::MakeField("FruitConfig", &GameManager::FruitConfig),
     };
 }
 

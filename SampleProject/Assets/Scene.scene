@@ -848,6 +848,42 @@
           205.96803283691406
         ]
       }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [],
+        "Mesh": "3cedc98a45109310a1d8bf4968f3046b",
+        "Primitive": "Cube",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Cube"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          50.0,
+          50.0,
+          50.0
+        ],
+        "Translation": [
+          -24.197546005249023,
+          80.11214447021484,
+          -118.26936340332031
+        ]
+      }
     }
   ],
   "WorldUnitsVersion": 2

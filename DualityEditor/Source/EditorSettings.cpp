@@ -29,6 +29,7 @@ namespace Duality {
                 try {
                     file >> root;
                     settings.ExternalEditorPath = root.value("ExternalEditorPath", "");
+                    settings.ColorTheme = root.value("ColorTheme", "Blue");
                 } catch (const json::parse_error&) {
                     // Corrupt/empty file -- fall through with defaults rather than fail the
                     // whole Editor over one malformed preferences file.
@@ -48,6 +49,7 @@ namespace Duality {
 
         json root;
         root["ExternalEditorPath"] = ExternalEditorPath;
+        root["ColorTheme"] = ColorTheme;
 
         std::ofstream file(path);
         if (!file.is_open())

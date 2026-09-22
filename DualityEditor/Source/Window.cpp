@@ -12,6 +12,8 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 
+#include "DualityEditor/EditorSettings.h"
+#include "DualityEditor/EditorTheme.h"
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Input/InputManager.h"
 
@@ -119,27 +121,9 @@ namespace Duality {
         }
         ImGui::GetStyle().ScaleAllSizes(UiScale);
 
-        // A calmer, higher-contrast blue-gray editor theme. The 3DS Game/Scene framebuffers
-        // are rendered independently, so these colors affect desktop tooling only.
-        ImGuiStyle& style = ImGui::GetStyle();
-        style.WindowRounding = 5.0f;
-        style.ChildRounding = 4.0f;
-        style.FrameRounding = 3.0f;
-        style.GrabRounding = 3.0f;
-        style.TabRounding = 4.0f;
-        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.055f, 0.065f, 0.09f, 1.0f);
-        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.070f, 0.080f, 0.11f, 1.0f);
-        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.105f, 0.125f, 0.17f, 1.0f);
-        style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.145f, 0.185f, 0.25f, 1.0f);
-        style.Colors[ImGuiCol_Button] = ImVec4(0.105f, 0.24f, 0.42f, 1.0f);
-        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.14f, 0.34f, 0.58f, 1.0f);
-        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.09f, 0.20f, 0.36f, 1.0f);
-        style.Colors[ImGuiCol_Header] = ImVec4(0.10f, 0.25f, 0.45f, 0.75f);
-        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.14f, 0.34f, 0.58f, 0.85f);
-        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.12f, 0.30f, 0.53f, 1.0f);
-        style.Colors[ImGuiCol_Tab] = ImVec4(0.08f, 0.11f, 0.16f, 1.0f);
-        style.Colors[ImGuiCol_TabActive] = ImVec4(0.11f, 0.25f, 0.44f, 1.0f);
-        style.Colors[ImGuiCol_TabHovered] = ImVec4(0.14f, 0.34f, 0.58f, 1.0f);
+        // The active theme is applied after scaling: switching themes later changes only
+        // color/shape values and can never reset the user's UI scale or font atlas.
+        ApplyEditorTheme(EditorThemeFromString(EditorSettings::Get().ColorTheme));
 
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
