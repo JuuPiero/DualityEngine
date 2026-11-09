@@ -10,3 +10,11 @@ build-3ds-test
 DualityPlayer/romfs/Assets/
 DualityPlayer/romfs/AssetManifest.json
 build-check
+build-render
+build-3ds-render
+
+# TypeScript scripting: generated bundles / project type stubs / the toolchain's npm install.
+DualityPlayer/romfs/Scripts/
+**/Library/ScriptAssemblies/
+**/Library/Types/
+Tools/TypeScript/node_modules/

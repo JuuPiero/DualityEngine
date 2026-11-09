@@ -8,6 +8,7 @@
 
 #include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Physics/RaycastHit.h"
+#include "DualityEngine/Renderer/LightingSettings.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Scene/Layer.h"
 
@@ -18,6 +19,7 @@ namespace Duality {
     // GetWorldTransform can return it by value. Every call site already includes
     // Components.h for other reasons before actually using the returned value.
     struct TransformComponent;
+    class Behaviour;
 
     class Scene {
     public:
@@ -145,6 +147,33 @@ namespace Duality {
         void OnApplicationPause(bool paused);
         void OnApplicationQuit();
 
+        // True between OnRuntimeStart and OnRuntimeStop (Play mode / on-device runtime).
+        bool IsRunning() const { return m_Running; }
+
+        // Creates (and Awakes -- OnCreate) every script slot in `root`'s subtree that has no
+        // live instance yet. Used for entities that appear DURING Play: a prefab spawned by
+        // Instantiate, or a script added by AddRuntimeScript. OnEnable/OnUpdate follow on the
+        // next OnRuntimeUpdate exactly like scripts that existed at Play start. Also creates
+        // the subtree's Box2D/Bullet bodies (before Awake) and starts Play On Awake audio.
+        // No-op outside Play.
+        void CreateRuntimeScripts(Entity root);
+
+        // Unity's AddComponent<MyScript>() at runtime: appends a ScriptInstance for
+        // `className` and, during Play, creates + Awakes it immediately. Returns the new
+        // instance (nullptr outside Play or for an unknown class).
+        Behaviour* AddRuntimeScript(Entity entity, const std::string& className);
+
+        // Unity's Object.Destroy(gameObject): queues `entity` (and its children) for
+        // destruction at the end of the current OnRuntimeUpdate -- scripts get OnDisable/
+        // OnDestroy, physics bodies are released, then the entity is removed. Outside Play it
+        // destroys immediately. Safe to call from any script callback, also twice.
+        void DestroyEntityDeferred(Entity entity);
+
+        // Converts a desired WORLD transform of `entity` into the local TransformComponent
+        // that composes back to it under its current parent (exact inverse of
+        // GetWorldTransform's 2D-affine composition). For a root entity world == local.
+        TransformComponent WorldToLocal(Entity entity, const TransformComponent& world);
+
         // Destroys every entity and resets root-entity bookkeeping, leaving this Scene as if
         // freshly default-constructed -- used before loading new content into an EXISTING
         // Scene object (Editor "Load Scene"/opening a different scene, Play->Stop reverting
@@ -156,6 +185,12 @@ namespace Duality {
         void Clear();
 
         entt::registry& Registry() { return m_Registry; }
+
+        // Scene-wide environment lighting (ambient), saved with the scene under "Lighting".
+        // Not touched by Clear(); SceneSerializer::DeserializeFromJson resets it from the file
+        // (or to defaults for scenes saved before lighting settings existed).
+        LightingSettings& GetLightingSettings() { return m_Lighting; }
+        const LightingSettings& GetLightingSettings() const { return m_Lighting; }
 
     private:
         // Returns m_RootEntities when parent is null, else parent's own
@@ -181,6 +216,18 @@ namespace Duality {
         // Fixed-timestep accumulator (see OnRuntimeUpdate's own comment on why physics steps at
         // a constant 1/60s regardless of the real, variable frame deltaTime it's called with).
         float m_PhysicsAccumulator = 0.0f;
+
+        // Play-mode bookkeeping for CreateRuntimeScripts/DestroyEntityDeferred.
+        bool m_Running = false;
+        std::vector<entt::entity> m_PendingDestroy;
+        void FlushPendingDestroys();
+        void ReleaseRuntimeState(entt::entity entity);
+        // Creates + Awakes every not-yet-instantiated script slot on one entity.
+        void CreateScriptsOn(entt::entity handle);
+        // Box2D/Bullet bodies for every eligible entity (nullptr) or only the listed ones.
+        void CreatePhysicsBodies(const std::vector<entt::entity>* only);
+
+        LightingSettings m_Lighting;
     };
 
     // --- Entity template method definitions -------------------------------

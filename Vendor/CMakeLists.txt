@@ -114,6 +114,32 @@ unset(_bullet_saved_cxx_flags)
 # patching every one of Bullet's own per-module CMakeLists.txt files.
 target_include_directories(BulletDynamics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/bullet3/src)
 
+# --- QuickJS-ng (TypeScript/JavaScript scripting runtime) ---------------------
+# quickjs-ng v0.17.0, vendored as plain source like Box2D/Bullet (only the core engine:
+# quickjs.c + dtoa/libregexp/libunicode -- no quickjs-libc std/os modules, no qjs/qjsc CLIs;
+# DualityEngine/Source/Scripting/JS/ provides the host bindings and the bytecode compiler).
+# Built on BOTH platforms: desktop (MinGW, Editor/DualityPlayerDesktop/Tests) and 3DS
+# (devkitARM newlib -- pthread/atomics come from libsysbase, already linked by the 3DS
+# platform file). Always -O2 even in the desktop's unoptimized default configuration: this is
+# vendor C code nobody steps through, and an -O0 interpreter would make every script-overhead
+# measurement meaningless. Warnings are silenced for the same "not our code" reason.
+add_library(quickjs STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/quickjs-ng/quickjs.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/quickjs-ng/dtoa.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/quickjs-ng/libregexp.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/quickjs-ng/libunicode.c
+)
+target_include_directories(quickjs PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/quickjs-ng)
+# NDEBUG: QuickJS's internal asserts (e.g. "objects still alive" in JS_FreeRuntime) must never
+# abort the Editor; the host checks leaks itself (Tests/JsScriptingTests.cpp).
+target_compile_definitions(quickjs PRIVATE _GNU_SOURCE NDEBUG)
+target_compile_options(quickjs PRIVATE -O2 -w)
+if(WIN32)
+    target_compile_definitions(quickjs PRIVATE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
+else()
+    target_link_libraries(quickjs PUBLIC m)
+endif()
+
 # --- Desktop-only editor dependencies -------------------------------------
 # Never pulled in for the 3DS configure (the Editor itself is desktop-only).
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")

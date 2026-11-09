@@ -5,6 +5,22 @@
 
 namespace Duality {
 
+    namespace {
+        // Inspector slider + tooltip for a built-in field (FieldHandle presentation metadata).
+        FieldHandle Ranged(FieldHandle field, float min, float max, const char* tooltip) {
+            field.HasRange = true;
+            field.RangeMin = min;
+            field.RangeMax = max;
+            field.Tooltip = tooltip;
+            return field;
+        }
+
+        FieldHandle WithTooltip(FieldHandle field, const char* tooltip) {
+            field.Tooltip = tooltip;
+            return field;
+        }
+    }
+
     void RegisterBuiltinComponents() {
         if (!TypeRegistry::All().empty())
             return;
@@ -124,6 +140,28 @@ namespace Duality {
             MakeField("Color", &DirectionalLightComponent::Color),
             MakeField("Intensity", &DirectionalLightComponent::Intensity),
             MakeField("Cast Shadows", &DirectionalLightComponent::CastShadows),
+        });
+
+        TypeRegistry::Register<PointLightComponent>("Point Light", false, {
+            MakeField("Enabled", &PointLightComponent::Enabled),
+            MakeField("Color", &PointLightComponent::Color),
+            Ranged(MakeField("Intensity", &PointLightComponent::Intensity), 0.0f, 4.0f,
+                "Color x Intensity saturates at 1 per channel (PICA200 8-bit light registers)."),
+            WithTooltip(MakeField("Range", &PointLightComponent::Range),
+                "World units; light fades to exactly 0 at this distance."),
+        });
+
+        TypeRegistry::Register<SpotLightComponent>("Spot Light", false, {
+            MakeField("Enabled", &SpotLightComponent::Enabled),
+            MakeField("Color", &SpotLightComponent::Color),
+            Ranged(MakeField("Intensity", &SpotLightComponent::Intensity), 0.0f, 4.0f,
+                "Color x Intensity saturates at 1 per channel (PICA200 8-bit light registers)."),
+            WithTooltip(MakeField("Range", &SpotLightComponent::Range),
+                "World units; light fades to exactly 0 at this distance."),
+            Ranged(MakeField("Spot Angle", &SpotLightComponent::SpotAngle), 1.0f, 179.0f,
+                "Full cone angle in degrees (points along the entity's -Z axis)."),
+            Ranged(MakeField("Inner Spot Angle", &SpotLightComponent::InnerSpotAngle), 0.0f, 179.0f,
+                "Full angle of the fully-lit core; light fades from here to Spot Angle."),
         });
 
         TypeRegistry::Register<LayerComponent>("Layer", false, {

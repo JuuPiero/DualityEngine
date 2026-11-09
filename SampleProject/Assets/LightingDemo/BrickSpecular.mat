@@ -1,0 +1,46 @@
+{
+    "Version": 2,
+    "Shader": "Lit/Specular",
+    "Surface": "Opaque",
+    "Cull": "Back",
+    "ZWrite": "Auto",
+    "Render Queue": -1,
+    "Properties": {
+        "_Color": [
+            1,
+            1,
+            1,
+            1
+        ],
+        "_MainTex": "dcbe19fd35d243b2be92307aac3a5196",
+        "_MainTex_ST": [
+            2,
+            1,
+            0,
+            0
+        ],
+        "_BumpMap": "9f092f04570d4148bfd79fb5aea513e5",
+        "_Cutoff": 0.5,
+        "_SpecColor": [
+            0.6,
+            0.6,
+            0.6,
+            1
+        ],
+        "_Shininess": 0.3,
+        "_EmissionColor": [
+            0,
+            0,
+            0,
+            1
+        ],
+        "_ShadeColor": [
+            0,
+            0,
+            0,
+            1
+        ],
+        "_ToonSteps": 1,
+        "_ToonSmoothness": 0.05
+    }
+}

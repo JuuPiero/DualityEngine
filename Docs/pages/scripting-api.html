@@ -14,8 +14,9 @@
                 <div class="eyebrow">API Reference</div>
                 <h1>Scripting API (Behaviour)</h1>
                 <p class="lede">
-                    Mọi gameplay code kế thừa <code>Duality::Behaviour</code> — C++ thuần, không
-                    ngôn ngữ script nhúng. Build thành DLL hot-reload trên desktop
+                    Gameplay code C++ kế thừa <code>Duality::Behaviour</code> (muốn viết bằng
+                    TypeScript: xem <a href="typescript-scripting.html">TypeScript Scripting</a> —
+                    hai loại script dùng chung entity, Inspector và scene). Build thành DLL hot-reload trên desktop
                     (<strong>Reload Scripts</strong>, không cần khởi động lại Editor), link tĩnh
                     vào <code>DualityPlayer</code> trên 3DS — <strong>cùng một bộ source</strong>,
                     không sửa code giữa hai nền tảng. Mọi method dưới đây gọi được từ bất kỳ
@@ -74,9 +75,11 @@
                     <tr><td><code>OnCreate()</code></td><td>Một lần khi Play bắt đầu (giống <code>Awake</code> Unity) — chạy kể cả khi entity bắt đầu ở trạng thái inactive.</td></tr>
                     <tr><td><code>OnEnable()</code> / <code>OnDisable()</code></td><td>Mỗi khi <code>Scene::IsEffectivelyActive</code> của entity đổi trạng thái (do chính nó gọi <code>SetActive</code>, hoặc do cha đổi) — có thể chạy nhiều lần trong một lần Play.</td></tr>
                     <tr><td><code>OnUpdate(float deltaTime)</code></td><td>Mỗi frame, chỉ khi đang active.</td></tr>
+                    <tr><td><code>OnLateUpdate(float deltaTime)</code></td><td>Mỗi frame, sau khi mọi script đã chạy <code>OnUpdate</code>.</td></tr>
+                    <tr><td><code>OnFixedUpdate(float fixedDeltaTime)</code></td><td>Mỗi bước vật lý cố định 1/60 s (0..N lần/frame), trước khi bước đó được mô phỏng.</td></tr>
                     <tr><td><code>OnCollisionEnter(Entity other)</code> / <code>OnCollisionExit(Entity other)</code></td><td>Cặp collider chạm/rời nhau, không bên nào <code>IsTrigger</code>. Cả 2D và 3D dùng chung callback này.</td></tr>
                     <tr><td><code>OnTriggerEnter(Entity other)</code> / <code>OnTriggerExit(Entity other)</code></td><td>Giống trên, nhưng ít nhất một bên <code>IsTrigger = true</code>.</td></tr>
-                    <tr><td><code>OnDestroy()</code></td><td>Một lần lúc Stop — một instance vẫn active nhận thêm một <code>OnDisable()</code> cuối ngay trước đó.</td></tr>
+                    <tr><td><code>OnDestroy()</code></td><td>Một lần lúc Stop — một instance vẫn active nhận thêm một <code>OnDisable()</code> cuối ngay trước đó. Cũng chạy cuối frame khi entity bị <code>ScriptScene::Destroy(entity)</code>.</td></tr>
                 </table>
                 <div class="callout warn">
                     Chưa có <code>OnCollisionStay</code>/<code>OnTriggerStay</code> (chạy mỗi frame

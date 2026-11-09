@@ -32,6 +32,9 @@ namespace Duality {
 
         static bool GetPointerDown();
         static bool GetPointerUp();
+        // True only on the frame the pointer went down (Unity's GetMouseButtonDown) --
+        // GetPointerDown above is the held state.
+        static bool GetPointerPressed();
         // Local pixel coordinates (top-left origin, Y-down) within whichever screen
         // GetPointerScreen() reports -- NOT a single shared coordinate space across both
         // screens (Top is 400x240, Bottom is 320x240; the platform host resolves which one the

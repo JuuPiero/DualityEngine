@@ -1,0 +1,612 @@
+{
+  "CanvasUIVersion": 1,
+  "Entities": [
+    {
+      "Active": {
+        "Active": true
+      },
+      "Camera": {
+        "Background": [
+          0.05000000074505806,
+          0.05999999865889549,
+          0.10000000149011612,
+          1.0
+        ],
+        "Culling Mask": 4294967295,
+        "Enabled": true,
+        "Far Plane": 100.0,
+        "Fov Degrees": 50.0,
+        "Near Plane": 0.10000000149011612,
+        "Primary": true,
+        "Projection": "Perspective",
+        "Screen": "Top",
+        "Zoom": 1.0
+      },
+      "Name": {
+        "Name": "TopCamera"
+      },
+      "Parent": -1,
+      "Physics Raycaster 2D": {
+        "Enabled": true
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          -17.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          3.0,
+          7.800000190734863
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Camera": {
+        "Background": [
+          0.05000000074505806,
+          0.05999999865889549,
+          0.10000000149011612,
+          1.0
+        ],
+        "Culling Mask": 4294967295,
+        "Enabled": true,
+        "Far Plane": 100.0,
+        "Fov Degrees": 55.0,
+        "Near Plane": 0.10000000149011612,
+        "Primary": true,
+        "Projection": "Perspective",
+        "Screen": "Bottom",
+        "Zoom": 1.0
+      },
+      "Name": {
+        "Name": "BottomCamera"
+      },
+      "Parent": -1,
+      "Physics Raycaster 2D": {
+        "Enabled": true
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          -20.0,
+          57.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          5.599999904632568,
+          2.5999999046325684,
+          3.5999999046325684
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Directional Light": {
+        "Cast Shadows": true,
+        "Color": [
+          1.0,
+          0.949999988079071,
+          0.8500000238418579
+        ],
+        "Enabled": true,
+        "Intensity": 0.8500000238418579
+      },
+      "Name": {
+        "Name": "Sun"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          -50.0,
+          -35.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "Lamp (Point)"
+      },
+      "Parent": -1,
+      "Point Light": {
+        "Color": [
+          1.0,
+          0.5,
+          0.15000000596046448
+        ],
+        "Enabled": true,
+        "Intensity": 1.600000023841858,
+        "Range": 5.0
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          -2.299999952316284,
+          1.100000023841858,
+          1.2999999523162842
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "Spot"
+      },
+      "Parent": -1,
+      "Spot Light": {
+        "Color": [
+          0.44999998807907104,
+          0.75,
+          1.0
+        ],
+        "Enabled": true,
+        "Inner Spot Angle": 30.0,
+        "Intensity": 1.600000023841858,
+        "Range": 9.0,
+        "Spot Angle": 48.0
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          -80.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          2.4000000953674316,
+          4.199999809265137,
+          1.600000023841858
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "f6f5ff57a08a4aa3999c61add211eec5"
+        ],
+        "Mesh": "",
+        "Primitive": "Plane",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Ground"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          14.0,
+          1.0,
+          14.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "2726bfbc91384b84926cf412e460f225"
+        ],
+        "Mesh": "",
+        "Primitive": "Sphere",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Brick Sphere (Lit/Specular + normal map)"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.7999999523162842,
+          1.7999999523162842,
+          1.7999999523162842
+        ],
+        "Translation": [
+          -1.100000023841858,
+          0.8999999761581421,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "e48711bbda63479ea46c38042e94a742"
+        ],
+        "Mesh": "",
+        "Primitive": "Capsule",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Toon Capsule (Toon/Lit)"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          2.200000047683716,
+          2.200000047683716,
+          2.200000047683716
+        ],
+        "Translation": [
+          1.5,
+          1.100000023841858,
+          -0.30000001192092896
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "982ac9e043b74e588f536af3c3f7fa9e"
+        ],
+        "Mesh": "",
+        "Primitive": "Cube",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Shiny Cube (Lit/Specular)"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          25.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          2.5999999046325684,
+          0.5,
+          1.7000000476837158
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "0e47985fa20a4abb9966baa81f12f06b"
+        ],
+        "Mesh": "",
+        "Primitive": "Cube",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Glass Cube (Transparent)"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          35.0,
+          0.0
+        ],
+        "Scale": [
+          1.2000000476837158,
+          1.2000000476837158,
+          1.2000000476837158
+        ],
+        "Translation": [
+          0.20000000298023224,
+          0.6499999761581421,
+          2.200000047683716
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "f88066254862338300d1e7afc9357c8e"
+        ],
+        "Mesh": "",
+        "Primitive": "Cube",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Legacy VertexLit Cube (TestOrange v1)"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          20.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          -3.4000000953674316,
+          0.5,
+          -1.600000023841858
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "a2209fb1707f4a4ab4b85eabd1bf7b40"
+        ],
+        "Mesh": "",
+        "Primitive": "Plane",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Leaves (Cutout)"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          90.0,
+          -20.0,
+          0.0
+        ],
+        "Scale": [
+          2.4000000953674316,
+          1.0,
+          2.4000000953674316
+        ],
+        "Translation": [
+          3.5999999046325684,
+          1.2999999523162842,
+          -2.200000047683716
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "f9e1cd9ec15f400688b2000d6801c440"
+        ],
+        "Mesh": "",
+        "Primitive": "Sphere",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Lamp Glow (Additive)"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          0.44999998807907104,
+          0.44999998807907104,
+          0.44999998807907104
+        ],
+        "Translation": [
+          -2.299999952316284,
+          1.100000023841858,
+          1.2999999523162842
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "586e6b305f7e48d7a8f01108f642a2c7"
+        ],
+        "Mesh": "",
+        "Primitive": "Cube",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Emissive Panel"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          2.200000047683716,
+          2.200000047683716,
+          0.15000000596046448
+        ],
+        "Translation": [
+          -0.6000000238418579,
+          1.2999999523162842,
+          -3.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Mesh Renderer": {
+        "Enabled": true,
+        "Materials": [
+          "b30df4e4f7064c1892418ef502429708"
+        ],
+        "Mesh": "",
+        "Primitive": "Cube",
+        "Sort Order": 0
+      },
+      "Name": {
+        "Name": "Unlit Color Cube"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          45.0,
+          0.0
+        ],
+        "Scale": [
+          0.6000000238418579,
+          0.6000000238418579,
+          0.6000000238418579
+        ],
+        "Translation": [
+          -2.5999999046325684,
+          0.30000001192092896,
+          2.9000000953674316
+        ]
+      }
+    }
+  ],
+  "Lighting": {
+    "Ambient Color": [
+      0.17000000178813934,
+      0.18000000715255737,
+      0.23999999463558197,
+      1.0
+    ],
+    "Ambient Intensity": 1.0
+  },
+  "WorldUnitsVersion": 2
+}

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TypeScript Scripting — DualityEngine Docs</title>
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body data-page="typescript-scripting">
+    <div class="shell">
+        <nav class="sidebar" id="sidebar-root"></nav>
+        <main class="main">
+            <div class="content">
+                <div class="eyebrow">Scripting</div>
+                <h1>TypeScript Scripting (QuickJS)</h1>
+                <p class="lede">
+                    Ngoài C++ (<code>Behaviour</code>), gameplay script còn viết được bằng
+                    <strong>TypeScript</strong> với API giống Unity/PiaEngine
+                    (<code>MonoBehaviour</code>, <code>getComponent</code>, <code>@field</code>...),
+                    chạy trên trình thông dịch <strong>QuickJS-ng</strong> nhúng trong engine — cùng
+                    một bundle chạy trong Editor, <code>DualityPlayerDesktop</code> và trên 3DS
+                    (dạng bytecode). Script TS và C++ gắn chung một entity, hiện chung trong
+                    <strong>Add Component</strong>, lưu chung định dạng scene JSON và đi qua đúng
+                    cùng vòng đời của <code>Scene</code>.
+                </p>
+
+                <h2 style="border-top:none;margin-top:0">Script đầu tiên</h2>
+                <p>Content Browser → chuột phải → <strong>Create &gt; TypeScript Script</strong>. Mỗi class <code>export</code> kế thừa <code>MonoBehaviour</code> là một script (tên = tên export).</p>
+                <pre><code><span class="tok-kw">import</span> { MonoBehaviour, Time, Input, KeyCode, Prefab, field } <span class="tok-kw">from</span> <span class="tok-str">'duality'</span>;
+
+<span class="tok-kw">export class</span> Rotator <span class="tok-kw">extends</span> MonoBehaviour {
+  @field({ range: [<span class="tok-num">0</span>, <span class="tok-num">720</span>] }) degreesPerSecond = <span class="tok-num">90</span>;  <span class="tok-com">// slider</span>
+  @field(Prefab) effect: Prefab | <span class="tok-kw">null</span> = <span class="tok-kw">null</span>;            <span class="tok-com">// kéo .prefab vào</span>
+  clockwise = <span class="tok-kw">true</span>;                                    <span class="tok-com">// field public: tự hiện + tự lưu</span>
+
+  <span class="tok-fn">update</span>() {
+    <span class="tok-kw">this</span>.transform.<span class="tok-fn">rotate</span>(<span class="tok-num">0</span>, <span class="tok-num">0</span>, (<span class="tok-kw">this</span>.clockwise ? <span class="tok-num">1</span> : -<span class="tok-num">1</span>) * <span class="tok-kw">this</span>.degreesPerSecond * Time.deltaTime);
+    <span class="tok-kw">if</span> (Input.<span class="tok-fn">getKeyDown</span>(KeyCode.GamepadA) &amp;&amp; <span class="tok-kw">this</span>.effect) <span class="tok-kw">this</span>.<span class="tok-fn">instantiate</span>(<span class="tok-kw">this</span>.effect);
+  }
+}</code></pre>
+                <p>Lưu file là đủ: Editor theo dõi <code>Assets/**/*.ts</code>, biên dịch nền (esbuild + kiểm tra kiểu TypeScript) và nạp lại; lỗi hiện trong Console dạng <code>Assets/Rotator.ts:12:5: error: ...</code>. Đổi script trong lúc Play thì bản mới được nạp khi bấm Stop. Cần cài <strong>Node.js</strong> (<code>node</code> trong PATH) cho Editor; game đã build không cần.</p>
+
+                <h2>Vòng đời</h2>
+                <table>
+                    <tr><th>TypeScript</th><th>C++ tương ứng</th><th>Khi nào</th></tr>
+                    <tr><td><code>awake()</code></td><td><code>OnCreate</code></td><td>Một lần khi Play bắt đầu / khi prefab được instantiate.</td></tr>
+                    <tr><td><code>onEnable()</code> / <code>onDisable()</code></td><td><code>OnEnable</code> / <code>OnDisable</code></td><td>Khi entity/script bật/tắt.</td></tr>
+                    <tr><td><code>start()</code></td><td>—</td><td>Ngay trước <code>update</code>/<code>fixedUpdate</code> đầu tiên.</td></tr>
+                    <tr><td><code>fixedUpdate()</code></td><td><code>OnFixedUpdate</code></td><td>Mỗi bước vật lý 1/60 s, trước khi mô phỏng (<code>Time.deltaTime</code> = 1/60).</td></tr>
+                    <tr><td><code>update()</code> / <code>lateUpdate()</code></td><td><code>OnUpdate</code> / <code>OnLateUpdate</code></td><td>Mỗi frame.</td></tr>
+                    <tr><td><code>onCollisionEnter2D(c: Collision2D)</code>, <code>onTriggerEnter2D(o: Collider2D)</code> (+ Exit)</td><td><code>OnCollisionEnter</code>...</td><td>Va chạm 2D (Box2D). Thiếu bản 2D thì gọi bản không hậu tố.</td></tr>
+                    <tr><td><code>onCollisionEnter(c: Collision)</code>, <code>onTriggerEnter(o: Collider)</code> (+ Exit)</td><td>như trên</td><td>Va chạm 3D (Bullet).</td></tr>
+                    <tr><td><code>onDestroy()</code></td><td><code>OnDestroy</code></td><td>Lúc Stop hoặc cuối frame entity bị <code>destroy</code>.</td></tr>
+                </table>
+                <p>Coroutine: <code>this.startCoroutine(gen)</code> với <code>yield null</code>, <code>yield new WaitForSeconds(1)</code>, <code>WaitUntil</code>, <code>WaitWhile</code> hoặc một coroutine khác; <code>invoke(method, delay)</code>, <code>invokeRepeating</code>, <code>destroy(go, delay)</code>.</p>
+
+                <h2>Field trong Inspector</h2>
+                <table>
+                    <tr><th>Khai báo</th><th>Inspector</th><th>Lưu trong scene</th></tr>
+                    <tr><td><code>speed = 5</code>, <code>name = ''</code>, <code>on = true</code>, <code>offset = new Vector2()</code>, <code>tint = new Color()</code></td><td>Tự nhận theo giá trị mặc định</td><td>giá trị</td></tr>
+                    <tr><td><code>@field({ range: [0, 10] })</code>, <code>@field('int')</code>, <code>@field({ options: ['A','B'] })</code>, <code>@field({ enum: MyEnum })</code></td><td>Slider / số nguyên / dropdown</td><td>giá trị</td></tr>
+                    <tr><td><code>@field(GameObject)</code>, <code>@field(Transform)</code>, <code>@field(Rigidbody2D)</code>, <code>@field(MyScript)</code></td><td>Kéo entity từ Hierarchy</td><td>index entity (như <code>EntityRef</code>)</td></tr>
+                    <tr><td><code>@field(Prefab)</code>, <code>@field(AudioClip)</code>, <code>@field(Texture)</code>, <code>@field(Material)</code>, <code>@field(ScriptableObject)</code></td><td>Kéo asset</td><td>GUID (như <code>AssetRef</code>)</td></tr>
+                    <tr><td><code>@field([GameObject])</code>, <code>@field([Prefab])</code></td><td>Danh sách</td><td>mảng</td></tr>
+                    <tr><td><code>tooltip</code>, <code>header</code>; <code>@nonSerialized</code>; field <code>_private</code></td><td>Tooltip / tiêu đề / ẩn</td><td>—</td></tr>
+                </table>
+                <div class="callout note">Định dạng lưu giống hệt script C++ (<code>"Scripts": [{ "ClassName", "Enabled", "PropertyOverrides" }]</code>). Nếu bundle TS chưa build được khi mở scene, giá trị của script đó được giữ nguyên văn và ghi lại khi Save — lỗi biên dịch không làm mất dữ liệu Inspector.</div>
+
+                <h2>API (<code>import { ... } from 'duality'</code>)</h2>
+                <table>
+                    <tr><th>Nhóm</th><th>API</th></tr>
+                    <tr><td>Object</td><td><code>GameObject</code> (<code>find</code>, <code>findWithTag</code>, <code>getComponent(s)</code>, <code>getComponentInChildren/Parent</code>, <code>addComponent</code>, <code>setActive</code>, <code>activeInHierarchy</code>, <code>sendMessage</code>, <code>new GameObject(name)</code>), <code>instantiate(prefabOrGo, parent?, position?)</code>, <code>destroy(go, delay?)</code></td></tr>
+                    <tr><td>Transform</td><td><code>position</code>, <code>localPosition</code>, <code>eulerAngles</code>, <code>rotation</code> (Quaternion), <code>localScale</code>, <code>translate</code>, <code>rotate</code>, <code>parent</code>, <code>setParent</code>, <code>getChild</code>, <code>find</code>, <code>forward/right/up</code>; không cấp phát: <code>getPosition(out)</code>, <code>setPosition(x,y,z)</code></td></tr>
+                    <tr><td>Component</td><td><code>Rigidbody2D</code> (velocity, angularVelocity, addForce(ForceMode2D), addTorque, movePosition, mass), <code>Rigidbody</code>, <code>Collider2D</code>/<code>BoxCollider2D</code>/<code>CircleCollider2D</code>, <code>Collider</code>/<code>BoxCollider</code>/<code>SphereCollider</code>, <code>AudioSource</code>, <code>SpriteRenderer</code>, <code>MeshRenderer</code>, <code>Camera</code>, <code>ParticleSystem</code>; mọi component khác: <code>getComponent('Tên Inspector').get/set('Field')</code></td></tr>
+                    <tr><td>Script C++</td><td><code>getComponent('PlayerController')</code> → <code>NativeScript</code> với <code>get/set</code> field <code>DUALITY_PROPERTY</code>, <code>enabled</code></td></tr>
+                    <tr><td>Hệ thống</td><td><code>Time</code>, <code>Input</code> + <code>KeyCode</code> (phím desktop, nút 3DS, chuột/cảm ứng), <code>Debug</code>/<code>console</code>, <code>Physics2D.raycast/overlapPoint</code>, <code>Physics.raycast/screenPointToRay</code>, <code>SceneManager</code>, <code>Application</code></td></tr>
+                    <tr><td>Math</td><td><code>Vector2/3/4</code>, <code>Quaternion</code>, <code>Color</code>, <code>Mathf</code>, <code>Random</code> — +Y hướng xuống (<code>Vector2.up = (0,-1)</code>) như world của engine</td></tr>
+                </table>
+                <p>Từ C++: <code>FindScript("Rotator")</code>, <code>GetScriptField("Rotator", "degreesPerSecond", value)</code>, <code>SetScriptField(...)</code>, <code>SendScriptMessage("Rotator", "methodName")</code>.</p>
+
+                <h2>Build &amp; chạy</h2>
+                <table>
+                    <tr><th>Nơi chạy</th><th>Cách nạp script</th></tr>
+                    <tr><td>Editor</td><td><code>node Tools/TypeScript/build-scripts.mjs &lt;project&gt; --typecheck</code> chạy tự động → <code>&lt;project&gt;/Library/ScriptAssemblies/scripts.js</code> + <code>.map</code></td></tr>
+                    <tr><td>DualityPlayerDesktop</td><td>Nạp <code>Library/ScriptAssemblies/scripts.js</code> của project (<code>--scene TypeScriptDemo/TypeScriptDemo.scene</code> để chạy demo)</td></tr>
+                    <tr><td>3DS</td><td><strong>Build for 3DS</strong>: bundle release (minify) → <code>DualityJsc</code> → <code>romfs:/Scripts/scripts.jsbc</code> (bytecode QuickJS, không tốn parser lúc boot) + <code>scripts.js</code> dự phòng + <code>.map</code> (chỉ đọc khi có lỗi)</td></tr>
+                </table>
+                <div class="callout">
+                    <span class="callout-title">Bộ nhớ trên 3DS</span>
+                    Một runtime QuickJS cho cả game: giới hạn heap 8 MB, ngưỡng GC 512 KB, stack 192 KB
+                    (<code>JsRuntimeOptions::PlatformDefault</code>). Scene demo dùng khoảng 0,25–0,3 MB heap trên 3DS (đo trong Citra; bundle 39 KB JS / 61 KB bytecode, nạp ~80 ms). Mã máy QuickJS thêm khoảng 0,85 MB vào file <code>.3dsx</code>.
+                </div>
+                <div class="callout warn">
+                    Lỗi runtime (exception) được log kèm file:dòng TypeScript và chỉ tắt script bị lỗi trong
+                    lần Play đó. Vòng lặp vô hạn bị watchdog ngắt sau 3 s (desktop) / 5 s (3DS).
+                </div>
+
+                <div class="page-nav">
+                    <a class="prev" href="scripting-api.html"><span class="dir">← Trước</span>Scripting (C++)</a>
+                    <a class="next" href="serialization-references.html"><span class="dir">Tiếp →</span>Serialization &amp; References</a>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="../js/nav.js"></script>
+</body>
+</html>

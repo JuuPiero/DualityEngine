@@ -1,0 +1,46 @@
+{
+    "Version": 2,
+    "Shader": "Toon/Lit",
+    "Surface": "Opaque",
+    "Cull": "Back",
+    "ZWrite": "Auto",
+    "Render Queue": -1,
+    "Properties": {
+        "_Color": [
+            1.0,
+            0.55,
+            0.2,
+            1
+        ],
+        "_MainTex": "",
+        "_MainTex_ST": [
+            1,
+            1,
+            0,
+            0
+        ],
+        "_BumpMap": "",
+        "_Cutoff": 0.5,
+        "_SpecColor": [
+            1,
+            0.95,
+            0.8,
+            1
+        ],
+        "_Shininess": 0.35,
+        "_EmissionColor": [
+            0,
+            0,
+            0,
+            1
+        ],
+        "_ShadeColor": [
+            0.25,
+            0.1,
+            0.2,
+            1
+        ],
+        "_ToonSteps": 2,
+        "_ToonSmoothness": 0.08
+    }
+}

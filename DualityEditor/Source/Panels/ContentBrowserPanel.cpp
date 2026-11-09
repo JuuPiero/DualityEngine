@@ -71,7 +71,8 @@ namespace Duality {
         AssetDatabase::Register(guid, path.string());
     }
 
-    // Writes a brand-new default (white, no texture) Material to "<directory>/NewMaterial[
+    // Writes a brand-new default Material (Lit/Diffuse, white, back-face culled -- Unity's
+    // Default-Material equivalent) to "<directory>/NewMaterial[
     // (N)].mat" -- same numbered-suffix/3-step-registration shape as CreateScriptableObjectAsset
     // above, the Content Browser's "Create Material" flow.
     static void CreateMaterialAsset(const std::filesystem::path& directory) {
@@ -79,7 +80,7 @@ namespace Duality {
         for (int suffix = 1; std::filesystem::exists(path); suffix++)
             path = directory / ("NewMaterial (" + std::to_string(suffix) + ").mat");
 
-        if (!MaterialLoader::Save(path.string(), Material{})) {
+        if (!MaterialLoader::Save(path.string(), Material::CreateDefaultLit())) {
             Log::Error("ContentBrowserPanel: failed to create Material at '" + path.string() + "'");
             return;
         }
@@ -121,9 +122,38 @@ namespace Duality {
     std::string DefaultScriptClassName(const std::filesystem::path& directory) {
         std::string className = "NewBehaviour";
         for (int suffix = 1; std::filesystem::exists(directory / (className + ".h")) ||
-             std::filesystem::exists(directory / (className + ".cpp")); ++suffix)
+             std::filesystem::exists(directory / (className + ".cpp")) ||
+             std::filesystem::exists(directory / (className + ".ts")); ++suffix)
             className = "NewBehaviour" + std::to_string(suffix);
         return className;
+    }
+
+    // Writes a TypeScript MonoBehaviour ("<directory>/<Name>.ts"). The Editor's
+    // TypeScriptCompiler notices the new file within a second, bundles the project and the class
+    // appears under Add Component -- no Reload Scripts click needed (unlike C++).
+    static bool CreateTypeScriptAsset(const std::filesystem::path& directory, const std::string& className) {
+        if (!IsCppIdentifier(className))
+            return false;
+        std::filesystem::path path = directory / (className + ".ts");
+        if (std::filesystem::exists(path))
+            return false;
+        std::ofstream file(path);
+        if (!file.is_open()) {
+            Log::Error("ContentBrowserPanel: failed to create '" + path.string() + "'");
+            return false;
+        }
+        file <<
+            "import { MonoBehaviour, Time, Vector3, field } from 'duality';\n\n"
+            "export class " << className << " extends MonoBehaviour {\n"
+            "  // Public fields with a plain default show up in the Inspector; @field adds options.\n"
+            "  @field({ range: [0, 10] }) speed = 1;\n\n"
+            "  start() {\n"
+            "  }\n\n"
+            "  update() {\n"
+            "    // this.transform.translate(this.speed * Time.deltaTime, 0, 0);\n"
+            "  }\n"
+            "}\n";
+        return true;
     }
 
     // Writes a brand-new Behaviour script (`.h` + `.cpp` pair) to "<directory>/<Name>.h"/".cpp"
@@ -629,7 +659,8 @@ namespace Duality {
         BeginRename(path);
     }
 
-    void ContentBrowserPanel::BeginCreateScript() {
+    void ContentBrowserPanel::BeginCreateScript(bool typeScript) {
+        m_CreateTypeScript = typeScript;
         const std::string defaultName = DefaultScriptClassName(m_CurrentDirectory);
         std::snprintf(m_NewScriptName, sizeof(m_NewScriptName), "%s", defaultName.c_str());
         m_FocusNewScriptName = true;
@@ -1004,8 +1035,10 @@ namespace Duality {
                     CreateFolder(m_CurrentDirectory);
                 if (ImGui::MenuItem("Scene"))
                     CreateSceneAsset(m_CurrentDirectory);
-                if (ImGui::MenuItem("Script"))
-                    BeginCreateScript();
+                if (ImGui::MenuItem("C++ Script"))
+                    BeginCreateScript(false);
+                if (ImGui::MenuItem("TypeScript Script"))
+                    BeginCreateScript(true);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Material"))
                     CreateMaterialAsset(m_CurrentDirectory);
@@ -1028,32 +1061,38 @@ namespace Duality {
         // include and REGISTER_BEHAVIOUR argument must agree, so a single pre-create dialog is
         // safer and much faster than two ordinary file renames after a NewBehaviour pair exists.
         if (m_RequestCreateScriptDialog) {
-            ImGui::OpenPopup("Create C++ Behaviour");
+            ImGui::OpenPopup("Create Script");
             m_RequestCreateScriptDialog = false;
         }
-        if (ImGui::BeginPopupModal("Create C++ Behaviour", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::BeginPopupModal("Create Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             if (m_FocusNewScriptName) {
                 ImGui::SetKeyboardFocusHere();
                 m_FocusNewScriptName = false;
             }
-            ImGui::TextUnformatted("Class name (creates matching .h and .cpp):");
+            ImGui::TextUnformatted(m_CreateTypeScript ? "TypeScript class name (creates <Name>.ts):"
+                                                      : "C++ class name (creates matching .h and .cpp):");
             const bool submitted = ImGui::InputText("##NewScriptName", m_NewScriptName, sizeof(m_NewScriptName), ImGuiInputTextFlags_EnterReturnsTrue);
             const std::string className = m_NewScriptName;
             const bool validName = IsCppIdentifier(className);
             const std::filesystem::path headerPath = m_CurrentDirectory / (className + ".h");
             const std::filesystem::path sourcePath = m_CurrentDirectory / (className + ".cpp");
-            const bool alreadyExists = validName && (std::filesystem::exists(headerPath) || std::filesystem::exists(sourcePath));
+            const std::filesystem::path tsPath = m_CurrentDirectory / (className + ".ts");
+            const bool alreadyExists = validName && (m_CreateTypeScript ? std::filesystem::exists(tsPath)
+                : (std::filesystem::exists(headerPath) || std::filesystem::exists(sourcePath)));
             if (!validName)
-                ImGui::TextDisabled("Use a C++ identifier: letters, digits and _, beginning with a letter or _.");
+                ImGui::TextDisabled("Use an identifier: letters, digits and _, beginning with a letter or _.");
             else if (alreadyExists)
-                ImGui::TextDisabled("A .h or .cpp with this name already exists.");
+                ImGui::TextDisabled("A script file with this name already exists.");
+            else if (m_CreateTypeScript)
+                ImGui::TextDisabled("%s.ts (compiled automatically, no Reload Scripts needed)", className.c_str());
             else
                 ImGui::TextDisabled("%s.h and %s.cpp", className.c_str(), className.c_str());
             ImGui::Separator();
             ImGui::BeginDisabled(!validName || alreadyExists);
             if (submitted || ImGui::Button("Create", ImVec2(100.0f, 0.0f))) {
-                if (CreateScriptAsset(m_CurrentDirectory, className)) {
-                    Log::Info("Created Behaviour script pair '" + className + ".h/.cpp'");
+                if (m_CreateTypeScript ? CreateTypeScriptAsset(m_CurrentDirectory, className) : CreateScriptAsset(m_CurrentDirectory, className)) {
+                    Log::Info(m_CreateTypeScript ? "Created TypeScript script '" + className + ".ts'"
+                                                 : "Created Behaviour script pair '" + className + ".h/.cpp'");
                     ImGui::CloseCurrentPopup();
                 }
             }

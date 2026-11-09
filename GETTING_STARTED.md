@@ -129,21 +129,28 @@ không cần nối thêm logic riêng cho editor.
 ## 4. Scene 3D đầu tiên
 
 Pipeline 3D dựng trực tiếp trên devkitPro/citro3d (không qua citro2d) ở phía
-3DS và OpenGL hiện đại (VAO/VBO + shader) ở phía desktop -- unlit hoàn toàn
-(chưa có lighting/shadow, xem `ROADMAP.md`). Một screen (Top hoặc Bottom) chỉ
-render qua đúng một pipeline mỗi frame, 2D hoặc 3D, không bao giờ chồng cả hai.
+3DS và OpenGL hiện đại (VAO/VBO + shader) ở phía desktop, với hệ Material/Shader
+kiểu Unity và ánh sáng thật (Directional/Point/Spot) cho ra cùng một hình ảnh trên cả
+hai nền tảng (bước 2 và 8 bên dưới; chi tiết ở README, mục "Rendering: Materials,
+Shaders & Lighting").
 
 1. **Properties -> + Add Component -> Mesh Renderer.** Entity hiển thị một
    khối lập phương trắng (mặc định `Primitive = Cube`; có thể đổi sang `Sphere`
    hoặc `Plane`). Kích thước thật lấy từ `Transform -> Scale`, không có field
    `Size` riêng như Sprite Renderer.
 2. **Tạo Material.** Trong Content Browser, chuột phải vào khoảng trống ->
-   **Create -> Material** -- tạo ngay `NewMaterial.mat` (màu trắng, không
-   texture) và tự đăng ký GUID. Click chọn file đó, Properties hiện ra field
-   **Color** và **Texture** để chỉnh trực tiếp (tự động lưu xuống đĩa mỗi khi
-   một field thay đổi, giống hệt component/ScriptableObject) -- kéo một ảnh từ
-   Content Browser vào field Texture nếu muốn dùng ảnh thay vì màu phẳng. Sau
-   đó kéo file `.mat` này vào field **Material** của Mesh Renderer.
+   **Create -> Material** -- tạo ngay `NewMaterial.mat` (shader `Lit/Diffuse`,
+   màu trắng, cull mặt sau) và tự đăng ký GUID. Click chọn file đó, Properties
+   hiện Material inspector: quả cầu preview có ánh sáng, ô **Shader** (Lit/Diffuse,
+   Lit/Specular, Toon/Lit, Mobile/VertexLit, Unlit/Color, Unlit/Texture,
+   Unlit/Transparent, Unlit/Transparent Cutout, Unlit/Additive, Unlit/Vertex Color),
+   **Surface Options** (Opaque/Cutout/Transparent/Additive, Cull, ZWrite, Render
+   Queue) và chỉ các thuộc tính của shader đang chọn (màu, Main Texture + Tiling/
+   Offset, Normal Map, Specular/Shininess, Emission, Toon Steps...). Mọi thay đổi
+   tự lưu và hiện ngay ở Scene/Game view. Sau đó kéo file `.mat` vào danh sách
+   **Materials** của Mesh Renderer (mỗi phần tử ứng với một submesh). Material cũ
+   (chỉ có Color + Texture) vẫn mở được và hiển thị y như trước (Unlit/Texture
+   hoặc Mobile/VertexLit).
 3. **Import mesh riêng (tùy chọn).** Field **Mesh** của Mesh Renderer nhận một
    file `.obj` (Wavefront) kéo từ Content Browser -- khi được gán, nó thay thế
    hẳn `Primitive`. Parser tự viết, không phụ thuộc thư viện ngoài (để chắc
@@ -173,6 +180,15 @@ render qua đúng một pipeline mỗi frame, 2D hoặc 3D, không bao giờ ch�
    các mesh khác cũng có Rigidbody 3D. Bật **Is Trigger** trên collider nếu
    chỉ muốn phát hiện chạm mà không cần phản ứng vật lý (dùng cho vùng nhặt
    đồ, vùng kích hoạt -- xem `OnTriggerEnter` ở mục 7).
+8. **Ánh sáng.** Tạo entity rồi **+ Add Component -> Directional Light** (mặt
+   trời: hướng theo trục -Z của entity, bật **Cast Shadows** để có bóng),
+   **Point Light** (Range) hoặc **Spot Light** (Range, Spot Angle, Inner Spot
+   Angle; chiếu theo -Z). Chọn light để thấy gizmo vùng ảnh hưởng ở Scene view 3D.
+   **Window -> Rendering -> Lighting** chỉnh màu/cường độ ánh sáng môi trường
+   (Ambient, lưu trong file scene) và cho biết số light so với giới hạn 8 light
+   mỗi object của GPU 3DS (PICA200). Chỉ shader `Lit/*`, `Toon/Lit` (và
+   `Mobile/VertexLit`, chỉ với Directional Light chính) nhận ánh sáng; `Unlit/*`
+   thì không. Xem scene mẫu `Assets/LightingDemo/LightingDemo.scene`.
 
 ## 5. Tạo (hoặc mở) project
 
@@ -282,6 +298,62 @@ entity mình gắn vào. `GameScripts/Source/CollisionLogBehaviour.cpp` là ví 
 tương tự cho vòng đời va chạm/trigger (mục dưới) -- gắn vào một entity có
 Rigidbody + collider bất kỳ rồi xem panel Console khi nó chạm vào thứ khác.
 
+### Script TypeScript đầu tiên
+
+Ngoài C++, script còn có thể viết bằng **TypeScript** (chạy trên QuickJS, cả
+desktop lẫn 3DS) với API giống Unity/PiaEngine. Cần cài **Node.js** (lệnh `node`
+có trong `PATH`) -- lần đầu Editor tự chạy `npm install` cho `Tools/TypeScript`.
+
+1. Chuột phải trong Content Browser -> **Create > TypeScript Script**, đặt tên
+   (ví dụ `Rotator`) -> Editor tạo `Rotator.ts`.
+2. Mở file bằng VS Code (Edit > Preferences > Open Project in External Editor)
+   -- project đã có sẵn `tsconfig.json` + `Library/Types/duality.d.ts` nên có
+   gợi ý code và báo lỗi kiểu ngay trong editor.
+3. Viết script:
+
+   ```ts
+   import { MonoBehaviour, Time, Input, KeyCode, field } from 'duality';
+
+   export class Rotator extends MonoBehaviour {
+     @field({ range: [0, 720] }) degreesPerSecond = 90;   // slider trong Properties
+     clockwise = true;                                    // field public thường: tự hiện + tự lưu
+
+     start() { this.print(`Rotator trên ${this.gameObject.name}`); }
+
+     update() {
+       const sign = this.clockwise ? 1 : -1;
+       this.transform.rotate(0, 0, sign * this.degreesPerSecond * Time.deltaTime);
+       if (Input.getKeyDown(KeyCode.Space) || Input.getKeyDown(KeyCode.GamepadA))
+         this.clockwise = !this.clockwise;
+     }
+   }
+   ```
+
+4. Lưu file -- **không cần bấm Reload Scripts**: Editor phát hiện thay đổi trong
+   ~1 giây, biên dịch nền (esbuild + kiểm tra kiểu), lỗi hiện trong Console dạng
+   `Assets/Rotator.ts:12:5: error: ...`. Nếu đang Play, bản mới được nạp ngay khi
+   bấm Stop.
+5. Chọn entity -> **+ Add Component** -> `Rotator (TS)`. Field hiện trong
+   Properties như field C++, lưu vào scene cùng định dạng JSON.
+
+Mỗi class được `export` và kế thừa `MonoBehaviour` là một script (tên class =
+tên export, không trùng tên class C++). Lifecycle: `awake`, `onEnable`, `start`,
+`fixedUpdate`, `update`, `lateUpdate`, `onDisable`, `onDestroy`,
+`onCollisionEnter2D(collision)`, `onTriggerEnter2D(other)` (và bản 3D
+`onCollisionEnter`/`onTriggerEnter`), coroutine (`startCoroutine`,
+`WaitForSeconds`, `invoke`). Xem đầy đủ API và các kiểu field ở README mục
+"TypeScript scripts (QuickJS)"; ví dụ chạy được: scene
+`SampleProject/Assets/TypeScriptDemo/TypeScriptDemo.scene` (Mover, Spawner,
+FallingBox, CollisionLogger).
+
+Script TS và C++ dùng chung được: trong TS `this.getComponent('PlayerController')`
+trả về script C++ (đọc/ghi field `DUALITY_PROPERTY` bằng `.get('Speed')` /
+`.set('Speed', 3)`); trong C++ `GetScriptField("Rotator", "degreesPerSecond", v)` /
+`SendScriptMessage("Rotator", "methodName")`.
+
+Build cho 3DS: **Build for 3DS** tự biên dịch TS ở chế độ release, chuyển sang
+bytecode QuickJS (`DualityJsc`) và đóng gói vào `romfs:/Scripts/`.
+
 ## 7. Vòng đời (Lifecycle)
 
 - `OnCreate()` -- chạy một lần khi Play bắt đầu (giống `Awake` của Unity, chạy
@@ -291,13 +363,23 @@ Rigidbody + collider bất kỳ rồi xem panel Console khi nó chạm vào th�
   có thể chạy nhiều lần trong một lần Play. `OnUpdate` đơn giản là không được
   gọi trong lúc inactive.
 - `OnUpdate(float deltaTime)` -- mỗi frame, khi đang active.
+- `OnLateUpdate(float deltaTime)` -- mỗi frame, sau khi MỌI script đã chạy
+  `OnUpdate` (camera bám theo nhân vật...).
+- `OnFixedUpdate(float fixedDeltaTime)` -- mỗi bước vật lý cố định 1/60 s (0..N
+  lần mỗi frame), ngay trước khi bước đó được mô phỏng.
 - `OnCollisionEnter(Entity other)` / `OnCollisionExit(Entity other)` -- chạy
   cho CẢ HAI phía của một cặp đang chạm nhau (quy ước của Unity) khi không bên
   nào là trigger. Hoạt động y hệt dù `other` là entity 2D hay 3D.
 - `OnTriggerEnter(Entity other)` / `OnTriggerExit(Entity other)` -- giống trên,
   nhưng cho cặp có ít nhất một bên bật `IsTrigger`.
 - `OnDestroy()` -- chạy một lần lúc Stop (một instance vẫn đang enable sẽ được
-  gọi thêm một `OnDisable()` cuối ngay trước đó).
+  gọi thêm một `OnDisable()` cuối ngay trước đó), hoặc cuối frame mà entity bị
+  `ScriptScene::Destroy(entity)` (TS: `destroy(go)`).
+
+Prefab được `Instantiate` trong lúc Play có ngay physics body và script
+(Awake chạy luôn), `OnEnable`/`OnUpdate` từ frame sau -- giống Unity. Script
+TypeScript dùng cùng thứ tự (tên viết thường: `awake`, `onEnable`, `start`,
+`update`...).
 
 ## 8. Scripting API
 

@@ -153,6 +153,30 @@ namespace Duality {
         bool CastShadows = false;
     };
 
+    // Omnidirectional light at the entity's world position (Unity Light, Type = Point).
+    // Lights Lit/* and Toon/* materials only (Mobile/VertexLit and Unlit ignore it). Falloff
+    // reaches exactly zero at Range (LightingMath::DistanceAttenuation -- the same curve the
+    // 3DS samples into its distance-attenuation LUT). Color * Intensity saturates at 1 per
+    // channel on both platforms (PICA200 light color registers are 8-bit).
+    struct PointLightComponent {
+        bool Enabled = true;
+        glm::vec3 Color{ 1.0f, 1.0f, 1.0f };
+        float Intensity = 1.0f;
+        float Range = 10.0f;
+    };
+
+    // Cone light pointing along the entity's forward axis (-Z, like a Camera), Unity Light
+    // Type = Spot. Spot Angle is the FULL cone angle in degrees (Unity convention); light fades
+    // from Inner Spot Angle to Spot Angle (PICA spotlight LUT on 3DS, smoothstep on desktop).
+    struct SpotLightComponent {
+        bool Enabled = true;
+        glm::vec3 Color{ 1.0f, 1.0f, 1.0f };
+        float Intensity = 1.0f;
+        float Range = 10.0f;
+        float SpotAngle = 30.0f;
+        float InnerSpotAngle = 20.0f;
+    };
+
     // Slot i paints submesh i. One assigned material still covers every part; extra parts
     // beyond the list stay default instead of inheriting the last slot (that repeat made
     // material 2, then 3, look like they overpainted the whole mesh).
@@ -291,6 +315,13 @@ namespace Duality {
         // at Play start (Scene::OnRuntimeStart); while Instance is alive, the Properties panel
         // edits it directly instead and this map is left stale until OnRuntimeStop.
         std::unordered_map<std::string, FieldValue> PropertyOverrides;
+
+        // The saved "PropertyOverrides" JSON (as text) of keys that couldn't be decoded at load
+        // time because ClassName wasn't registered yet (C++ DLL or TypeScript bundle failed to
+        // build, or hasn't loaded yet). Written back verbatim on save so a broken compile never
+        // erases Inspector values; decoded into PropertyOverrides once the class exists (see
+        // EntitySerialization's ResolvePendingScriptOverrides).
+        std::string UnresolvedOverridesJson;
 
         // Runtime-only (like RuntimeBody below), not reflected -- edge-detects
         // (IsEffectivelyActive && Enabled) so OnEnable/OnDisable fire once per flip.

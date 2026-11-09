@@ -70,7 +70,7 @@ namespace Duality {
         void CreateFolder(const std::filesystem::path& parent);
         // Opens the class-name dialog before either half of a C++ Behaviour pair is written.
         // One accepted name becomes both <Name>.h and <Name>.cpp.
-        void BeginCreateScript();
+        void BeginCreateScript(bool typeScript = false);
         void RequestDelete(const std::filesystem::path& path, bool isDirectory);
         // Moves the asset `guid` resolves to (plus its ".meta") into `destDir` and
         // re-registers it -- the drag-a-file-onto-a-folder flow.
@@ -102,6 +102,8 @@ namespace Duality {
         // at that nesting level makes BeginPopupModal at the root level miss it, so defer the
         // actual OpenPopup until after that menu has closed.
         bool m_RequestCreateScriptDialog = false;
+        // Which kind the pending Create Script dialog makes: a C++ .h/.cpp pair or one .ts file.
+        bool m_CreateTypeScript = false;
         std::string m_RangeAnchorPath;
         // Source-model paths whose Assimp-discovered children are currently visible in the grid.
         // The same inventory is always available as a tree child in the left Project pane.

@@ -2,6 +2,10 @@
 
 #include <iostream>
 
+#if defined(DE_PLATFORM_3DS)
+#include <3ds.h>
+#endif
+
 namespace Duality {
 
     std::mutex Log::s_Mutex;
@@ -25,12 +29,20 @@ namespace Duality {
                 s_Entries.pop_front();
         }
 
+#if defined(DE_PLATFORM_3DS)
+        // No console on the device: the kernel debug string channel is what Luma3DS's debugger
+        // and emulators (Citra logs it as "Debug.Emulated") pick up, so on-device script logs
+        // and TypeScript errors stay visible.
+        const std::string line = std::string(LevelPrefix(level)) + message;
+        svcOutputDebugString(line.c_str(), static_cast<s32>(line.size()));
+#else
         // std::cout/cerr are themselves safe to interleave from multiple threads
         // (each individual << call is atomic w.r.t. corruption, though lines from
         // different threads can still interleave character-by-character) --
         // acceptable for a build log running alongside normal Editor output.
         std::ostream& stream = (level == LogLevel::Error) ? std::cerr : std::cout;
         stream << LevelPrefix(level) << message << std::endl;
+#endif
     }
 
     void Log::Trace(const std::string& message) { Push(LogLevel::Trace, message); }

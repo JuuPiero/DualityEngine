@@ -33,6 +33,16 @@ namespace Duality {
         virtual void OnUpdate(float deltaTime) {}
         virtual void OnDestroy() {}
 
+        // Unity's LateUpdate -- every frame after EVERY script's OnUpdate has run (camera
+        // follow, reading positions other scripts just wrote). Same active/enabled gating as
+        // OnUpdate.
+        virtual void OnLateUpdate(float deltaTime) {}
+        // Unity's FixedUpdate -- once per fixed 1/60s physics substep (0..N times per frame),
+        // right before that substep is simulated, so forces/velocities set here are integrated
+        // by it. Only for scripts already enabled (OnEnable fired), matching Unity's
+        // Awake -> OnEnable -> Start -> FixedUpdate order.
+        virtual void OnFixedUpdate(float fixedDeltaTime) {}
+
         // Fired by Scene::OnRuntimeUpdate when this entity's Scene::IsEffectivelyActive
         // result flips (OnEnable once when it becomes true, OnDisable once when it
         // becomes false) -- OnUpdate simply isn't called at all while inactive. Unlike
@@ -144,6 +154,47 @@ namespace Duality {
         // small lifecycle base class and does not pull render, physics, UI, or audio APIs into
         // every gameplay translation unit.
         Transform GetTransform() const { return Transform(m_Entity); }
+
+        // Cross-language script access -- works the same whether `className` is another C++
+        // Behaviour or a TypeScript class (Scripting/JS): the first live script of that class on
+        // `entity` (default: this script's own entity). Fields are the Inspector fields
+        // (DUALITY_PROPERTY / TypeScript @field), read/written by name as FieldValue.
+        Behaviour* FindScript(const std::string& className, Entity entity = Entity{}) const {
+            const EngineServices* services = ScriptContext::Services();
+            Entity target = entity ? entity : m_Entity;
+            if (!target || !services || !services->FindScript)
+                return nullptr;
+            return static_cast<Behaviour*>(services->FindScript(target.GetScene(), static_cast<unsigned int>(target.Handle()), className.c_str()));
+        }
+        bool GetScriptField(const std::string& className, const std::string& fieldName, FieldValue& outValue, Entity entity = Entity{}) const {
+            const EngineServices* services = ScriptContext::Services();
+            Behaviour* script = FindScript(className, entity);
+            return script && services->GetScriptField &&
+                services->GetScriptField(script, className.c_str(), fieldName.c_str(), &outValue);
+        }
+        template<typename T>
+        bool GetScriptField(const std::string& className, const std::string& fieldName, T& outValue, Entity entity = Entity{}) const {
+            FieldValue value;
+            if (!GetScriptField(className, fieldName, value, entity))
+                return false;
+            if (const T* typed = std::get_if<T>(&value)) {
+                outValue = *typed;
+                return true;
+            }
+            return false;
+        }
+        bool SetScriptField(const std::string& className, const std::string& fieldName, const FieldValue& value, Entity entity = Entity{}) {
+            const EngineServices* services = ScriptContext::Services();
+            Behaviour* script = FindScript(className, entity);
+            return script && services->SetScriptField &&
+                services->SetScriptField(script, className.c_str(), fieldName.c_str(), &value);
+        }
+        // Unity's SendMessage for TypeScript scripts: calls `methodName()` on that script.
+        bool SendScriptMessage(const std::string& className, const std::string& methodName, Entity entity = Entity{}) {
+            const EngineServices* services = ScriptContext::Services();
+            Behaviour* script = FindScript(className, entity);
+            return script && services->CallScriptMethod && services->CallScriptMethod(script, methodName.c_str());
+        }
 
         std::string GetName() const {
             return m_Entity && m_Entity.HasComponent<NameComponent>()

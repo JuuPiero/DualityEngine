@@ -46,7 +46,7 @@ namespace Duality {
         // ~_Function_base, called from ~FieldHandle, called from ScriptRegistry::Clear(), at an
         // address resolving into the just-freed module.
         ScriptableObjectLoader::UnloadAll();
-        ScriptRegistry::Clear();
+        ScriptRegistry::ClearLanguage(ScriptLanguage::Cpp); // TypeScript classes (JsScripting) are not owned by this module and stay registered
         ScriptableObjectRegistry::Clear();
 
         if (s_Module) {

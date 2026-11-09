@@ -45,6 +45,10 @@ namespace Duality {
         return !s_PointerDown && s_PreviousPointerDown;
     }
 
+    bool InputManager::GetPointerPressed() {
+        return s_PointerDown && !s_PreviousPointerDown;
+    }
+
     glm::vec2 InputManager::GetPointerPosition() {
         return s_PointerPosition;
     }

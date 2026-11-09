@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": [
+      "ES2020"
+    ],
+    "types": [],
+    "paths": {
+      "duality": [
+        "./Library/Types/duality.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "Assets/**/*.ts",
+    "Library/Types/*.d.ts"
+  ]
+}

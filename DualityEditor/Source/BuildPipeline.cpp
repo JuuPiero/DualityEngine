@@ -305,6 +305,43 @@ namespace Duality {
         return std::system(("\"" + command + "\"").c_str());
     }
 
+    bool BuildPipeline::CookTypeScript(const std::string& repoRoot, const std::string& projectDirectory) {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path outDir = fs::path(repoRoot) / "DualityPlayer" / "romfs" / "Scripts";
+        fs::remove_all(outDir, ec); // never ship a stale bundle
+
+        bool hasScripts = false;
+        const fs::path assets = fs::path(projectDirectory) / "Assets";
+        for (fs::recursive_directory_iterator it(assets, ec), end; !ec && it != end; it.increment(ec)) {
+            const std::string name = it->path().filename().string();
+            if (name.size() > 3 && name.compare(name.size() - 3, 3, ".ts") == 0 && name.find(".d.ts") == std::string::npos) {
+                hasScripts = true;
+                break;
+            }
+        }
+        if (!hasScripts)
+            return true;
+
+        fs::create_directories(outDir, ec);
+        // DualityJsc is a desktop tool built next to the Editor (build/DualityEngine/). Without
+        // it the device simply parses the minified JS at boot instead of loading bytecode.
+        const fs::path jsc = fs::path(repoRoot) / "build" / "DualityEngine" / "DualityJsc.exe";
+        std::string command = "node \"" + (fs::path(repoRoot) / "Tools" / "TypeScript" / "build-scripts.mjs").string() + "\" \"" +
+            fs::absolute(projectDirectory).string() + "\" --release --no-project-types --out \"" + outDir.string() + "\"";
+        if (fs::exists(jsc))
+            command += " --jsc \"" + jsc.string() + "\"";
+        else
+            Log::Warn("BuildPipeline: DualityJsc.exe not found (build the desktop tree first) -- shipping TypeScript as JS source");
+        Log::Info("BuildPipeline: compiling TypeScript scripts for 3DS...");
+        if (RunCommand(command) != 0) {
+            Log::Error("BuildPipeline: TypeScript compile failed -- see the errors above");
+            return false;
+        }
+        Log::Info("BuildPipeline: TypeScript bundle written to romfs/Scripts");
+        return true;
+    }
+
     bool BuildPipeline::CookAssets(const std::string& repoRoot, const std::string& assetsDirectory,
         const std::string& mainScenePath) {
         namespace fs = std::filesystem;
@@ -538,6 +575,10 @@ namespace Duality {
         }
 
         if (!CookAssets(repoRoot, assetsDirectory, mainScenePath))
+            return false;
+
+        if (!CookTypeScript(repoRoot, activeProject ? activeProject->GetDirectory()
+                                                    : std::filesystem::path(assetsDirectory).parent_path().string()))
             return false;
 
         // The .dproj itself is an Editor-side file and is never present in romfs. Bake only the

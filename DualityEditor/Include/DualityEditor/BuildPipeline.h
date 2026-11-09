@@ -68,6 +68,12 @@ namespace Duality {
         static bool CookAssets(const std::string& repoRoot, const std::string& assetsDirectory,
             const std::string& mainScenePath);
 
+        // TypeScript scripts for the device: bundles the project's *.ts (minified, release),
+        // compiles the bundle to QuickJS bytecode with DualityJsc and writes
+        // DualityPlayer/romfs/Scripts/scripts.{jsbc,js,js.map}. Clears that folder for a project
+        // without TypeScript. False (logged) on a compile error.
+        static bool CookTypeScript(const std::string& repoRoot, const std::string& projectDirectory);
+
         static std::atomic<BuildStatus> s_Status;
     };
 

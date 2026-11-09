@@ -36,6 +36,8 @@ namespace Duality {
         // glVertexAttribPointer call. Must be called while this VAO is bound (Bind() first).
         void AddFloatAttribute(int location, int componentCount, size_t stride, size_t offset);
         void AddUnsignedByteAttribute(int location, int componentCount, size_t stride, size_t offset);
+        // Signed bytes mapped to [-1,1] (MeshVertex::Tangent).
+        void AddNormalizedByteAttribute(int location, int componentCount, size_t stride, size_t offset);
 
         int GetVertexCount() const { return m_VertexCount; }
 

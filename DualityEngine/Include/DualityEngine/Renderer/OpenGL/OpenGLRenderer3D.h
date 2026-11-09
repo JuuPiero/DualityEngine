@@ -55,28 +55,55 @@ namespace Duality {
         // locations (m_AttribPosition/m_AttribTexCoord).
         GLVertexArray UploadGpuMesh(const std::vector<MeshVertex>& vertices);
 
+        // Applies blend / depth-write / cull state for one draw.
+        void ApplyRenderState(const RenderMaterial& material);
+
         GLShaderProgram m_Shader;
         int m_UniformViewProjection = -1;
         int m_UniformModel = -1;
         int m_UniformNormalMatrix = -1;
         int m_UniformColor = -1;
         int m_UniformTexture = -1;
-        int m_UniformShadingMode = -1;
+        int m_UniformNormalMap = -1;
+        int m_UniformHasNormalMap = -1;
+        int m_UniformLightingModel = -1;
         int m_UniformAmbientColor = -1;
         int m_UniformLightDirection = -1;
         int m_UniformLightColor = -1;
         int m_UniformLightIntensity = -1;
+        int m_UniformMainLightEnabled = -1;
         int m_UniformShadowMatrix = -1;
         int m_UniformShadowMap = -1;
         int m_UniformUseShadowMap = -1;
         int m_UniformSkinned = -1;
         int m_UniformBones = -1;
+        int m_UniformMainTexST = -1;
+        int m_UniformUseVertexColor = -1;
+        int m_UniformAlphaTest = -1;
+        int m_UniformCutoff = -1;
+        int m_UniformCameraPosition = -1;
+        int m_UniformLightCount = -1;
+        int m_UniformLightPositions = -1;
+        int m_UniformLightColors = -1;
+        int m_UniformLightSpots = -1;
+        int m_UniformLightParams = -1;
+        int m_UniformShadowLightSlot = -1;
+        int m_UniformSpecColor = -1;
+        int m_UniformSpecExponent = -1;
+        int m_UniformEmission = -1;
+        int m_UniformShadeColor = -1;
+        int m_UniformToonSteps = -1;
+        int m_UniformToonSmoothness = -1;
         int m_AttribPosition = -1;
         int m_AttribTexCoord = -1;
         int m_AttribNormal = -1;
         int m_AttribVertexColor = -1;
+        int m_AttribTangent = -1;
         int m_AttribBoneIndices = -1;
         int m_AttribBoneWeights = -1;
+        // True for this engine's Y-mirrored orthographic projection: screen-space winding is
+        // reversed, so back-face culling flips glFrontFace to keep culling the real back side.
+        bool m_FlipWinding = false;
 
         // 1x1 white pixel bound when textureId == 0, so DrawMesh can always sample the texture
         // uniformly in the shader instead of branching on whether one is bound.

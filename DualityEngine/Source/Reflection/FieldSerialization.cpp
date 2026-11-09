@@ -88,7 +88,8 @@ namespace Duality {
             } else if constexpr (std::is_same_v<T, glm::vec4>) {
                 return glm::vec4{ j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>() };
             } else if constexpr (std::is_same_v<T, Color4>) {
-                return Color4{ glm::vec4{ j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>() } };
+                // [r,g,b] (an RGB value later promoted to a Color4 field) loads with alpha 1.
+                return Color4{ glm::vec4{ j.at(0).get<float>(), j.at(1).get<float>(), j.at(2).get<float>(), j.size() > 3 ? j[3].get<float>() : 1.0f } };
             } else if constexpr (std::is_same_v<T, Screen>) {
                 return j.get<std::string>() == "Top" ? Screen::Top : Screen::Bottom;
             } else if constexpr (std::is_same_v<T, ProjectionType>) {

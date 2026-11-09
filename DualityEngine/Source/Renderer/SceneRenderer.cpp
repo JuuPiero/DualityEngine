@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <unordered_map>
 #include <vector>
 
@@ -14,6 +15,7 @@
 #include "DualityEngine/Asset/MeshLoader.h"
 #include "DualityEngine/Physics/PhysicsUnits.h"
 #include "DualityEngine/Renderer/DrawHelpers2D.h"
+#include "DualityEngine/Renderer/LightingMath.h"
 #include "DualityEngine/Renderer/RenderSettings.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
@@ -183,26 +185,125 @@ namespace Duality {
     }
 
     void PopulateMainDirectionalLight(Scene& scene, RenderView& view) {
+        PopulateSceneLighting(scene, view);
+    }
+
+    void PopulateSceneLighting(Scene& scene, RenderView& view) {
         view.MainLight = {};
+        view.Lights.clear();
+        view.MainLightIndex = -1;
         view.ShadowTechnique = RenderSettings::GetEffectiveShadowMode();
+        view.AmbientColor = scene.GetLightingSettings().EffectiveAmbient();
+
+        const auto saturatedColor = [](const glm::vec3& color, float intensity) {
+            return glm::clamp(color * std::max(intensity, 0.0f), glm::vec3(0.0f), glm::vec3(1.0f));
+        };
+
         // Storage order is an EnTT implementation detail. Use canonical hierarchy order so the
         // Game renderer and the editor's free Scene camera make the same deterministic choice.
+        std::vector<SceneLight> others;
         for (Entity light : scene.GetHierarchyTraversalOrder()) {
-            if (!light.HasComponent<DirectionalLightComponent>())
+            if (!scene.IsEffectivelyActive(light))
                 continue;
-            const DirectionalLightComponent& component = light.GetComponent<DirectionalLightComponent>();
-            if (!component.Enabled || !scene.IsEffectivelyActive(light))
-                continue;
-            const TransformComponent transform = scene.GetWorldTransform(light);
-            const glm::mat4 rotation = RotationMatrix(transform.Rotation);
-            // Entity forward is -Z; lighting needs the direction from a point toward the light.
-            view.MainLight.Enabled = true;
-            view.MainLight.Direction = -glm::normalize(glm::vec3(rotation * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
-            view.MainLight.Color = component.Color;
-            view.MainLight.Intensity = component.Intensity;
-            view.MainLight.CastShadows = component.CastShadows;
-            break;
+            if (light.HasComponent<DirectionalLightComponent>()) {
+                const DirectionalLightComponent& component = light.GetComponent<DirectionalLightComponent>();
+                if (component.Enabled) {
+                    const TransformComponent transform = scene.GetWorldTransform(light);
+                    const glm::mat4 rotation = RotationMatrix(transform.Rotation);
+                    // Entity forward is -Z; lighting needs the direction from a point toward the light.
+                    const glm::vec3 toLight = -glm::normalize(glm::vec3(rotation * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+                    SceneLight sceneLight;
+                    sceneLight.Type = LightType::Directional;
+                    sceneLight.Position = transform.Translation;
+                    sceneLight.Direction = toLight;
+                    sceneLight.Color = saturatedColor(component.Color, component.Intensity);
+                    if (!view.MainLight.Enabled) {
+                        view.MainLight.Enabled = true;
+                        view.MainLight.Direction = toLight;
+                        view.MainLight.Color = component.Color;
+                        view.MainLight.Intensity = component.Intensity;
+                        view.MainLight.CastShadows = component.CastShadows;
+                        sceneLight.CastShadows = component.CastShadows;
+                        view.Lights.insert(view.Lights.begin(), sceneLight);
+                        view.MainLightIndex = 0;
+                    } else {
+                        others.push_back(sceneLight);
+                    }
+                }
+            }
+            if (light.HasComponent<PointLightComponent>()) {
+                const PointLightComponent& component = light.GetComponent<PointLightComponent>();
+                if (component.Enabled && component.Range > 0.0f) {
+                    SceneLight sceneLight;
+                    sceneLight.Type = LightType::Point;
+                    sceneLight.Position = scene.GetWorldTransform(light).Translation;
+                    sceneLight.Color = saturatedColor(component.Color, component.Intensity);
+                    sceneLight.Range = component.Range;
+                    others.push_back(sceneLight);
+                }
+            }
+            if (light.HasComponent<SpotLightComponent>()) {
+                const SpotLightComponent& component = light.GetComponent<SpotLightComponent>();
+                if (component.Enabled && component.Range > 0.0f) {
+                    const TransformComponent transform = scene.GetWorldTransform(light);
+                    const glm::mat4 rotation = RotationMatrix(transform.Rotation);
+                    SceneLight sceneLight;
+                    sceneLight.Type = LightType::Spot;
+                    sceneLight.Position = transform.Translation;
+                    sceneLight.Direction = glm::normalize(glm::vec3(rotation * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+                    sceneLight.Color = saturatedColor(component.Color, component.Intensity);
+                    sceneLight.Range = component.Range;
+                    const float outer = std::clamp(component.SpotAngle, 1.0f, 179.0f);
+                    const float inner = std::clamp(component.InnerSpotAngle, 0.0f, outer);
+                    sceneLight.CosOuter = std::cos(glm::radians(outer * 0.5f));
+                    sceneLight.CosInner = std::cos(glm::radians(inner * 0.5f));
+                    others.push_back(sceneLight);
+                }
+            }
         }
+        view.Lights.insert(view.Lights.end(), others.begin(), others.end());
+    }
+
+    uint8_t SelectLightsForBounds(const RenderView& view, const glm::vec3& center, float radius, uint8_t outIndices[MaxLightsPerDraw]) {
+        struct Candidate { uint8_t Index; float Score; };
+        Candidate candidates[256];
+        int candidateCount = 0;
+        const size_t lightCount = std::min<size_t>(view.Lights.size(), 255);
+        for (size_t i = 0; i < lightCount; ++i) {
+            const SceneLight& light = view.Lights[i];
+            const float brightness = light.Color.r * 0.3f + light.Color.g * 0.59f + light.Color.b * 0.11f;
+            if (brightness <= 0.0f)
+                continue;
+            float score = 0.0f;
+            if (light.Type == LightType::Directional) {
+                // Directional lights always win; the main light (index 0) sorts first.
+                score = (static_cast<int>(i) == view.MainLightIndex ? 3.0e6f : 2.0e6f) + brightness;
+            } else {
+                const glm::vec3 offset = center - light.Position;
+                const float distance = glm::length(offset);
+                const float nearest = std::max(0.0f, distance - radius);
+                if (nearest >= light.Range)
+                    continue; // bounding sphere entirely outside the light's range
+                if (light.Type == LightType::Spot && distance > radius) {
+                    // Conservative cone test: widen the half-angle by the sphere's angular size.
+                    const float halfAngle = std::acos(std::clamp(light.CosOuter, -1.0f, 1.0f));
+                    const float slack = std::asin(std::clamp(radius / distance, 0.0f, 1.0f));
+                    const float axisAngle = std::acos(std::clamp(glm::dot(offset / distance, light.Direction), -1.0f, 1.0f));
+                    if (axisAngle > halfAngle + slack)
+                        continue;
+                }
+                score = brightness * LightingMath::DistanceAttenuation(nearest / light.Range);
+                if (score <= 0.0f)
+                    continue;
+            }
+            candidates[candidateCount++] = { static_cast<uint8_t>(i), score };
+        }
+        const int keep = std::min(candidateCount, MaxLightsPerDraw);
+        std::partial_sort(candidates, candidates + keep, candidates + candidateCount,
+            [](const Candidate& a, const Candidate& b) { return a.Score > b.Score || (a.Score == b.Score && a.Index < b.Index); });
+        for (int i = 0; i < keep; ++i)
+            outIndices[i] = candidates[i].Index;
+        return static_cast<uint8_t>(keep);
     }
 
     AssetRef GetActiveSpriteTexture(Scene& scene, entt::entity handle) {
@@ -279,34 +380,27 @@ namespace Duality {
         }
     }
 
-    static bool IsMeshVisibleInCamera(Scene& scene, Entity entity, const MeshRendererComponent& mesh,
-        const CameraComponent& camera, const TransformComponent& cameraTransform, Screen screen) {
-        const TransformComponent transform = scene.GetWorldTransform(entity);
-        const float largestScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
-        const float radius = MeshBoundingRadius(mesh) * largestScale;
-
-        // Camera local space uses -Z forward. A sphere test is deliberately
-        // conservative: false positives are cheap; a false negative would pop
-        // visible geometry. It provides an actual culling win without requiring
-        // per-mesh bounds buffers on a memory-limited 3DS.
-        const glm::mat4 inverseCameraRotation = glm::inverse(RotationMatrix(cameraTransform.Rotation));
-        const glm::vec3 localPosition = glm::vec3(inverseCameraRotation * glm::vec4(transform.Translation - cameraTransform.Translation, 0.0f));
+    // Conservative bounding-sphere vs. view-volume test against a RenderView (so the editor's
+    // free Scene camera and gameplay cameras share it). Camera local space uses -Z forward.
+    // False positives are cheap; a false negative would pop visible geometry. It provides an
+    // actual culling win without requiring per-mesh bounds buffers on a memory-limited 3DS.
+    static bool IsSphereVisibleInView(const RenderView& view, const glm::vec3& center, float radius) {
+        const glm::mat4 inverseCameraRotation = glm::inverse(RotationMatrix(view.CameraRotationDegrees));
+        const glm::vec3 localPosition = glm::vec3(inverseCameraRotation * glm::vec4(center - view.CameraPosition, 0.0f));
         const float depth = -localPosition.z;
-        if (depth + radius < camera.NearPlane || depth - radius > camera.FarPlane)
+        if (depth + radius < view.NearPlane || depth - radius > view.FarPlane)
             return false;
 
-        float screenWidth = 0.0f, screenHeight = 0.0f;
-        ScreenExtents(screen, screenWidth, screenHeight);
-        if (camera.Projection == ProjectionType::Perspective) {
+        if (view.Projection == ProjectionType::Perspective) {
             if (depth < -radius)
                 return false;
-            const float halfHeight = std::tan(glm::radians(camera.FovDegrees) * 0.5f) * std::max(depth, 0.0f);
-            const float halfWidth = halfHeight * (screenWidth / screenHeight);
+            const float halfHeight = std::tan(glm::radians(view.FovDegrees) * 0.5f) * std::max(depth, 0.0f);
+            const float halfWidth = halfHeight * view.AspectRatio;
             return std::abs(localPosition.x) <= halfWidth + radius && std::abs(localPosition.y) <= halfHeight + radius;
         }
 
-        const float halfHeight = screenHeight * 0.5f / camera.Zoom;
-        const float halfWidth = halfHeight * (screenWidth / screenHeight);
+        const float halfHeight = view.OrthoHalfHeight;
+        const float halfWidth = halfHeight * view.AspectRatio;
         return std::abs(localPosition.x) <= halfWidth + radius && std::abs(localPosition.y) <= halfHeight + radius;
     }
 
@@ -609,7 +703,12 @@ namespace Duality {
                 continue;
             const TransformComponent casterTransform = scene.GetWorldTransform(caster);
             const float maxScale = std::max({ std::abs(casterTransform.Scale.x), std::abs(casterTransform.Scale.y), std::abs(casterTransform.Scale.z) });
-            const float shadowDiameter = std::max(0.02f, PrimitiveShadowRadius(mesh.Primitive) * maxScale * 2.0f);
+            // The capsule (height 1, radius 0.25) is bounded by 0.5 but only 0.25 wide: its blob
+            // follows the footprint of an upright capsule rather than its bounding sphere.
+            const float footprintRadius = mesh.Primitive == MeshPrimitive::Capsule
+                ? 0.25f * std::max(std::abs(casterTransform.Scale.x), std::abs(casterTransform.Scale.z))
+                : PrimitiveShadowRadius(mesh.Primitive) * maxScale;
+            const float shadowDiameter = std::max(0.02f, footprintRadius * 2.0f);
 
             for (const Receiver& receiver : receivers) {
                 const float denominator = glm::dot(rayDirection, receiver.Normal);
@@ -633,61 +732,126 @@ namespace Duality {
         return submitted;
     }
 
-    SceneRenderStats RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
+    RenderMaterial BuildRenderMaterial(IRenderer3D& renderer, const Material& material, uint32_t& outTextureId) {
+        const ShaderInfo& info = material.GetShaderInfo();
+        RenderMaterial result;
+        result.Shader = material.Shader;
+        result.Model = info.Model;
+        result.Surface = material.EffectiveSurface();
+        result.Cull = material.Cull;
+        result.ZWrite = material.EffectiveZWrite();
+        result.UseVertexColor = info.UsesVertexColor;
+        result.UseTexture = info.UsesTexture;
+        result.MainTexST = material.MainTexST;
+        result.Cutoff = material.Cutoff;
+        outTextureId = info.UsesTexture ? ResolveMeshTexture(renderer, material.Texture) : 0;
+        if (info.Properties & ShaderProp_BumpMap)
+            result.NormalTextureId = ResolveMeshTexture(renderer, material.NormalMap);
+        if (info.Properties & ShaderProp_Specular) {
+            result.SpecColor = glm::clamp(glm::vec3(material.SpecColor), glm::vec3(0.0f), glm::vec3(1.0f));
+            result.SpecExponent = LightingMath::ShininessToExponent(material.Shininess);
+        }
+        if (info.Properties & ShaderProp_Emission)
+            result.Emission = glm::clamp(glm::vec3(material.EmissionColor), glm::vec3(0.0f), glm::vec3(1.0f));
+        if (info.Properties & ShaderProp_Toon) {
+            result.ShadeColor = glm::clamp(glm::vec3(material.ShadeColor), glm::vec3(0.0f), glm::vec3(1.0f));
+            result.ToonSteps = static_cast<float>(material.ToonSteps);
+            result.ToonSmoothness = material.ToonSmoothness;
+        }
+        return result;
+    }
+
+    namespace {
+        struct MeshDrawItem {
+            MeshDrawCommand Command;
+            int Queue = 2000;
+            float Depth = 0.0f;       // view-space distance along the camera forward axis
+            uint64_t StateKey = 0;    // groups identical GPU state (PICA LUT/TEV changes are costly)
+        };
+
+        uint64_t MaterialStateKey(const MeshDrawCommand& command) {
+            const RenderMaterial& material = command.Material;
+            uint64_t key = static_cast<uint64_t>(material.Shader) << 56;
+            key |= static_cast<uint64_t>(command.SkinMatrices != nullptr) << 55;
+            key |= static_cast<uint64_t>(command.TextureId & 0xFFFF) << 32;
+            key |= static_cast<uint64_t>(material.NormalTextureId & 0xFFFF) << 16;
+            key |= static_cast<uint64_t>(static_cast<uint32_t>(material.SpecExponent) & 0xFF) << 8;
+            key |= static_cast<uint64_t>(static_cast<uint32_t>(material.ToonSteps) & 0xF) << 4;
+            key |= static_cast<uint64_t>(material.Cull) & 0x3;
+            return key;
+        }
+
+        bool UsesPerPixelLights(LightingModel model) {
+            return model == LightingModel::Lambert || model == LightingModel::BlinnPhong || model == LightingModel::Toon;
+        }
+    }
+
+    SceneRenderStats RenderMeshPass(IRenderer3D& renderer, Scene& scene, Screen screen, const RenderView& view, const MeshPassOptions& options) {
         SceneRenderStats stats;
-        Entity camera = scene.GetPrimaryCamera(screen);
-        if (!camera)
-            return stats;
+        stats.ActiveLights = static_cast<uint32_t>(view.Lights.size());
 
-        const auto& cameraComponent = camera.GetComponent<CameraComponent>();
-        const TransformComponent cameraTransform = scene.GetWorldTransform(camera);
-        RenderView renderView = BuildRenderView(scene, camera, screen);
-        stats.ShadowMapCasterDrawCalls = RenderDirectionalShadowMap(renderer, scene, screen, renderView, cameraComponent);
-        // Citro3D intentionally declines the optional shadow target today. Its
-        // current result stays useful and safe by falling back to blob shadows.
-        if (renderView.ShadowTechnique == ShadowMode::ShadowMapsExperimental && !renderView.HasShadowMap)
-            renderView.ShadowTechnique = ShadowMode::BlobShadows;
-        renderer.BeginScene(renderView, clearColor, clear);
+        const glm::vec3 cameraForward = glm::normalize(glm::vec3(RotationMatrix(view.CameraRotationDegrees) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+        std::vector<MeshDrawItem> items;
+        // Skinned palettes must outlive sorting: one stable buffer per submesh draw.
+        std::deque<std::vector<glm::mat4>> palettes;
 
-        auto view = scene.Registry().view<TransformComponent, MeshRendererComponent>();
-        for (auto handle : view) {
-            if (!ShouldRenderOnScreen(scene, handle, screen, &cameraComponent))
-                continue;
-            if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
-                continue;
-            auto& mesh = view.get<MeshRendererComponent>(handle);
-            if (!mesh.Enabled)
+        const auto finishCommand = [&](MeshDrawItem& item, const glm::vec3& center, float radius) {
+            MeshDrawCommand& command = item.Command;
+            if (UsesPerPixelLights(command.Material.Model))
+                command.LightCount = SelectLightsForBounds(view, center, radius, command.LightIndices);
+            item.Depth = glm::dot(center - view.CameraPosition, cameraForward);
+            item.StateKey = MaterialStateKey(command);
+        };
+
+        auto view3D = scene.Registry().view<TransformComponent, MeshRendererComponent>();
+        for (auto handle : view3D) {
+            if (!ShouldRenderOnScreen(scene, handle, screen, options.CameraFilter))
                 continue;
             Entity entity(handle, &scene);
-            if (!IsMeshVisibleInCamera(scene, entity, mesh, cameraComponent, cameraTransform, screen)) {
+            if (!scene.IsEffectivelyActive(entity))
+                continue;
+            auto& mesh = view3D.get<MeshRendererComponent>(handle);
+            if (!mesh.Enabled)
+                continue;
+            const TransformComponent transform = scene.GetWorldTransform(entity);
+            const float largestScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
+            const float radius = MeshBoundingRadius(mesh) * largestScale;
+            if (options.FrustumCull && !IsSphereVisibleInView(view, transform.Translation, radius)) {
                 stats.CulledMeshes++;
                 continue;
             }
             stats.VisibleMeshes++;
-            TransformComponent transform = scene.GetWorldTransform(entity);
-            uint32_t meshHandle = ResolveMeshGeometry(renderer, mesh.Mesh);
-
-            uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
+            const uint32_t meshHandle = ResolveMeshGeometry(renderer, mesh.Mesh);
+            const uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
             for (uint32_t i = 0; i < subMeshCount; i++) {
-                const AssetRef& materialRef = MaterialForSubMesh(mesh.Materials, i);
-                Material material = ResolveMeshMaterial(materialRef);
+                Material material = ResolveMeshMaterial(MaterialForSubMesh(mesh.Materials, i));
                 // Script-side material animation is a per-renderer property override, not a
                 // mutation of the shared MaterialLoader cache. It deliberately replaces only
-                // the material Color property; Texture and VertexLit/Unlit remain authored.
+                // the material Color property; texture, shader and render state stay authored.
                 if (mesh.HasRuntimeMaterialColor)
                     material.Color = mesh.RuntimeMaterialColor;
-                uint32_t textureId = ResolveMeshTexture(renderer, material.Texture);
-                renderer.DrawMesh(MeshDrawCommand{ mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId, material.ShadingMode });
-                stats.MeshDrawCalls++;
-                if (material.ShadingMode == MaterialShadingMode::VertexLit && renderView.MainLight.Enabled)
-                    stats.VertexLitDrawCalls++;
+                MeshDrawItem item;
+                MeshDrawCommand& command = item.Command;
+                command.Primitive = mesh.Primitive;
+                command.MeshHandle = meshHandle;
+                command.SubMeshIndex = i;
+                command.Translation = transform.Translation;
+                command.RotationDegrees = transform.Rotation;
+                command.Scale = transform.Scale;
+                command.Color = material.Color;
+                command.ShadingMode = material.ShadingMode;
+                command.HasMaterial = true;
+                command.Material = BuildRenderMaterial(renderer, material, command.TextureId);
+                finishCommand(item, transform.Translation, radius);
+                item.Queue = material.EffectiveRenderQueue();
+                items.push_back(item);
             }
         }
 
         auto skinnedView = scene.Registry().view<TransformComponent, SkinnedMeshRendererComponent>();
         for (auto handle : skinnedView) {
             Entity entity(handle, &scene);
-            if (!ShouldRenderOnScreen(scene, handle, screen, &cameraComponent) || !scene.IsEffectivelyActive(entity)) continue;
+            if (!ShouldRenderOnScreen(scene, handle, screen, options.CameraFilter) || !scene.IsEffectivelyActive(entity)) continue;
             auto& skin = skinnedView.get<SkinnedMeshRendererComponent>(handle);
             if (!skin.Enabled || skin.Mesh.Guid.empty()) continue;
             const std::string path = AssetDatabase::ResolvePath(skin.Mesh.Guid);
@@ -696,25 +860,40 @@ namespace Duality {
             if (source.Vertices.empty()) continue;
             RefreshSkinPose(scene, entity, skin, source);
             const TransformComponent transform = scene.GetWorldTransform(entity);
+            const float largestScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
+            // Animated limbs can leave the bind-pose sphere; pad it so culling never pops them.
+            const float radius = std::max(source.BoundingRadius, 0.5f) * largestScale * 1.5f;
+            if (options.FrustumCull && !IsSphereVisibleInView(view, transform.Translation, radius)) {
+                stats.CulledMeshes++;
+                continue;
+            }
+            stats.VisibleMeshes++;
             const uint32_t meshHandle = ResolveMeshGeometry(renderer, skin.Mesh);
             const uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
             for (uint32_t i = 0; i < subMeshCount; ++i) {
                 Material material = ResolveMeshMaterial(MaterialForSubMesh(skin.Materials, i));
+                MeshDrawItem item;
+                MeshDrawCommand& command = item.Command;
+                command.Primitive = MeshPrimitive::Cube;
+                command.MeshHandle = meshHandle;
+                command.SubMeshIndex = i;
+                command.Translation = transform.Translation;
+                command.RotationDegrees = transform.Rotation;
+                command.Scale = transform.Scale;
+                command.Color = material.Color;
+                command.ShadingMode = material.ShadingMode;
+                command.HasMaterial = true;
+                command.Material = BuildRenderMaterial(renderer, material, command.TextureId);
+
                 const MeshData::SubMesh* subMesh = i < source.SubMeshes.size() ? &source.SubMeshes[i] : nullptr;
                 if (subMesh && !subMesh->BonePalette.empty()) {
-                    skin.RuntimePaletteMatrices.clear();
-                    skin.RuntimePaletteMatrices.reserve(subMesh->BonePalette.size());
+                    std::vector<glm::mat4>& palette = palettes.emplace_back();
+                    palette.reserve(subMesh->BonePalette.size());
                     for (uint16_t bone : subMesh->BonePalette)
-                        skin.RuntimePaletteMatrices.push_back(bone < skin.RuntimeSkinMatrices.size() ? skin.RuntimeSkinMatrices[bone] : glm::mat4(1.0f));
-                    renderer.DrawMesh(MeshDrawCommand{ MeshPrimitive::Cube, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale,
-                        material.Color, ResolveMeshTexture(renderer, material.Texture), material.ShadingMode, false, true,
-                        skin.RuntimePaletteMatrices.data(), static_cast<uint32_t>(skin.RuntimePaletteMatrices.size()) });
-                } else if (source.Bones.empty()) {
-                    // A model may be placed on a SkinnedMeshRenderer before it has a rig; draw
-                    // it through the normal static path instead of allocating a mutable copy.
-                    renderer.DrawMesh(MeshDrawCommand{ MeshPrimitive::Cube, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale,
-                        material.Color, ResolveMeshTexture(renderer, material.Texture), material.ShadingMode });
-                } else {
+                        palette.push_back(bone < skin.RuntimeSkinMatrices.size() ? skin.RuntimeSkinMatrices[bone] : glm::mat4(1.0f));
+                    command.SkinMatrices = palette.data();
+                    command.SkinMatrixCount = static_cast<uint32_t>(palette.size());
+                } else if (!source.Bones.empty()) {
                     // V2 assets predate per-draw palettes. Keep them functional, but update the
                     // CPU-deformed buffer only when their pose changes -- never once per screen.
                     if (skin.RuntimeMeshPath != path || skin.RuntimeMeshHandle == 0 || skin.RuntimeDynamicPoseSignature != skin.RuntimePoseSignature) {
@@ -727,17 +906,80 @@ namespace Duality {
                         skin.RuntimeDynamicPoseSignature = skin.RuntimePoseSignature;
                     }
                     if (skin.RuntimeMeshHandle == 0) continue;
-                    renderer.DrawMesh(MeshDrawCommand{ MeshPrimitive::Cube, skin.RuntimeMeshHandle, i, transform.Translation, transform.Rotation, transform.Scale,
-                        material.Color, ResolveMeshTexture(renderer, material.Texture), material.ShadingMode });
+                    command.MeshHandle = skin.RuntimeMeshHandle;
                 }
-                stats.MeshDrawCalls++;
-                if (material.ShadingMode == MaterialShadingMode::VertexLit && renderView.MainLight.Enabled)
-                    stats.VertexLitDrawCalls++;
+                // (A model placed on a SkinnedMeshRenderer before it has a rig draws through the
+                // normal static path with the shared mesh handle.)
+                finishCommand(item, transform.Translation, radius);
+                item.Queue = material.EffectiveRenderQueue();
+                items.push_back(item);
             }
         }
 
-        stats.BlobShadowDrawCalls = RenderDirectionalBlobShadows(renderer, scene, screen, renderView, &cameraComponent);
-        stats.MeshDrawCalls += stats.BlobShadowDrawCalls;
+        // Unity ordering: render queue first. Opaque/cutout (queue <= 2500) are grouped by GPU
+        // state then drawn front-to-back (early depth rejection); transparent/additive are drawn
+        // back-to-front so blending composites correctly.
+        std::stable_sort(items.begin(), items.end(), [](const MeshDrawItem& a, const MeshDrawItem& b) {
+            if (a.Queue != b.Queue)
+                return a.Queue < b.Queue;
+            if (a.Queue <= 2500) {
+                if (a.StateKey != b.StateKey)
+                    return a.StateKey < b.StateKey;
+                return a.Depth < b.Depth;
+            }
+            return a.Depth > b.Depth;
+        });
+
+        bool shadowsDrawn = false;
+        const auto drawBlobShadows = [&]() {
+            if (shadowsDrawn || !options.BlobShadows)
+                return;
+            shadowsDrawn = true;
+            stats.BlobShadowDrawCalls = RenderDirectionalBlobShadows(renderer, scene, screen, view, options.CameraFilter);
+            stats.MeshDrawCalls += stats.BlobShadowDrawCalls;
+        };
+
+        for (const MeshDrawItem& item : items) {
+            // Projected blob shadows are translucent overlays on opaque receivers: after the
+            // opaque queues, before anything transparent that should cover them.
+            if (item.Queue > 2500)
+                drawBlobShadows();
+            renderer.DrawMesh(item.Command);
+            stats.MeshDrawCalls++;
+            const RenderMaterial& material = item.Command.Material;
+            if (material.Model == LightingModel::VertexLit && view.MainLight.Enabled)
+                stats.VertexLitDrawCalls++;
+            if (UsesPerPixelLights(material.Model)) {
+                stats.LitDrawCalls++;
+                stats.LightsPerDrawTotal += item.Command.LightCount;
+                stats.MaxLightsInDraw = std::max<uint32_t>(stats.MaxLightsInDraw, item.Command.LightCount);
+            }
+            if (material.Surface == SurfaceType::Transparent || material.Surface == SurfaceType::Additive)
+                stats.TransparentDrawCalls++;
+        }
+        drawBlobShadows();
+        return stats;
+    }
+
+    SceneRenderStats RenderScreen3D(IRenderer3D& renderer, Scene& scene, Screen screen, const glm::vec4& clearColor, bool clear) {
+        SceneRenderStats stats;
+        Entity camera = scene.GetPrimaryCamera(screen);
+        if (!camera)
+            return stats;
+
+        const auto& cameraComponent = camera.GetComponent<CameraComponent>();
+        RenderView renderView = BuildRenderView(scene, camera, screen);
+        const uint32_t shadowCasters = RenderDirectionalShadowMap(renderer, scene, screen, renderView, cameraComponent);
+        // Citro3D intentionally declines the optional shadow target today. Its
+        // current result stays useful and safe by falling back to blob shadows.
+        if (renderView.ShadowTechnique == ShadowMode::ShadowMapsExperimental && !renderView.HasShadowMap)
+            renderView.ShadowTechnique = ShadowMode::BlobShadows;
+        renderer.BeginScene(renderView, clearColor, clear);
+
+        MeshPassOptions options;
+        options.CameraFilter = &cameraComponent;
+        stats = RenderMeshPass(renderer, scene, screen, renderView, options);
+        stats.ShadowMapCasterDrawCalls = shadowCasters;
 
         renderer.EndScene();
         return stats;

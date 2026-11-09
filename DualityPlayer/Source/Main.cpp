@@ -38,11 +38,21 @@
 #include "DualityEngine/Scripting/ScriptRegistry.h"
 #include "DualityEngine/Scripting/ScriptableObjectModule.h"
 #include "DualityEngine/Scripting/ScriptableObjectRegistry.h"
+#include "DualityEngine/Scripting/JS/JsScripting.h"
+#include "DualityEngine/Core/Log.h"
+
+#include <cstdio>
 
 // Statically linked into this binary by GameScripts (no dllexport on this
 // platform -- see ScriptModuleExports.cpp's DE_SCRIPT_EXPORT).
 extern "C" void GetScriptFactories(const Duality::ScriptFactoryEntry** outEntries, int* outCount);
 extern "C" void GetScriptableObjectFactories(const Duality::ScriptableObjectFactoryEntry** outEntries, int* outCount);
+
+// Main-thread stack (libctru's crt0 reads this weak symbol; its default is only 32 KB). The
+// QuickJS interpreter recurses on the native stack for every nested JS call, so TypeScript
+// scripts need real headroom: 512 KB here, of which JsRuntimeOptions lets JS use 192 KB
+// before it throws a catchable "stack overflow" instead of corrupting memory.
+extern "C" { u32 __stacksize__ = 512 * 1024; }
 
 using namespace Duality;
 
@@ -75,6 +85,23 @@ namespace {
         }
     }
 
+    // Optional "PerfLog": true in BuildSettings.json: every 120 frames append GPU/CPU timings
+    // and Citro3DRenderer counters to sdmc:/duality_perf.txt (off by default, costs nothing).
+    bool s_PerfLog = false;
+
+    void AppendPerfLog(u32 frame, const Citro3DFrameStats& stats) {
+        FILE* file = fopen("sdmc:/duality_perf.txt", "a");
+        if (!file)
+            return;
+        fprintf(file, "frame %lu: cpu %.2f ms, gpu %.2f ms, cmdbuf %.1f%%, draws %lu (lit %lu), verts %lu (lit %lu), light slot updates %lu, material LUT changes %lu, program binds %lu\n",
+            static_cast<unsigned long>(frame), C3D_GetProcessingTime(), C3D_GetDrawingTime(), C3D_GetCmdBufUsage() * 100.0f,
+            static_cast<unsigned long>(stats.DrawCalls), static_cast<unsigned long>(stats.LitDrawCalls),
+            static_cast<unsigned long>(stats.Vertices), static_cast<unsigned long>(stats.LitVertices),
+            static_cast<unsigned long>(stats.LightSlotUpdates), static_cast<unsigned long>(stats.MaterialLutChanges),
+            static_cast<unsigned long>(stats.ProgramBinds));
+        fclose(file);
+    }
+
     int LoadN3DSBuildSettings() {
         std::ifstream file("romfs:/BuildSettings.json");
         if (!file)
@@ -85,6 +112,7 @@ namespace {
             int mode = settings.value("N3DSAntiAliasing", 0);
             PhysicsUnits::SetRuntimeOverride(settings.value("PPU", settings.value("PixelsPerMeter", 100.0f)), settings.value("Gravity", 9.81f));
             RenderSettings::SetShadowMode(ShadowModeFromInt(settings.value("ShadowTechnique", static_cast<int>(ShadowMode::BlobShadows))));
+            s_PerfLog = settings.value("PerfLog", false);
             return mode < 0 ? 0 : (mode > 2 ? 2 : mode);
         } catch (const nlohmann::json::parse_error&) {
             return 0;
@@ -134,6 +162,28 @@ int main(int argc, char* argv[]) {
     // equivalent. Without it, every AssetRef (sprite textures, PlaySound guids) would resolve
     // to an empty path here even though the exact same scene works fine in the Editor.
     AssetDatabase::LoadManifest("romfs:/AssetManifest.json");
+
+    // TypeScript scripts (BuildPipeline::CookTypeScript): QuickJS bytecode when DualityJsc was
+    // available at build time (no parse cost/parser memory at boot), else the minified bundle.
+    {
+        const u64 loadStart = svcGetSystemTick();
+        bool loaded = false;
+        if (FILE* bytecode = std::fopen("romfs:/Scripts/scripts.jsbc", "rb")) {
+            std::fclose(bytecode);
+            loaded = JsScripting::LoadBundle("romfs:/Scripts/scripts.jsbc");
+        }
+        if (!loaded) {
+            if (FILE* source = std::fopen("romfs:/Scripts/scripts.js", "rb")) {
+                std::fclose(source);
+                loaded = JsScripting::LoadBundle("romfs:/Scripts/scripts.js");
+            }
+        }
+        if (loaded) {
+            const double ms = static_cast<double>(svcGetSystemTick() - loadStart) * 1000.0 / static_cast<double>(SYSCLOCK_ARM11);
+            Log::Info("DualityPlayer: TypeScript ready in " + std::to_string(ms) + " ms, JS heap " +
+                std::to_string(JsScripting::GetMemoryStats().MallocSize / 1024) + " KB");
+        }
+    }
 
     Scene scene;
     SceneSerializer(scene).Deserialize("romfs:/Scene.scene");
@@ -243,9 +293,23 @@ int main(int argc, char* argv[]) {
         float deltaTime = static_cast<float>(now - lastTick) / static_cast<float>(SYSCLOCK_ARM11);
         lastTick = now;
 
+        const u64 updateStart = svcGetSystemTick();
         scene.OnRuntimeUpdate(deltaTime);
         for (auto& loaded : additiveScenes)
             loaded.Value->OnRuntimeUpdate(deltaTime);
+        // Script + physics cost (no rendering), reported every 300 frames while TS is loaded.
+        if (JsScripting::IsLoaded()) {
+            static u64 updateTicks = 0;
+            static u32 updateFrames = 0;
+            updateTicks += svcGetSystemTick() - updateStart;
+            if (++updateFrames == 300) {
+                const double ms = static_cast<double>(updateTicks) * 1000.0 / static_cast<double>(SYSCLOCK_ARM11) / updateFrames;
+                Log::Info("DualityPlayer: Scene::OnRuntimeUpdate avg " + std::to_string(ms) + " ms over 300 frames, JS heap " +
+                    std::to_string(JsScripting::GetMemoryStats().MallocSize / 1024) + " KB");
+                updateTicks = 0;
+                updateFrames = 0;
+            }
+        }
 
         // Deferred queue processing keeps scene destruction outside every Behaviour callback.
         // The build cooker keeps non-start scenes at romfs:/Assets/, so both Single and
@@ -295,6 +359,12 @@ int main(int argc, char* argv[]) {
             RenderScreen(renderer, renderer3D, *loaded.Value, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, false);
         C3D_FrameEnd(0);
         renderer.EndFrame();
+        if (s_PerfLog) {
+            static u32 perfFrame = 0;
+            if (++perfFrame % 120 == 0)
+                AppendPerfLog(perfFrame, renderer3D.GetFrameStats());
+            renderer3D.ResetFrameStats();
+        }
     }
 
     aptUnhook(&lifecycleHook);
@@ -303,6 +373,7 @@ int main(int argc, char* argv[]) {
     scene.OnApplicationQuit();
     stopAdditiveScenes();
     scene.OnRuntimeStop();
+    JsScripting::Unload();
     AudioEngine::Shutdown();
     renderer.Shutdown();
     renderer3D.Shutdown();

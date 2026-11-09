@@ -70,20 +70,58 @@
 
                 <h2>MeshRendererComponent, Material, Mesh</h2>
                 <pre><code><span class="tok-kw">struct</span> MeshRendererComponent {
-    MeshPrimitive Primitive = Cube; <span class="tok-com">// Cube | Sphere | Plane -- dựng thủ tục, không cần asset</span>
-    AssetRef Mesh;      <span class="tok-com">// rỗng = dùng Primitive; có giá trị = mesh OBJ import, thay thế Primitive khi resolve được</span>
-    AssetRef Material;  <span class="tok-com">// rỗng = Material mặc định (trắng, không texture)</span>
+    MeshPrimitive Primitive = Cube;   <span class="tok-com">// Cube | Sphere | Plane | Capsule -- dựng thủ tục, không cần asset</span>
+    std::vector&lt;AssetRef&gt; Materials; <span class="tok-com">// một .mat cho mỗi submesh; rỗng = Unlit trắng (giữ nguyên hình cũ)</span>
+    AssetRef Mesh;                    <span class="tok-com">// rỗng = dùng Primitive; có giá trị = mesh OBJ/model import</span>
 };</code></pre>
                 <p>
-                    <strong>Material</strong> là asset JSON (<code>.mat</code>) — <code>Color</code>
-                    (vec4) + <code>Texture</code> (AssetRef). Xem
-                    <a href="assets.html">Asset Pipeline</a> để biết cách tạo/import.
-                    <strong>Mesh</strong> import từ file <code>.obj</code> (Wavefront) — kéo file
-                    từ Content Browser vào field <code>Mesh</code>. Parser tự viết
-                    (<code>MeshLoader.cpp</code>) hỗ trợ face tam giác lẫn tứ giác
-                    (<code>v</code>/<code>v/vt</code>/<code>v//vn</code>/<code>v/vt/vn</code>), tự
-                    triangulate quad.
+                    <strong>Material</strong> (<code>.mat</code>, JSON v2) = một <strong>Shader</strong> dựng sẵn +
+                    giá trị thuộc tính (tên kiểu Unity: <code>_Color</code>, <code>_MainTex</code>,
+                    <code>_MainTex_ST</code>, <code>_BumpMap</code>, <code>_Cutoff</code>, <code>_SpecColor</code>,
+                    <code>_Shininess</code>, <code>_EmissionColor</code>, <code>_ShadeColor</code>,
+                    <code>_ToonSteps</code>, <code>_ToonSmoothness</code>) + render state (Surface Type, Cull,
+                    ZWrite, Render Queue). GPU PICA200 của 3DS không có fragment shader lập trình được, nên mỗi
+                    shader là một cấu hình pipeline cố định được viết hai lần: GLSL uber-shader trên desktop và
+                    vertex program PICA + tầng TEV + bộ <em>fragment lighting</em> phần cứng (LUT) trên 3DS. Các
+                    đường cong (specular, ramp toon, spot, suy giảm theo khoảng cách) chỉ định nghĩa một lần ở
+                    <code>Renderer/LightingMath.h</code>: 3DS lấy mẫu vào LUT 256 phần tử, desktop tính đúng công thức đó.
                 </p>
+                <table>
+                    <tr><th>Shader</th><th>Hình ảnh</th><th>3DS (PICA200)</th></tr>
+                    <tr><td><code>Unlit/Color</code>, <code>Unlit/Texture</code>, <code>Unlit/Vertex Color</code></td><td>không ánh sáng</td><td>1 tầng TEV, tắt lighting — rẻ nhất</td></tr>
+                    <tr><td><code>Unlit/Transparent</code>, <code>Unlit/Transparent Cutout</code>, <code>Unlit/Additive</code></td><td>alpha blend / alpha test / cộng màu</td><td>blend + alpha test phần cứng</td></tr>
+                    <tr><td><code>Mobile/VertexLit</code></td><td>Lambert theo đỉnh, chỉ Directional Light chính (= "VertexLit" cũ)</td><td>tính trong <code>mesh.v.pica</code></td></tr>
+                    <tr><td><code>Lit/Diffuse</code></td><td>Lambert theo pixel, tối đa 8 light, normal map, emission</td><td>fragment lighting, bump map ở texture unit 1</td></tr>
+                    <tr><td><code>Lit/Specular</code></td><td>+ Blinn-Phong (<code>_Shininess</code> × 128 = số mũ)</td><td>+ LUT D0 = pow(N·H)</td></tr>
+                    <tr><td><code>Toon/Lit</code></td><td>diffuse theo dải, màu vùng tối, highlight cứng</td><td>LUT D1 trên L·N + LUT D0 trên N·H</td></tr>
+                </table>
+                <div class="callout note">
+                    <span class="callout-title">Material cũ vẫn chạy y nguyên</span>
+                    File <code>.mat</code> cũ (<code>Color</code> + <code>Texture</code> [+ <code>Shading Mode</code>])
+                    được chuyển trong bộ nhớ sang <code>Unlit/Texture</code> hoặc <code>Mobile/VertexLit</code>,
+                    Cull Off, Opaque — hình ảnh không đổi; file chỉ được ghi lại (định dạng v2) khi bạn sửa nó.
+                </div>
+                <p>
+                    <strong>Mesh</strong> import từ <code>.obj</code> (hoặc model qua Assimp ở Editor) — kéo file
+                    từ Content Browser vào field <code>Mesh</code>. Tangent cho normal map được tạo khi load
+                    (<code>MeshVertex::Tangent</code>, 4 byte), không đổi định dạng file mesh.
+                </p>
+
+                <h2>Ánh sáng</h2>
+                <ul>
+                    <li><strong>Directional Light</strong> (Color, Intensity, Cast Shadows), <strong>Point Light</strong> (Range), <strong>Spot Light</strong> (Range, Spot Angle, Inner Spot Angle — góc nón đầy đủ như Unity, chiếu theo trục -Z).</li>
+                    <li>Mỗi object nhận tối đa <strong>8 light</strong> (giới hạn phần cứng PICA200, desktop chọn y hệt): Directional trước, sau đó Point/Spot theo độ sáng × suy giảm tại object; light không với tới bounds của object bị bỏ qua.</li>
+                    <li><strong>Window → Rendering → Lighting</strong>: Ambient Color × Intensity của scene (lưu trong file <code>.scene</code> mục <code>"Lighting"</code>), tổng quan light, kỹ thuật bóng đổ, thống kê frame.</li>
+                    <li>Bóng đổ: desktop dùng shadow map của Directional Light chính (chỉ làm tối phần đóng góp của light đó trên Lit/Toon); 3DS dùng blob shadow chiếu lên Plane.</li>
+                </ul>
+                <p>Scene mẫu <code>SampleProject/Assets/LightingDemo/LightingDemo.scene</code> — trái: desktop (OpenGL), phải: bản 3DS chạy trong Citra; dưới: Material inspector trong Editor.</p>
+                <p><img src="../images/lighting-demo-desktop.png" alt="LightingDemo trên desktop" style="max-width:49%"> <img src="../images/lighting-demo-3ds-citra.png" alt="LightingDemo trên 3DS (Citra)" style="max-width:49%"></p>
+                <p><img src="../images/lighting-demo-editor.png" alt="Material inspector và Scene view" style="max-width:100%"></p>
+                <div class="callout warn">
+                    Khác biệt có chủ đích giữa desktop và 3DS: LUT 256 phần tử làm highlight rất hẹp / mép toon hơi mềm hơn
+                    trên 3DS; màu light và emission bão hòa ở 1.0 trên cả hai nền tảng; normal map dùng chung tiling của
+                    Main Texture; 3DS không có shadow map, fog, ambient gradient.
+                </div>
 
                 <h2>Hệ UI trong game</h2>
                 <p>

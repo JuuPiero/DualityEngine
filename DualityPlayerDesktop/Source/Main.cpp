@@ -14,7 +14,11 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -40,6 +44,9 @@
 #include "DualityEngine/Scripting/ScriptRegistry.h"
 #include "DualityEngine/Scripting/ScriptableObjectModule.h"
 #include "DualityEngine/Scripting/ScriptableObjectRegistry.h"
+#include "DualityEngine/Scripting/JS/JsScripting.h"
+
+#include <filesystem>
 
 // Linked directly from GameScripts.dll's import library (see this project's own
 // ScriptModuleExports.cpp / DE_SCRIPT_EXPORT) -- same extern "C" declaration DualityPlayer's
@@ -145,7 +152,50 @@ namespace {
     }
 }
 
-int main() {
+namespace {
+    // Developer options (all optional; the default run is unchanged):
+    //   --scene <path relative to Assets/>    start this scene instead of the project's Start Scene
+    //   --screenshot <file.bmp> [--frames N]  render N frames (default 30), save the window, exit
+    struct PlayerOptions {
+        std::string Scene;
+        std::string Screenshot;
+        int Frames = 30;
+    };
+
+    PlayerOptions ParseOptions(int argc, char** argv) {
+        PlayerOptions options;
+        for (int i = 1; i + 1 < argc; ++i) {
+            if (std::strcmp(argv[i], "--scene") == 0) options.Scene = argv[++i];
+            else if (std::strcmp(argv[i], "--screenshot") == 0) options.Screenshot = argv[++i];
+            else if (std::strcmp(argv[i], "--frames") == 0) options.Frames = std::max(1, std::atoi(argv[++i]));
+        }
+        return options;
+    }
+
+    // Uncompressed 24-bit BMP of the current back buffer (bottom-up rows, as glReadPixels gives).
+    bool SaveBackBufferBmp(const std::string& path, int width, int height) {
+        const int rowBytes = (width * 3 + 3) & ~3;
+        std::vector<unsigned char> pixels(static_cast<size_t>(rowBytes) * height);
+        glPixelStorei(GL_PACK_ALIGNMENT, 4);
+        glReadBuffer(GL_BACK);
+        glReadPixels(0, 0, width, height, GL_BGR, GL_UNSIGNED_BYTE, pixels.data());
+        FILE* file = std::fopen(path.c_str(), "wb");
+        if (!file)
+            return false;
+        unsigned char header[54] = { 'B', 'M' };
+        auto put32 = [&](int offset, uint32_t value) { for (int i = 0; i < 4; ++i) header[offset + i] = static_cast<unsigned char>(value >> (8 * i)); };
+        put32(2, 54u + static_cast<uint32_t>(pixels.size())); put32(10, 54); put32(14, 40);
+        put32(18, static_cast<uint32_t>(width)); put32(22, static_cast<uint32_t>(height));
+        header[26] = 1; header[28] = 24; put32(34, static_cast<uint32_t>(pixels.size()));
+        std::fwrite(header, 1, sizeof(header), file);
+        std::fwrite(pixels.data(), 1, pixels.size(), file);
+        std::fclose(file);
+        return true;
+    }
+}
+
+int main(int argc, char** argv) {
+    const PlayerOptions options = ParseOptions(argc, argv);
     RegisterBuiltinComponents();
 
     const ScriptFactoryEntry* entries = nullptr;
@@ -199,10 +249,17 @@ int main() {
     RenderSettings::SetShadowMode(project->GetConfig().ShadowTechnique);
     AssetDatabase::Refresh(project->GetAssetsDirectory());
 
+    // TypeScript scripts: the bundle the Editor's TypeScriptCompiler keeps up to date (or
+    // `node Tools/TypeScript/build-scripts.mjs <project>`). Loaded before the scene so its
+    // Scripts entries find their TS classes.
+    const std::string tsBundle = project->GetDirectory() + "/Library/ScriptAssemblies/scripts.js";
+    if (std::filesystem::exists(tsBundle))
+        JsScripting::LoadBundle(tsBundle);
+
     Scene scene;
     // Same explicit .dproj setting the Editor and 3DS BuildPipeline use. Old projects retain
     // their build-list-first and Assets/Scene.scene fallbacks through Project::GetStartScenePath.
-    std::string startScenePath = project->GetStartScenePath();
+    std::string startScenePath = options.Scene.empty() ? project->GetStartScenePath() : options.Scene;
     SceneSerializer(scene).Deserialize(project->GetAssetsDirectory() + "/" + startScenePath);
     scene.OnRuntimeStart();
 
@@ -222,6 +279,10 @@ int main() {
 
     double lastTime = glfwGetTime();
 
+    int remainingScreenshotFrames = options.Frames;
+    // Script/physics cost per frame (Scene::OnRuntimeUpdate only, no rendering), reported at exit.
+    double updateSeconds = 0.0;
+    long long updateFrames = 0;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -261,9 +322,12 @@ int main() {
         float deltaTime = static_cast<float>(now - lastTime);
         lastTime = now;
 
+        const double updateStart = glfwGetTime();
         scene.OnRuntimeUpdate(deltaTime);
         for (auto& loaded : additiveScenes)
             loaded.Value->OnRuntimeUpdate(deltaTime);
+        updateSeconds += glfwGetTime() - updateStart;
+        ++updateFrames;
 
         // Scene transitions are intentionally applied only after *all* loaded scenes have
         // completed their update. A request therefore cannot destroy the Behaviour currently
@@ -316,11 +380,21 @@ int main() {
             RenderScreenIntoViewport(renderer, renderer3D, *loaded.Value, Screen::Bottom, { 0.12f, 0.08f, 0.08f, 1.0f }, bottom.X, bottom.Y, bottom.W, bottom.H, false);
         renderer.EndFrame();
 
+        if (!options.Screenshot.empty() && --remainingScreenshotFrames <= 0) {
+            if (SaveBackBufferBmp(options.Screenshot, WindowWidth, WindowHeight))
+                Log::Info("DualityPlayerDesktop: saved screenshot '" + options.Screenshot + "'");
+            break;
+        }
         glfwSwapBuffers(window);
     }
 
+    if (updateFrames > 0)
+        Log::Info("DualityPlayerDesktop: " + std::to_string(updateFrames) + " frames, Scene::OnRuntimeUpdate avg " +
+            std::to_string(updateSeconds * 1000.0 / static_cast<double>(updateFrames)) + " ms" +
+            (JsScripting::IsLoaded() ? ", JS heap " + std::to_string(JsScripting::GetMemoryStats().MallocSize / 1024) + " KB" : std::string()));
     stopAdditiveScenes();
     scene.OnRuntimeStop();
+    JsScripting::Unload();
     AudioEngine::Shutdown();
     renderer.Shutdown();
     renderer3D.Shutdown();

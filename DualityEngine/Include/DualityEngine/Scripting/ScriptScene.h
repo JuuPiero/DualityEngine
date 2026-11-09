@@ -57,6 +57,15 @@ namespace Duality {
             return Entity(static_cast<entt::entity>(handle), static_cast<Scene*>(scene));
         }
 
+        // Unity's Object.Destroy(gameObject): removed at the end of the current frame, after its
+        // scripts' OnDisable/OnDestroy (see Scene::DestroyEntityDeferred).
+        static void Destroy(Entity entity) {
+            const EngineServices* services = ScriptContext::Services();
+            if (!services || !services->DestroyEntity || !entity)
+                return;
+            services->DestroyEntity(entity.GetScene(), static_cast<unsigned int>(entity.Handle()));
+        }
+
         // Unity's ScriptableObject data-asset lookup -- caller supplies concrete type T since
         // the engine side only hands back an opaque void* across the DLL boundary.
         template<typename T>

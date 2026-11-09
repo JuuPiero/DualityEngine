@@ -198,9 +198,20 @@
                     không cần sửa code C++ nữa.
                 </div>
 
+                <h3>Directional Light / Point Light / Spot Light</h3>
+                <p>
+                    <code>DirectionalLightComponent</code> (Color, Intensity, Cast Shadows — chiếu theo trục -Z của entity),
+                    <code>PointLightComponent</code> (Color, Intensity, Range) và <code>SpotLightComponent</code> (Color,
+                    Intensity, Range, Spot Angle, Inner Spot Angle — góc nón đầy đủ, chiếu theo -Z). Mỗi object nhận tối đa
+                    8 light (giới hạn PICA200). Chỉ material <code>Lit/*</code>, <code>Toon/Lit</code> (và
+                    <code>Mobile/VertexLit</code> với Directional Light chính) nhận ánh sáng — xem
+                    <a href="rendering.html">Rendering</a>.
+                </p>
+
                 <h3>MeshRendererComponent</h3>
                 <p>
-                    Unlit — chưa có hệ lighting thật (xem ROADMAP.md). Một primitive dựng thủ tục
+                    Vẽ bằng Material/Shader (<code>Lit/*</code>, <code>Toon/Lit</code>, <code>Unlit/*</code>... — xem
+                    <a href="rendering.html">Rendering</a>); slot material rỗng vẽ Unlit trắng như trước. Một primitive dựng thủ tục
                     (khi không import mesh) đặt kích thước/hướng theo chính
                     <code>TransformComponent</code> của entity — world-space <code>Scale</code>
                     chính là kích thước mesh (khác <code>SpriteRendererComponent</code> có field

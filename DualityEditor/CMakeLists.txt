@@ -6,12 +6,14 @@ add_executable(DualityEditor
     Source/Framebuffer.cpp
     Source/ThumbnailCache.cpp
     Source/ScriptEngine.cpp
+    Source/TypeScriptCompiler.cpp
     Source/BuildPipeline.cpp
     Source/SceneGizmo.cpp
     Source/SceneHistory.cpp
     Source/FieldEditorWidget.cpp
     Source/AssetInspectorRegistry.cpp
     Source/AssetInspectors.cpp
+    Source/MaterialInspector.cpp
     Source/SceneOps.cpp
     Source/EditorSettings.cpp
     Source/EditorTheme.cpp
@@ -27,6 +29,7 @@ add_executable(DualityEditor
     Source/Panels/ProjectSettingsPanel.cpp
     Source/Panels/PackageManagerPanel.cpp
     Source/Panels/PreferencesPanel.cpp
+    Source/Panels/LightingPanel.cpp
 )
 
 # find_package's imported targets are only guaranteed visible within the

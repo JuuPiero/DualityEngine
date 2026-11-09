@@ -10,12 +10,12 @@
   "PackagesDirectory": "Packages",
   "ProductName": "",
   "ScenesInBuild": [
-    "Scene.scene"
+    "LightingDemo/LightingDemo.scene"
   ],
   "ScriptingDefines": [],
   "ScriptsDirectory": "Scripts",
   "ShadowTechnique": 2,
-  "StartScene": "Scene.scene",
+  "StartScene": "LightingDemo/LightingDemo.scene",
   "Version": "0.1.0",
   "WorldUnitsVersion": 2
 }

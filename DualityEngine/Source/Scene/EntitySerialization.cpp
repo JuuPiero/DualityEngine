@@ -8,6 +8,29 @@
 
 namespace Duality {
 
+    bool ScriptRegistry::ResolvePendingOverrides(ScriptInstance& script) {
+        if (script.UnresolvedOverridesJson.empty() || !IsRegistered(script.ClassName))
+            return false;
+        json raw = json::parse(script.UnresolvedOverridesJson, nullptr, false);
+        script.UnresolvedOverridesJson.clear();
+        const std::vector<FieldHandle>& fields = GetFields(script.ClassName);
+        if (!raw.is_object() || fields.empty())
+            return false;
+        Behaviour* scratch = nullptr;
+        void (*destroyScratch)(Behaviour*) = nullptr;
+        if (!TryCreate(script.ClassName, &scratch, &destroyScratch))
+            return false;
+        bool resolved = false;
+        for (const FieldHandle& field : fields) {
+            if (raw.contains(field.Name) && !script.PropertyOverrides.count(field.Name)) {
+                script.PropertyOverrides[field.Name] = JsonToFieldValue(raw[field.Name], field.Get(scratch));
+                resolved = true;
+            }
+        }
+        destroyScratch(scratch);
+        return resolved;
+    }
+
     void SerializeEntityComponents(Entity entity, json& outEntityJson) {
         for (auto& type : TypeRegistry::All()) {
             if (!type.Has(entity))
@@ -27,6 +50,12 @@ namespace Duality {
                     scriptJson["ClassName"] = script.ClassName;
                     scriptJson["Enabled"] = script.Enabled;
                     json overridesJson;
+                    ScriptRegistry::ResolvePendingOverrides(script);
+                    if (!script.UnresolvedOverridesJson.empty()) {
+                        json raw = json::parse(script.UnresolvedOverridesJson, nullptr, false);
+                        if (raw.is_object())
+                            overridesJson = raw;
+                    }
                     for (auto& [name, value] : script.PropertyOverrides)
                         overridesJson[name] = FieldValueToJson(value);
                     scriptJson["PropertyOverrides"] = overridesJson;
@@ -65,6 +94,13 @@ namespace Duality {
                     script.Enabled = scriptJson.value("Enabled", true);
                     if (scriptJson.contains("PropertyOverrides")) {
                         const std::vector<FieldHandle>& scriptFields = ScriptRegistry::GetFields(script.ClassName);
+                        const json& rawOverrides = scriptJson["PropertyOverrides"];
+                        if (!ScriptRegistry::IsRegistered(script.ClassName) && rawOverrides.is_object() && !rawOverrides.empty()) {
+                            // Class not available yet (its C++ module or TS bundle failed to
+                            // build / hasn't loaded): keep the values verbatim instead of
+                            // silently dropping them on the next save.
+                            script.UnresolvedOverridesJson = rawOverrides.dump();
+                        }
                         if (!scriptFields.empty()) {
                             // Need a same-typed prototype FieldValue per field to decode against
                             // (JsonToFieldValue dispatches on the prototype's held alternative) --

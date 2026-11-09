@@ -31,8 +31,24 @@ namespace Duality {
     }
 
     bool DrawFieldWidget(const FieldHandle& field, void* instance, Scene* scene) {
+        // Optional presentation metadata (Unity's [Header]/[Range]/[Tooltip]) -- see
+        // FieldHandle's own comment. Only TypeScript @field declarations fill these today.
+        if (!field.Header.empty()) {
+            ImGui::Spacing();
+            ImGui::TextUnformatted(field.Header.c_str());
+        }
         FieldValue value = field.Get(instance);
-        bool changed = DrawFieldValueWidget(field.Name, value, scene);
+        bool changed = false;
+        if (field.HasRange && std::holds_alternative<float>(value)) {
+            changed = ImGui::SliderFloat(field.Name.c_str(), &std::get<float>(value), field.RangeMin, field.RangeMax);
+        } else if (field.HasRange && std::holds_alternative<int>(value)) {
+            changed = ImGui::SliderInt(field.Name.c_str(), &std::get<int>(value),
+                static_cast<int>(field.RangeMin), static_cast<int>(field.RangeMax));
+        } else {
+            changed = DrawFieldValueWidget(field.Name, value, scene);
+        }
+        if (!field.Tooltip.empty() && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", field.Tooltip.c_str());
         if (changed)
             field.Set(instance, value);
         return changed;
@@ -44,7 +60,11 @@ namespace Duality {
         std::visit([&](auto&& v) {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::is_same_v<T, glm::vec3>) {
-                changed = ImGui::DragFloat3(name.c_str(), &v.x, 0.5f);
+                // RGB fields (light colors) get a color picker; everything else is a vector.
+                if (name == "Color" || (name.size() > 6 && name.compare(name.size() - 6, 6, " Color") == 0))
+                    changed = ImGui::ColorEdit3(name.c_str(), &v.x);
+                else
+                    changed = ImGui::DragFloat3(name.c_str(), &v.x, 0.5f);
             } else if constexpr (std::is_same_v<T, glm::vec2>) {
                 changed = ImGui::DragFloat2(name.c_str(), &v.x, 0.5f, 1.0f, 1000.0f);
             } else if constexpr (std::is_same_v<T, glm::vec4>) {

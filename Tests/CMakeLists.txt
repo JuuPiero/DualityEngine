@@ -16,6 +16,7 @@ add_executable(DualityEngineTests
     ScriptableObjectTests.cpp
     AssetImportSettingsTests.cpp
     MaterialTests.cpp
+    RenderingMaterialTests.cpp
     MeshLoaderTests.cpp
     ModelRuntimeAssetTests.cpp
     RigidbodyAPITests.cpp
@@ -27,3 +28,24 @@ add_executable(DualityEngineTests
     ScriptContextDllBoundaryTests.cpp
 )
 target_link_libraries(DualityEngineTests PRIVATE DualityEngine)
+
+# TypeScript scripting (QuickJS) bridge tests. The fixture project's .ts files are bundled by the
+# same toolchain the Editor uses (Tools/TypeScript/build-scripts.mjs, needs node); without node the
+# JsScriptingTests cases report "skipped" instead of failing.
+target_sources(DualityEngineTests PRIVATE JsScriptingTests.cpp)
+find_program(DUALITY_NODE_EXECUTABLE node)
+if(DUALITY_NODE_EXECUTABLE)
+    set(DUALITY_TS_FIXTURE_OUT ${CMAKE_CURRENT_BINARY_DIR}/TypeScriptFixture)
+    file(GLOB DUALITY_TS_FIXTURE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/TypeScriptFixture/Assets/Scripts/*.ts)
+    add_custom_command(
+        OUTPUT ${DUALITY_TS_FIXTURE_OUT}/scripts.js
+        COMMAND ${DUALITY_NODE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/Tools/TypeScript/build-scripts.mjs
+                ${CMAKE_CURRENT_SOURCE_DIR}/TypeScriptFixture --out ${DUALITY_TS_FIXTURE_OUT} --no-project-types
+        DEPENDS ${DUALITY_TS_FIXTURE_SOURCES} ${CMAKE_SOURCE_DIR}/Tools/TypeScript/duality/duality.ts
+                ${CMAKE_SOURCE_DIR}/Tools/TypeScript/build-scripts.mjs
+        COMMENT "Bundling the TypeScript test fixture"
+        VERBATIM)
+    add_custom_target(DualityTsFixture DEPENDS ${DUALITY_TS_FIXTURE_OUT}/scripts.js)
+    add_dependencies(DualityEngineTests DualityTsFixture)
+    target_compile_definitions(DualityEngineTests PRIVATE DUALITY_TS_FIXTURE="${DUALITY_TS_FIXTURE_OUT}/scripts.js")
+endif()

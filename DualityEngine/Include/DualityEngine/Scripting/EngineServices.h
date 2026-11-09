@@ -126,6 +126,22 @@ namespace Duality {
         bool (*GetChildAt)(void* scene, unsigned int entityHandle, int index, unsigned int* outHandle);
         void (*ClearEntityChildren)(void* scene, unsigned int entityHandle);
 
+        // Unity's Object.Destroy(gameObject) -- deferred to the end of the frame (scripts get
+        // OnDisable/OnDestroy, physics bodies are released). See Scene::DestroyEntityDeferred.
+        void (*DestroyEntity)(void* scene, unsigned int entityHandle);
+
+        // Cross-language script access (C++ <-> TypeScript): finds the first live script
+        // instance of `className` on an entity (returns an opaque Behaviour*, null if none),
+        // and reads/writes its reflected Inspector fields by name. `value`/`outValue` point at
+        // a Duality::FieldValue (Reflection/Field.h) -- the same type already crossing this
+        // boundary inside ScriptFactoryEntry::Fields. Set refuses a value whose FieldValue
+        // alternative doesn't match the field's own. CallScriptMethod calls a no-argument
+        // method by name on a TypeScript script (Unity's SendMessage); false for C++ scripts.
+        void* (*FindScript)(void* scene, unsigned int entityHandle, const char* className);
+        bool (*GetScriptField)(void* script, const char* className, const char* fieldName, void* outValue);
+        bool (*SetScriptField)(void* script, const char* className, const char* fieldName, const void* value);
+        bool (*CallScriptMethod)(void* script, const char* methodName);
+
         // Per-callback context for ScriptContext (Bind/Clear/Scene/EntityHandle) -- lives HERE,
         // as mutable fields on this one process-wide struct instance, deliberately NOT as
         // ScriptContext's own `static`/`inline static` variables. A plain header-only static

@@ -512,6 +512,75 @@ namespace Duality {
             }
         }
 
+        // Polyline through world points, skipping segments with an unprojectable endpoint.
+        void DrawWorldPolyline(const Projector3D& proj, const std::vector<glm::vec3>& points, ImU32 color, float thickness, bool closed) {
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            const size_t count = points.size();
+            for (size_t i = 0; i + (closed ? 0 : 1) < count; ++i) {
+                ImVec2 a, b;
+                if (proj.Project(points[i], a) && proj.Project(points[(i + 1) % count], b))
+                    drawList->AddLine(a, b, color, thickness);
+            }
+        }
+
+        std::vector<glm::vec3> WorldCircle(const glm::vec3& center, const glm::vec3& axisA, const glm::vec3& axisB, float radius, int segments = 48) {
+            std::vector<glm::vec3> points;
+            points.reserve(static_cast<size_t>(segments));
+            for (int i = 0; i < segments; ++i) {
+                const float angle = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(segments);
+                points.push_back(center + (axisA * std::cos(angle) + axisB * std::sin(angle)) * radius);
+            }
+            return points;
+        }
+
+        // Bulb icon for every active Point Light; its Range sphere (3 great circles) when selected.
+        void DrawPointLightGizmo(const Projector3D& proj, const TransformComponent& transform, const PointLightComponent& light, bool selected) {
+            const ImU32 color = ImGui::ColorConvertFloat4ToU32(ImVec4(
+                0.55f + 0.45f * std::min(light.Color.r, 1.0f), 0.55f + 0.45f * std::min(light.Color.g, 1.0f), 0.55f + 0.45f * std::min(light.Color.b, 1.0f), 1.0f));
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImVec2 center;
+            if (proj.Project(transform.Translation, center)) {
+                drawList->AddCircleFilled(center, 5.5f, color, 16);
+                drawList->AddCircle(center, 9.0f, color, 16, 1.25f);
+                drawList->AddLine(ImVec2(center.x - 3.0f, center.y + 9.0f), ImVec2(center.x + 3.0f, center.y + 9.0f), color, 2.0f);
+            }
+            if (!selected)
+                return;
+            const ImU32 rangeColor = IM_COL32(255, 230, 120, 170);
+            DrawWorldPolyline(proj, WorldCircle(transform.Translation, { 1, 0, 0 }, { 0, 1, 0 }, light.Range), rangeColor, 1.25f, true);
+            DrawWorldPolyline(proj, WorldCircle(transform.Translation, { 1, 0, 0 }, { 0, 0, 1 }, light.Range), rangeColor, 1.25f, true);
+            DrawWorldPolyline(proj, WorldCircle(transform.Translation, { 0, 1, 0 }, { 0, 0, 1 }, light.Range), rangeColor, 1.25f, true);
+        }
+
+        // Spot icon + direction ray always; the full cone (outer and inner angle) when selected.
+        void DrawSpotLightGizmo(const Projector3D& proj, const TransformComponent& transform, const SpotLightComponent& light, bool selected) {
+            const glm::quat rotation = EulerDegreesToQuat(transform.Rotation);
+            const glm::vec3 forward = rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+            const glm::vec3 right = rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+            const glm::vec3 up = rotation * glm::vec3(0.0f, 1.0f, 0.0f);
+            const ImU32 color = IM_COL32(255, 220, 90, 255);
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImVec2 apex;
+            if (proj.Project(transform.Translation, apex)) {
+                drawList->AddCircleFilled(apex, 5.0f, color, 12);
+                drawList->AddCircle(apex, 8.0f, color, 12, 1.25f);
+            }
+            const float length = selected ? light.Range : std::min(light.Range, Gizmo3DWorldAxisLength(proj, transform.Translation) * 1.6f);
+            const auto drawCone = [&](float angleDegrees, ImU32 coneColor, int rays) {
+                const float radius = length * std::tan(glm::radians(std::clamp(angleDegrees, 1.0f, 179.0f) * 0.5f));
+                const glm::vec3 baseCenter = transform.Translation + forward * length;
+                const std::vector<glm::vec3> base = WorldCircle(baseCenter, right, up, radius, 40);
+                DrawWorldPolyline(proj, base, coneColor, 1.25f, true);
+                for (int i = 0; i < rays; ++i) {
+                    const glm::vec3& rim = base[static_cast<size_t>(i * static_cast<int>(base.size()) / rays)];
+                    DrawWorldPolyline(proj, { transform.Translation, rim }, coneColor, 1.25f, false);
+                }
+            };
+            drawCone(light.SpotAngle, selected ? IM_COL32(255, 230, 120, 200) : IM_COL32(255, 230, 120, 110), 4);
+            if (selected && light.InnerSpotAngle > 0.5f)
+                drawCone(light.InnerSpotAngle, IM_COL32(255, 190, 80, 120), 0);
+        }
+
         constexpr float Collider3DHandleHalfSize = 5.0f;
         // Same order-of-magnitude as the pan/scale-drag sensitivities above -- Distance-scaled
         // so a resize drag feels proportionate regardless of how far the orbit camera is
@@ -1152,35 +1221,17 @@ namespace Duality {
             previewView.AspectRatio = aspect;
             previewView.NearPlane = NearPlane;
             previewView.FarPlane = FarPlane;
-            PopulateMainDirectionalLight(ctx.SceneRef, previewView);
+            PopulateSceneLighting(ctx.SceneRef, previewView);
             renderer3D.BeginScene(previewView, clearColor, true);
-            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, MeshRendererComponent>()) {
-                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
-                    continue;
-                // Inactive entities' rendered content (mesh/sprite) is hidden here too, not just
-                // in the real Game view -- user-requested: unlike Unity's own Scene-view-shows-
-                // disabled-objects convention, seeing an entity disappear the instant Active is
-                // unchecked is the expected feedback here. Colliders/camera frustums/gizmos
-                // deliberately stay visible regardless (still useful to see/edit while inactive).
-                if (!ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef)))
-                    continue;
-                auto& mesh = ctx.SceneRef.Registry().get<MeshRendererComponent>(handle);
-                if (!mesh.Enabled)
-                    continue;
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
-                uint32_t meshHandle = ResolveMeshGeometry(renderer3D, mesh.Mesh);
-                // One draw call per submesh -- see SceneRenderer.cpp's RenderScreen3D, same loop.
-                uint32_t subMeshCount = renderer3D.GetSubMeshCount(meshHandle);
-                for (uint32_t i = 0; i < subMeshCount; i++) {
-                    const AssetRef& materialRef = MaterialForSubMesh(mesh.Materials, i);
-                    Material material = ResolveMeshMaterial(materialRef);
-                    uint32_t textureId = ResolveMeshTexture(renderer3D, material.Texture);
-                    renderer3D.DrawMesh(MeshDrawCommand{ mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId, material.ShadingMode });
-                }
-            }
-            // Same projected-shadow policy as Game: active non-plane meshes cast onto active
-            // Plane receivers only when the selected Directional Light enables Cast Shadows.
-            RenderDirectionalBlobShadows(renderer3D, ctx.SceneRef, screen, previewView);
+            // The exact forward pass the Game view uses (RenderMeshPass): same materials, light
+            // selection, render-queue sorting, skinned meshes and blob shadows -- so material and
+            // light edits preview live here. Inactive entities' rendered content is hidden here
+            // too (user-requested: seeing an entity disappear the instant Active is unchecked is
+            // the expected feedback); colliders/frustums/gizmos stay visible regardless. No
+            // Culling Mask filter: the editor camera sees every layer of this screen.
+            MeshPassOptions meshPass;
+            meshPass.CameraFilter = nullptr;
+            RenderMeshPass(renderer3D, ctx.SceneRef, screen, previewView, meshPass);
             // Scene 3D shows SpriteRenderers as their actual world-space quads: an XY plane
             // positioned, rotated and scaled by the entity Transform. 2D mode is therefore
             // merely a convenient orthographic editing view, not a different representation.
@@ -1327,6 +1378,24 @@ namespace Duality {
                 if (!component.Enabled || !ctx.SceneRef.IsEffectivelyActive(light))
                     continue;
                 DrawDirectionalLightGizmo(proj, ctx.SceneRef.GetWorldTransform(light));
+            }
+            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, PointLightComponent>()) {
+                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                    continue;
+                Entity light(handle, &ctx.SceneRef);
+                const auto& component = light.GetComponent<PointLightComponent>();
+                if (!component.Enabled || !ctx.SceneRef.IsEffectivelyActive(light))
+                    continue;
+                DrawPointLightGizmo(proj, ctx.SceneRef.GetWorldTransform(light), component, ctx.Selected == light);
+            }
+            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpotLightComponent>()) {
+                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                    continue;
+                Entity light(handle, &ctx.SceneRef);
+                const auto& component = light.GetComponent<SpotLightComponent>();
+                if (!component.Enabled || !ctx.SceneRef.IsEffectivelyActive(light))
+                    continue;
+                DrawSpotLightGizmo(proj, ctx.SceneRef.GetWorldTransform(light), component, ctx.Selected == light);
             }
 
             // 3D collider gizmo -- green wireframe for the selected entity only. Resize handles
@@ -1537,6 +1606,16 @@ namespace Duality {
                             TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
                             testSphere(candidate, transform.Translation, 20.0f);
                         }
+                        // Point/Spot lights: pick the icon, never the (possibly huge) range volume.
+                        for (auto handle : ctx.SceneRef.Registry().view<TransformComponent>()) {
+                            Entity candidate(handle, &ctx.SceneRef);
+                            if (!candidate.HasComponent<PointLightComponent>() && !candidate.HasComponent<SpotLightComponent>())
+                                continue;
+                            if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen) || !ctx.SceneRef.IsEffectivelyActive(candidate))
+                                continue;
+                            TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
+                            testSphere(candidate, transform.Translation, std::max(0.25f, Gizmo3DWorldAxisLength(proj, transform.Translation) * 0.15f));
+                        }
                         for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, BoxCollider3DComponent>()) {
                             if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
                                 continue;
@@ -1574,6 +1653,8 @@ namespace Duality {
                                 candidate.HasComponent<SpriteRendererComponent>() ||
                                 candidate.HasComponent<CameraComponent>() ||
                                 candidate.HasComponent<DirectionalLightComponent>() ||
+                                candidate.HasComponent<PointLightComponent>() ||
+                                candidate.HasComponent<SpotLightComponent>() ||
                                 candidate.HasComponent<BoxCollider3DComponent>() ||
                                 candidate.HasComponent<SphereCollider3DComponent>() ||
                                 candidate.HasComponent<CapsuleCollider3DComponent>())

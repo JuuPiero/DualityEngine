@@ -1,0 +1,15 @@
+{
+  "name": "duality-typescript-toolchain",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Compiles a DualityEngine project's TypeScript scripts (Assets/**/*.ts) into one QuickJS bundle.",
+  "type": "module",
+  "scripts": {
+    "build": "node build-scripts.mjs",
+    "dts": "node build-scripts.mjs --dts-only"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10",
+    "typescript": "5.9.3"
+  }
+}

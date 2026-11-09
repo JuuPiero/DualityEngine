@@ -15,6 +15,7 @@
 #include "DualityEditor/Panels/ContentBrowserPanel.h"
 #include "DualityEditor/Panels/GamePanel.h"
 #include "DualityEditor/Panels/HierarchyPanel.h"
+#include "DualityEditor/Panels/LightingPanel.h"
 #include "DualityEditor/Panels/MenuBarPanel.h"
 #include "DualityEditor/Panels/PackageManagerPanel.h"
 #include "DualityEditor/Panels/PreferencesPanel.h"
@@ -165,6 +166,7 @@ namespace Duality {
         ProjectSettingsPanel m_ProjectSettingsPanel;
         PackageManagerPanel m_PackageManagerPanel;
         PreferencesPanel m_PreferencesPanel;
+        LightingPanel m_LightingPanel;
     };
 
 }

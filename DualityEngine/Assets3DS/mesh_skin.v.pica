@@ -1,8 +1,9 @@
 ; PICA200 skinned forward mesh shader. Cooked V3 .dmesh files partition triangles into
 ; palettes of <= 24 bones. Each affine 3x4 bone uses three fvec uniforms (72 total), keeping
-; this shader at 83/96 vectors including the camera and lighting uniforms.
+; this shader at 85/96 vectors including the camera, lighting and UV-transform uniforms.
+; Used for Unlit/* and Mobile/VertexLit materials; Lit/* and Toon/* use mesh_skin_lit.v.pica.
 
-.fvec projection[4], modelView[4], lightVec, lightColor, ambientColor, bones[72], boneIndexScale
+.fvec projection[4], modelView[4], lightVec, lightColor, ambientColor, uvTransform, bones[72], boneIndexScale
 
 .constf myconst(0.0, 1.0, -1.0, 3.0)
 .alias zeros myconst.xxxx
@@ -16,9 +17,11 @@
 .alias intex v1
 .alias innrm v2
 .alias invclr v3
-.alias inbone v4
-.alias inweight v5
-.alias inmat v6
+; v4 receives MeshVertex::Tangent (it sits between Color and BoneIndices in the vertex buffer
+; and PICA loads attributes contiguously); this shader doesn't need it.
+.alias inbone v5
+.alias inweight v6
+.alias inmat v7
 
 .proc main
 	; Object-space position (r0) and normal (r1). r2/r3 accumulate the four weighted
@@ -112,7 +115,10 @@
 	mul r6, lightColor, r6.xxxx
 	add r6, ambientColor, r6
 
-	mov outtc0, intex
+	mov r9, uvTransform
+	mov r10, intex
+	mad r10.xy, r10.xy, r9.xy, r9.zw
+	mov outtc0, r10
 	mov r7, invclr
 	mul r7, r7, inmat
 	mul outclr, r7, r6

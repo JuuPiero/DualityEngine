@@ -13,6 +13,7 @@
 #include "DualityEditor/AssetInspectorRegistry.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/FieldEditorWidget.h"
+#include "DualityEditor/MaterialInspector.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AudioImportSettings.h"
 #include "DualityEngine/Asset/Material.h"
@@ -191,17 +192,9 @@ namespace Duality {
             ImGui::EndChild();
         }
 
-        void DrawMaterialAsset(const std::string& path, EditorContext&) {
-            Material material = MaterialLoader::Load(path);
-            ImGui::TextUnformatted("3D Material");
-            ImGui::TextDisabled("Unlit preserves authored color. VertexLit uses the scene's main Directional Light.");
-            ImGui::TextDisabled("Imported OBJ vertex colors multiply the material for baked AO/light; meshes without them stay white.");
-            ImGui::Separator();
-            bool changed = false;
-            for (auto& field : Material::Fields())
-                changed |= DrawFieldWidget(field, &material);
-            if (changed)
-                MaterialLoader::Save(path, material);
+        void DrawMaterialAsset(const std::string& path, EditorContext& ctx) {
+            // Shader dropdown + per-shader properties + live preview (MaterialInspector.cpp).
+            DrawMaterialInspector(path, ctx);
         }
 
         void DrawPhysicsMaterialAsset(const std::string& path, EditorContext&) {

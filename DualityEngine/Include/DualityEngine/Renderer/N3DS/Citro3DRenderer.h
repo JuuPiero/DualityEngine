@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -13,6 +14,18 @@
 
 namespace Duality {
 
+    // Per-frame PICA200 cost counters (reset by BeginScene, accumulated across screens by the
+    // caller if needed). Used by DualityPlayer's optional perf log.
+    struct Citro3DFrameStats {
+        uint32_t DrawCalls = 0;
+        uint32_t LitDrawCalls = 0;          // draws with hardware fragment lighting enabled
+        uint32_t Vertices = 0;              // vertices submitted (all draws)
+        uint32_t LitVertices = 0;           // vertices through mesh_lit / mesh_skin_lit
+        uint32_t LightSlotUpdates = 0;      // C3D_Light reconfigurations (position/color/LUT pointers)
+        uint32_t MaterialLutChanges = 0;    // D0/D1 LUT re-binds (each = a 1 KB LUT upload)
+        uint32_t ProgramBinds = 0;
+    };
+
     // Raw-citro3d-backed implementation of IRenderer3D for real 3DS hardware / Citra --
     // deliberately NOT layered through citro2d (the user explicitly asked for citro3d
     // directly). Shares the same process-global C3D_Init/C3D_FrameBegin/FrameEnd bracket as
@@ -21,6 +34,16 @@ namespace Duality {
     // attribute/buffer info on every DrawMesh call rather than assuming that global C3D state
     // persists between draws: citro2d's own draws on the other screen this same frame will
     // have mutated that exact same global state in between.
+    //
+    // Materials (Renderer/BuiltinShaders.h) map onto the PICA200 like this:
+    //   Unlit/*, Mobile/VertexLit -> mesh.v.pica / mesh_skin.v.pica + 1 TEV stage, lighting off
+    //   Lit/Diffuse, Lit/Specular -> mesh_lit.v.pica / mesh_skin_lit.v.pica + hardware fragment
+    //       lighting (<= 8 lights, D0 = Blinn-Phong LUT on N.H, DA/SP LUTs per light, optional
+    //       bump map on texture unit 1) + 2-3 TEV stages: albedo, albedo*primary+secondary, +emission
+    //   Toon/Lit -> same programs, D1 = ramp LUT on L.N (specular1), D0 = stepped highlight
+    //       on N.H, shade color as material emission, TEV albedo*(primary+secondary)+emission
+    // The LUT contents come from Renderer/LightingMath.h, the same functions the desktop GLSL
+    // evaluates, so both platforms produce matching images (see README "Rendering").
     class Citro3DRenderer final : public IRenderer3D {
     public:
         void Init() override;
@@ -61,6 +84,10 @@ namespace Duality {
         void UnloadAllMeshes() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
 
+        // Counters since the last ResetFrameStats() (the player resets once per frame).
+        const Citro3DFrameStats& GetFrameStats() const { return m_FrameStats; }
+        void ResetFrameStats() { m_FrameStats = {}; }
+
     private:
         struct PrimitiveGpuMesh {
             void* VertexBuffer = nullptr; // linearAlloc'd
@@ -74,6 +101,30 @@ namespace Duality {
             std::vector<MeshData::SubMesh> SubMeshes;
         };
 
+        // One compiled .v.pica program and the uniform locations DrawMesh needs.
+        struct Program {
+            DVLB_s* Dvlb = nullptr;
+            shaderProgram_s Shader{};
+            int Projection = -1;
+            int ModelView = -1;
+            int NormalMatrix = -1;
+            int UvTransform = -1;
+            int LightVector = -1;
+            int LightColor = -1;
+            int AmbientColor = -1;
+            int Bones = -1;
+            int BoneIndexScale = -1;
+        };
+
+        void InitProgram(Program& program, const void* shbin, u32 size);
+        void FreeProgram(Program& program);
+        void ConfigureTexEnv(const RenderMaterial& material, bool hasTexture, const glm::vec4& tint);
+        void ConfigureLighting(const MeshDrawCommand& command, const RenderMaterial& material);
+        void ConfigureLightSlot(int slot, int sceneLightIndex);
+        C3D_LightLut* GetMaterialLut(int kind, float a, float b, float c);
+        C3D_LightLutDA* GetDistanceLut(float range);
+        C3D_LightLut* GetSpotLut(float cosOuter, float cosInner);
+
         C3D_RenderTarget* TargetFor(Screen screen) const;
 
         // Non-owning -- set by SetScreenTargets, created/destroyed by Citro2DRenderer (see
@@ -82,23 +133,35 @@ namespace Duality {
         C3D_RenderTarget* m_BottomTarget = nullptr;
         uint32_t m_DrawCallCount = 0;
         RenderView m_RenderView{};
+        bool m_FlipWinding = false; // Y-mirrored orthographic projection reverses screen winding
 
-        DVLB_s* m_ShaderDvlb = nullptr;
-        shaderProgram_s m_ShaderProgram{};
-        DVLB_s* m_SkinShaderDvlb = nullptr;
-        shaderProgram_s m_SkinShaderProgram{};
-        int m_UniformProjection = -1;
-        int m_UniformModelView = -1;
-        int m_UniformLightVector = -1;
-        int m_UniformLightColor = -1;
-        int m_UniformAmbientColor = -1;
-        int m_SkinUniformProjection = -1;
-        int m_SkinUniformModelView = -1;
-        int m_SkinUniformLightVector = -1;
-        int m_SkinUniformLightColor = -1;
-        int m_SkinUniformAmbientColor = -1;
-        int m_SkinUniformBones = -1;
-        int m_SkinUniformBoneIndexScale = -1;
+        Program m_UnlitProgram;     // mesh.v.pica
+        Program m_SkinProgram;      // mesh_skin.v.pica
+        Program m_LitProgram;       // mesh_lit.v.pica
+        Program m_SkinLitProgram;   // mesh_skin_lit.v.pica
+        const Program* m_BoundProgram = nullptr;
+
+        // Hardware fragment lighting: one environment, 8 light slots reconfigured per draw only
+        // when the draw's light set differs from the previous draw's (sorting in SceneRenderer
+        // keeps that rare). m_ViewSerial invalidates slots when the camera changes.
+        C3D_LightEnv m_LightEnv{};
+        C3D_Light m_Lights[MaxLightsPerDraw]{};
+        int m_SlotLight[MaxLightsPerDraw]{ -1, -1, -1, -1, -1, -1, -1, -1 };
+        uint32_t m_SlotSerial[MaxLightsPerDraw]{};
+        bool m_SlotEnabled[MaxLightsPerDraw]{};
+        uint32_t m_ViewSerial = 0;
+        bool m_LightEnvBound = false;
+        C3D_Material m_BoundMaterial{};
+        bool m_HasBoundMaterial = false;
+        C3D_LightLut* m_BoundD0 = nullptr;
+        C3D_LightLut* m_BoundD1 = nullptr;
+        bool m_BumpEnabled = false;
+        glm::vec3 m_BoundAmbient{ -1.0f };
+        std::unordered_map<uint64_t, std::unique_ptr<C3D_LightLut>> m_MaterialLuts;
+        std::unordered_map<uint32_t, std::unique_ptr<C3D_LightLutDA>> m_DistanceLuts;
+        std::unordered_map<uint64_t, std::unique_ptr<C3D_LightLut>> m_SpotLuts;
+        int m_UsedTevStages = 1;
+        Citro3DFrameStats m_FrameStats{};
 
         C3D_Mtx m_Projection{};
         C3D_Mtx m_View{}; // inverse of the camera's own world transform, set in BeginScene, read in DrawMesh

@@ -35,6 +35,7 @@
 #include "DualityEngine/Scripting/EngineServices.h"
 #include "DualityEngine/Scripting/ScriptContext.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
+#include "DualityEngine/Scripting/JS/JsScripting.h"
 
 namespace Duality {
 
@@ -517,8 +518,62 @@ namespace Duality {
         Entity result = PrefabSerializer::Instantiate(*static_cast<Scene*>(scenePtr), path, {}, AssetRef{ prefabAssetGuid });
         if (!result)
             return false;
+        // During Play the spawned hierarchy's scripts (C++ and TypeScript) are created and
+        // Awaked right away, like Unity's Instantiate.
+        static_cast<Scene*>(scenePtr)->CreateRuntimeScripts(result);
         *outHandle = static_cast<unsigned int>(result.Handle());
         return true;
+    }
+
+    static void EngineServices_DestroyEntity(void* scenePtr, unsigned int entityHandle) {
+        Scene* scene = static_cast<Scene*>(scenePtr);
+        Entity entity = EntityFromSceneHandle(scene, entityHandle);
+        if (entity)
+            scene->DestroyEntityDeferred(entity);
+    }
+
+    static void* EngineServices_FindScript(void* scenePtr, unsigned int entityHandle, const char* className) {
+        Entity entity = EntityFromSceneHandle(static_cast<Scene*>(scenePtr), entityHandle);
+        if (!entity || !className || !entity.HasComponent<BehaviourComponent>())
+            return nullptr;
+        for (auto& slot : entity.GetComponent<BehaviourComponent>().Scripts)
+            if (slot.Instance && slot.ClassName == className)
+                return slot.Instance;
+        return nullptr;
+    }
+
+    static const FieldHandle* FindScriptField(const char* className, const char* fieldName) {
+        if (!className || !fieldName)
+            return nullptr;
+        for (const FieldHandle& field : ScriptRegistry::GetFields(className))
+            if (field.Name == fieldName)
+                return &field;
+        return nullptr;
+    }
+
+    static bool EngineServices_GetScriptField(void* script, const char* className, const char* fieldName, void* outValue) {
+        const FieldHandle* field = FindScriptField(className, fieldName);
+        if (!script || !field || !outValue)
+            return false;
+        *static_cast<FieldValue*>(outValue) = field->Get(static_cast<Behaviour*>(script));
+        return true;
+    }
+
+    static bool EngineServices_SetScriptField(void* script, const char* className, const char* fieldName, const void* value) {
+        const FieldHandle* field = FindScriptField(className, fieldName);
+        if (!script || !field || !value)
+            return false;
+        // Same alternative check the Properties panel relies on: a mismatched type is ignored.
+        FieldValue current = field->Get(static_cast<Behaviour*>(script));
+        const FieldValue& incoming = *static_cast<const FieldValue*>(value);
+        if (current.index() != incoming.index())
+            return false;
+        field->Set(static_cast<Behaviour*>(script), incoming);
+        return true;
+    }
+
+    static bool EngineServices_CallScriptMethod(void* script, const char* methodName) {
+        return JsScripting::CallMethod(static_cast<Behaviour*>(script), methodName);
     }
 
     static void* EngineServices_LoadScriptableObject(const char* assetGuid) {
@@ -782,6 +837,11 @@ namespace Duality {
         &EngineServices_GetChildCount,
         &EngineServices_GetChildAt,
         &EngineServices_ClearEntityChildren,
+        &EngineServices_DestroyEntity,
+        &EngineServices_FindScript,
+        &EngineServices_GetScriptField,
+        &EngineServices_SetScriptField,
+        &EngineServices_CallScriptMethod,
     };
 
     namespace {
@@ -795,25 +855,44 @@ namespace Duality {
             ~ScriptContextScope() { ScriptContext::Clear(); }
         };
 
+        // A callback may append script slots to its own entity (Scene::AddRuntimeScript), which
+        // can reallocate BehaviourComponent::Scripts -- so after a callback returns, the slot is
+        // re-found by its Instance pointer instead of trusting the reference passed in.
+        ScriptInstance* FindSlotByInstance(Scene* scene, entt::entity entity, Behaviour* instance) {
+            if (!instance || !scene->Registry().valid(entity))
+                return nullptr;
+            auto* bc = scene->Registry().try_get<BehaviourComponent>(entity);
+            if (!bc)
+                return nullptr;
+            for (auto& slot : bc->Scripts)
+                if (slot.Instance == instance)
+                    return &slot;
+            return nullptr;
+        }
+
         template<typename TCallback>
         bool InvokeScriptCallback(Scene* scene, entt::entity entity, ScriptInstance& script,
                                   const char* callbackName, TCallback&& callback) {
             ScriptContextScope context(scene, entity);
 #if defined(DE_PLATFORM_DESKTOP) && defined(__cpp_exceptions)
+            Behaviour* instance = script.Instance;
+            const std::string className = script.ClassName;
             try {
                 callback();
                 return true;
             } catch (const std::exception& exception) {
-                Log::Error("Script '" + script.ClassName + "' on entity " +
+                Log::Error("Script '" + className + "' on entity " +
                     std::to_string(static_cast<uint32_t>(entity)) + " threw in " + callbackName +
                     ": " + exception.what() + ". Script disabled for this Play session.");
             } catch (...) {
-                Log::Error("Script '" + script.ClassName + "' on entity " +
+                Log::Error("Script '" + className + "' on entity " +
                     std::to_string(static_cast<uint32_t>(entity)) + " threw an unknown exception in " +
                     callbackName + ". Script disabled for this Play session.");
             }
-            script.Enabled = false;
-            script.WasEnabledLastFrame = false;
+            if (ScriptInstance* slot = FindSlotByInstance(scene, entity, instance)) {
+                slot->Enabled = false;
+                slot->WasEnabledLastFrame = false;
+            }
             return false;
 #else
             // devkitARM builds commonly disable C++ exceptions to keep code and
@@ -1273,12 +1352,55 @@ namespace Duality {
         world2D->Listener = new Box2DContactListener();
         world2D->World->SetContactListener(world2D->Listener);
         m_PhysicsWorld = world2D;
+
+        Physics3DWorld* world3D = new Physics3DWorld();
+        world3D->CollisionConfig = new btDefaultCollisionConfiguration();
+        world3D->Dispatcher = new btCollisionDispatcher(world3D->CollisionConfig);
+        world3D->Broadphase = new btDbvtBroadphase();
+        world3D->Solver = new btSequentialImpulseConstraintSolver();
+        world3D->World = new btDiscreteDynamicsWorld(world3D->Dispatcher, world3D->Broadphase, world3D->Solver, world3D->CollisionConfig);
+        world3D->World->setGravity(btVector3(0.0f, PhysicsUnits::PhysicsGravity(), 0.0f));
+        m_PhysicsWorld3D = world3D;
+
+        CreatePhysicsBodies(nullptr);
+
+        m_Running = true;
+        m_PendingDestroy.clear();
+
+        // Copy the handle list first: an OnCreate may Instantiate a prefab (whose scripts are
+        // then created by CreateRuntimeScripts itself) while this loop is still running.
+        std::vector<entt::entity> scriptedEntities;
+        for (auto handle : m_Registry.view<BehaviourComponent>())
+            scriptedEntities.push_back(handle);
+        for (auto handle : scriptedEntities)
+            CreateScriptsOn(handle);
+
+        for (auto handle : m_Registry.view<AudioSourceComponent>()) {
+            auto& src = m_Registry.get<AudioSourceComponent>(handle);
+            if (src.Enabled && src.PlayOnAwake)
+                PlayAudioSourceOnEntity(this, Entity(handle, this));
+        }
+    }
+
+    // Creates the Box2D/Bullet bodies for every eligible entity (OnRuntimeStart: `only` ==
+    // nullptr), or only for the listed entities (a prefab spawned during Play -- see
+    // CreateRuntimeScripts). Entities that already have a body are skipped either way.
+    void Scene::CreatePhysicsBodies(const std::vector<entt::entity>* only) {
+        if (!m_PhysicsWorld || !m_PhysicsWorld3D)
+            return;
+        auto selected = [only](entt::entity handle) {
+            return !only || std::find(only->begin(), only->end(), handle) != only->end();
+        };
+        Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);
         b2World* world = world2D->World; // local alias, keeps the body-creation loop below unchanged
+        Physics3DWorld* world3D = PhysicsWorld3D(m_PhysicsWorld3D);
 
         const float densityScale = 1.0f;
         auto bodyView = m_Registry.view<Rigidbody2DComponent, TransformComponent>();
         for (auto handle : bodyView) {
             auto& rb = bodyView.get<Rigidbody2DComponent>(handle);
+            if (!selected(handle) || rb.RuntimeBody)
+                continue;
 
             // An entity that isn't effectively active when Play starts gets no physics
             // body at all (RuntimeBody stays nullptr, which every other body-consuming
@@ -1398,6 +1520,9 @@ namespace Duality {
         // authored and cannot accidentally apply forces to it through a Rigidbody API.
         auto transform2DView = m_Registry.view<TransformComponent>();
         for (auto handle : transform2DView) {
+            if (!selected(handle) || std::any_of(world2D->StaticColliderBodies.begin(), world2D->StaticColliderBodies.end(),
+                    [handle](const Physics2DWorld::StaticColliderBody& b) { return b.Entity == handle; }))
+                continue;
             if (m_Registry.all_of<Rigidbody2DComponent>(handle)
                 || !HasEnabledCollider2D(m_Registry, handle)
                 || !IsEffectivelyActive(Entity(handle, this)))
@@ -1414,18 +1539,11 @@ namespace Duality {
             world2D->StaticColliderBodies.push_back({ handle, body });
         }
 
-        Physics3DWorld* world3D = new Physics3DWorld();
-        world3D->CollisionConfig = new btDefaultCollisionConfiguration();
-        world3D->Dispatcher = new btCollisionDispatcher(world3D->CollisionConfig);
-        world3D->Broadphase = new btDbvtBroadphase();
-        world3D->Solver = new btSequentialImpulseConstraintSolver();
-        world3D->World = new btDiscreteDynamicsWorld(world3D->Dispatcher, world3D->Broadphase, world3D->Solver, world3D->CollisionConfig);
-        world3D->World->setGravity(btVector3(0.0f, PhysicsUnits::PhysicsGravity(), 0.0f));
-        m_PhysicsWorld3D = world3D;
-
         auto body3DView = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
         for (auto handle : body3DView) {
             auto& rb = body3DView.get<Rigidbody3DComponent>(handle);
+            if (!selected(handle) || rb.RuntimeBody)
+                continue;
 
             // Same "no body at all if not active at Play start" rule as the 2D loop above.
             if (!IsEffectivelyActive(Entity(handle, this)))
@@ -1535,6 +1653,9 @@ namespace Duality {
         // collider targetable by PhysicsRaycaster3D/pointer events.
         auto transform3DView = m_Registry.view<TransformComponent>();
         for (auto handle : transform3DView) {
+            if (!selected(handle) || std::any_of(world3D->StaticColliderBodies.begin(), world3D->StaticColliderBodies.end(),
+                    [handle](const Physics3DWorld::StaticColliderBody& b) { return b.Entity == handle; }))
+                continue;
             if (m_Registry.all_of<Rigidbody3DComponent>(handle)
                 || !HasEnabledCollider3D(m_Registry, handle)
                 || !IsEffectivelyActive(Entity(handle, this)))
@@ -1566,45 +1687,232 @@ namespace Duality {
             world3D->World->addRigidBody(body);
             world3D->StaticColliderBodies.push_back({ handle, body, shape });
         }
+    }
 
-        auto behaviourView = m_Registry.view<BehaviourComponent>();
-        for (auto handle : behaviourView) {
-            auto& bc = behaviourView.get<BehaviourComponent>(handle);
-            for (auto& script : bc.Scripts) {
-                if (script.Instance || script.ClassName.empty())
-                    continue;
+    void Scene::CreateScriptsOn(entt::entity handle) {
+        // Index-based on purpose: an OnCreate may AddRuntimeScript onto its own entity, which
+        // appends to (and may reallocate) this very vector.
+        for (size_t i = 0;; ++i) {
+            if (!m_Registry.valid(handle))
+                return;
+            auto* bc = m_Registry.try_get<BehaviourComponent>(handle);
+            if (!bc || i >= bc->Scripts.size())
+                return;
+            ScriptInstance& script = bc->Scripts[i];
+            if (script.Instance || script.ClassName.empty())
+                continue;
 
-                if (ScriptRegistry::TryCreate(script.ClassName, &script.Instance, &script.Destroy)) {
-                    script.Instance->m_Entity = Entity(handle, this);
-                    script.Instance->m_Enabled = &script.Enabled;
-                    script.Instance->SetEngineServices(&s_EngineServices);
+            ScriptRegistry::ResolvePendingOverrides(script);
+            if (ScriptRegistry::TryCreate(script.ClassName, &script.Instance, &script.Destroy)) {
+                script.Instance->m_Entity = Entity(handle, this);
+                script.Instance->m_Enabled = &script.Enabled;
+                script.Instance->SetEngineServices(&s_EngineServices);
 
-                    // Apply Edit-mode Inspector overrides (see ScriptInstance's own comment)
-                    // onto the fresh instance's real fields before OnCreate() sees them --
-                    // matches Unity's own field-initialization-before-Awake ordering.
-                    const std::vector<FieldHandle>& fields = ScriptRegistry::GetFields(script.ClassName);
-                    for (auto& [name, value] : script.PropertyOverrides) {
-                        for (auto& field : fields) {
-                            if (field.Name == name) {
-                                field.Set(script.Instance, value);
-                                break;
-                            }
+                // Apply Edit-mode Inspector overrides (see ScriptInstance's own comment)
+                // onto the fresh instance's real fields before OnCreate() sees them --
+                // matches Unity's own field-initialization-before-Awake ordering.
+                const std::vector<FieldHandle>& fields = ScriptRegistry::GetFields(script.ClassName);
+                for (auto& [name, value] : script.PropertyOverrides) {
+                    for (auto& field : fields) {
+                        if (field.Name == name) {
+                            field.Set(script.Instance, value);
+                            break;
                         }
                     }
+                }
 
-                    InvokeScriptCallback(this, handle, script, "OnCreate", [&]() {
-                        script.Instance->OnCreate();
-                    });
-                } else {
-                    Log::Error("Behaviour: unknown script class '" + script.ClassName + "'");
+                InvokeScriptCallback(this, handle, script, "OnCreate", [&]() {
+                    script.Instance->OnCreate();
+                });
+            } else {
+                Log::Error("Behaviour: unknown script class '" + script.ClassName + "'");
+            }
+        }
+    }
+
+    void Scene::CreateRuntimeScripts(Entity root) {
+        if (!m_Running || !root || !m_Registry.valid(root.Handle()))
+            return;
+        // Parent first, then children (depth-first) -- Unity Awakes a spawned hierarchy
+        // top-down too.
+        std::vector<entt::entity> subtree;
+        std::vector<Entity> stack{ root };
+        while (!stack.empty()) {
+            Entity current = stack.back();
+            stack.pop_back();
+            if (!m_Registry.valid(current.Handle()))
+                continue;
+            subtree.push_back(current.Handle());
+            if (auto* hierarchy = m_Registry.try_get<HierarchyComponent>(current.Handle()))
+                for (auto it = hierarchy->Children.rbegin(); it != hierarchy->Children.rend(); ++it)
+                    stack.push_back(*it);
+        }
+
+        // Physics bodies first, so an Awake can already use its Rigidbody.
+        CreatePhysicsBodies(&subtree);
+        for (entt::entity handle : subtree)
+            if (m_Registry.valid(handle))
+                CreateScriptsOn(handle);
+        for (entt::entity handle : subtree) {
+            auto* src = m_Registry.valid(handle) ? m_Registry.try_get<AudioSourceComponent>(handle) : nullptr;
+            if (src && src->Enabled && src->PlayOnAwake)
+                PlayAudioSourceOnEntity(this, Entity(handle, this));
+        }
+    }
+
+    Behaviour* Scene::AddRuntimeScript(Entity entity, const std::string& className) {
+        if (!entity || !m_Registry.valid(entity.Handle()) || className.empty())
+            return nullptr;
+        auto& bc = m_Registry.all_of<BehaviourComponent>(entity.Handle())
+            ? m_Registry.get<BehaviourComponent>(entity.Handle())
+            : m_Registry.emplace<BehaviourComponent>(entity.Handle());
+        bc.Scripts.push_back(ScriptInstance{ className });
+        // push_back may have moved every slot: live instances point at their slot's Enabled.
+        for (auto& slot : bc.Scripts)
+            if (slot.Instance)
+                slot.Instance->m_Enabled = &slot.Enabled;
+        if (!m_Running)
+            return nullptr;
+        const size_t index = bc.Scripts.size() - 1;
+        CreateScriptsOn(entity.Handle());
+        auto* after = m_Registry.try_get<BehaviourComponent>(entity.Handle());
+        return after && index < after->Scripts.size() ? after->Scripts[index].Instance : nullptr;
+    }
+
+    void Scene::DestroyEntityDeferred(Entity entity) {
+        if (!entity || !m_Registry.valid(entity.Handle()))
+            return;
+        if (!m_Running) {
+            DestroyEntity(entity);
+            return;
+        }
+        if (std::find(m_PendingDestroy.begin(), m_PendingDestroy.end(), entity.Handle()) == m_PendingDestroy.end())
+            m_PendingDestroy.push_back(entity.Handle());
+    }
+
+    TransformComponent Scene::WorldToLocal(Entity entity, const TransformComponent& world) {
+        Entity parent = entity ? GetParent(entity) : Entity{};
+        if (!parent)
+            return world;
+        return DecomposeWorld(world, GetWorldTransform(parent));
+    }
+
+    // Script teardown + physics-body release for ONE entity that is about to be removed
+    // mid-Play (children are handled by the caller's subtree walk).
+    void Scene::ReleaseRuntimeState(entt::entity handle) {
+        if (auto* bc = m_Registry.try_get<BehaviourComponent>(handle)) {
+            for (size_t i = 0;; ++i) {
+                bc = m_Registry.try_get<BehaviourComponent>(handle);
+                if (!bc || i >= bc->Scripts.size())
+                    break;
+                ScriptInstance& script = bc->Scripts[i];
+                if (!script.Instance)
+                    continue;
+                Behaviour* instance = script.Instance;
+                if (script.WasEnabledLastFrame)
+                    InvokeScriptCallback(this, handle, script, "OnDisable", [&]() { instance->OnDisable(); });
+                if (ScriptInstance* slot = FindSlotByInstance(this, handle, instance)) {
+                    InvokeScriptCallback(this, handle, *slot, "OnDestroy", [&]() { instance->OnDestroy(); });
+                    if (ScriptInstance* again = FindSlotByInstance(this, handle, instance)) {
+                        again->WasEnabledLastFrame = false;
+                        if (again->Destroy)
+                            again->Destroy(instance);
+                        again->Instance = nullptr;
+                    }
                 }
             }
         }
 
-        for (auto handle : m_Registry.view<AudioSourceComponent>()) {
-            auto& src = m_Registry.get<AudioSourceComponent>(handle);
-            if (src.Enabled && src.PlayOnAwake)
-                PlayAudioSourceOnEntity(this, Entity(handle, this));
+        if (m_PhysicsWorld) {
+            Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);
+            // A destroyed body ends its contacts; nothing must record into a dead frame's list.
+            world2D->Listener->Events = nullptr;
+            if (auto* rb = m_Registry.try_get<Rigidbody2DComponent>(handle)) {
+                if (rb->RuntimeBody) {
+                    world2D->World->DestroyBody(static_cast<b2Body*>(rb->RuntimeBody));
+                    rb->RuntimeBody = nullptr;
+                }
+            }
+            auto& statics = world2D->StaticColliderBodies;
+            for (auto it = statics.begin(); it != statics.end();) {
+                if (it->Entity == handle) {
+                    if (it->Body)
+                        world2D->World->DestroyBody(it->Body);
+                    it = statics.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            if (auto* c = m_Registry.try_get<BoxCollider2DComponent>(handle)) c->RuntimeFixture = nullptr;
+            if (auto* c = m_Registry.try_get<CircleCollider2DComponent>(handle)) c->RuntimeFixture = nullptr;
+            if (auto* c = m_Registry.try_get<CapsuleCollider2DComponent>(handle)) c->RuntimeFixture = nullptr;
+            if (auto* c = m_Registry.try_get<PolygonCollider2DComponent>(handle)) c->RuntimeFixture = nullptr;
+        }
+
+        if (m_PhysicsWorld3D) {
+            Physics3DWorld* world3D = PhysicsWorld3D(m_PhysicsWorld3D);
+            if (auto* rb = m_Registry.try_get<Rigidbody3DComponent>(handle)) {
+                if (rb->RuntimeBody) {
+                    btRigidBody* body = static_cast<btRigidBody*>(rb->RuntimeBody);
+                    world3D->World->removeRigidBody(body);
+                    delete body->getMotionState();
+                    delete body;
+                    rb->RuntimeBody = nullptr;
+                }
+                if (rb->RuntimeCollisionShape) {
+                    DeleteCollisionShape3D(static_cast<btCollisionShape*>(rb->RuntimeCollisionShape));
+                    rb->RuntimeCollisionShape = nullptr;
+                }
+            }
+            auto& statics = world3D->StaticColliderBodies;
+            for (auto it = statics.begin(); it != statics.end();) {
+                if (it->Entity == handle) {
+                    if (it->Body) {
+                        world3D->World->removeRigidBody(it->Body);
+                        delete it->Body->getMotionState();
+                        delete it->Body;
+                        DeleteCollisionShape3D(it->CollisionShape);
+                    }
+                    it = statics.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            for (auto it = world3D->TouchingPairs.begin(); it != world3D->TouchingPairs.end();) {
+                if (it->first == handle || it->second == handle)
+                    it = world3D->TouchingPairs.erase(it);
+                else
+                    ++it;
+            }
+        }
+    }
+
+    void Scene::FlushPendingDestroys() {
+        // OnDestroy handlers may Destroy more entities -- keep draining until stable.
+        while (!m_PendingDestroy.empty()) {
+            std::vector<entt::entity> batch;
+            batch.swap(m_PendingDestroy);
+            for (entt::entity root : batch) {
+                if (!m_Registry.valid(root))
+                    continue;
+                // Children first (post-order), so a child's OnDestroy still sees its parent.
+                std::vector<entt::entity> order;
+                std::vector<entt::entity> stack{ root };
+                while (!stack.empty()) {
+                    entt::entity current = stack.back();
+                    stack.pop_back();
+                    order.push_back(current);
+                    if (auto* hierarchy = m_Registry.try_get<HierarchyComponent>(current))
+                        for (Entity child : hierarchy->Children)
+                            if (m_Registry.valid(child.Handle()))
+                                stack.push_back(child.Handle());
+                }
+                for (auto it = order.rbegin(); it != order.rend(); ++it)
+                    if (m_Registry.valid(*it))
+                        ReleaseRuntimeState(*it);
+                if (m_Registry.valid(root))
+                    DestroyEntity(Entity(root, this));
+            }
         }
     }
 
@@ -1644,6 +1952,27 @@ namespace Duality {
 
         while (m_PhysicsAccumulator >= FixedDeltaTime) {
             m_PhysicsAccumulator -= FixedDeltaTime;
+
+            // Unity's FixedUpdate: once per substep, BEFORE it is simulated, so velocities/
+            // forces a script sets here are integrated by this very step. Only scripts that
+            // already received OnEnable (WasEnabledLastFrame) -- a script spawned this frame
+            // gets Awake -> OnEnable -> Start first, exactly like Unity's ordering.
+            {
+                auto fixedView = m_Registry.view<BehaviourComponent>();
+                for (auto handle : fixedView) {
+                    auto& bc = fixedView.get<BehaviourComponent>(handle);
+                    for (size_t i = 0; i < bc.Scripts.size(); ++i) {
+                        ScriptInstance& script = bc.Scripts[i];
+                        if (!script.Instance || !script.Enabled || !script.WasEnabledLastFrame)
+                            continue;
+                        InvokeScriptCallback(this, handle, script, "OnFixedUpdate", [&]() {
+                            script.Instance->OnFixedUpdate(FixedDeltaTime);
+                        });
+                        if (!m_Registry.valid(handle) || !m_Registry.all_of<BehaviourComponent>(handle))
+                            break;
+                    }
+                }
+            }
 
             if (m_PhysicsWorld) {
                 Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);
@@ -1832,19 +2161,24 @@ namespace Duality {
             if (!m_Registry.valid(event.A) || !m_Registry.valid(event.B))
                 continue;
             auto fire = [this](entt::entity self, Entity other, bool isTrigger, bool isBegin) {
-                if (!m_Registry.all_of<BehaviourComponent>(self))
-                    return;
-                auto& bc = m_Registry.get<BehaviourComponent>(self);
-                for (auto& script : bc.Scripts) {
+                // Index-based: a handler may AddRuntimeScript onto its own entity.
+                for (size_t i = 0;; ++i) {
+                    if (!m_Registry.valid(self))
+                        return;
+                    auto* bc = m_Registry.try_get<BehaviourComponent>(self);
+                    if (!bc || i >= bc->Scripts.size())
+                        return;
+                    ScriptInstance& script = bc->Scripts[i];
                     if (!script.Instance || !script.Enabled)
                         continue;
+                    Behaviour* instance = script.Instance;
                     InvokeScriptCallback(this, self, script, isTrigger
                         ? (isBegin ? "OnTriggerEnter" : "OnTriggerExit")
                         : (isBegin ? "OnCollisionEnter" : "OnCollisionExit"), [&]() {
                             if (isTrigger) {
-                                if (isBegin) script.Instance->OnTriggerEnter(other); else script.Instance->OnTriggerExit(other);
+                                if (isBegin) instance->OnTriggerEnter(other); else instance->OnTriggerExit(other);
                             } else {
-                                if (isBegin) script.Instance->OnCollisionEnter(other); else script.Instance->OnCollisionExit(other);
+                                if (isBegin) instance->OnCollisionEnter(other); else instance->OnCollisionExit(other);
                             }
                         });
                 }
@@ -1883,31 +2217,64 @@ namespace Duality {
 
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
-            auto& bc = behaviourView.get<BehaviourComponent>(handle);
-            if (bc.Scripts.empty())
+            if (behaviourView.get<BehaviourComponent>(handle).Scripts.empty())
                 continue;
 
             bool entityActive = IsEffectivelyActive(Entity(handle, this));
-            for (auto& script : bc.Scripts) {
-                if (!script.Instance)
+            // Index-based, re-finding the slot after every callback: a script may
+            // AddRuntimeScript onto its own entity, reallocating Scripts mid-loop.
+            for (size_t i = 0;; ++i) {
+                auto* bc = m_Registry.try_get<BehaviourComponent>(handle);
+                if (!bc || i >= bc->Scripts.size())
+                    break;
+                Behaviour* instance = bc->Scripts[i].Instance;
+                if (!instance)
                     continue;
-                bool enabled = entityActive && script.Enabled;
-                if (enabled != script.WasEnabledLastFrame) {
-                    InvokeScriptCallback(this, handle, script, enabled ? "OnEnable" : "OnDisable", [&]() {
+                bool enabled = entityActive && bc->Scripts[i].Enabled;
+                if (enabled != bc->Scripts[i].WasEnabledLastFrame) {
+                    InvokeScriptCallback(this, handle, bc->Scripts[i], enabled ? "OnEnable" : "OnDisable", [&]() {
                         if (enabled)
-                            script.Instance->OnEnable();
+                            instance->OnEnable();
                         else
-                            script.Instance->OnDisable();
+                            instance->OnDisable();
                     });
-                    script.WasEnabledLastFrame = entityActive && script.Enabled;
+                    ScriptInstance* slot = FindSlotByInstance(this, handle, instance);
+                    if (!slot)
+                        continue;
+                    slot->WasEnabledLastFrame = entityActive && slot->Enabled;
                 }
-                if (entityActive && script.Enabled) {
-                    InvokeScriptCallback(this, handle, script, "OnUpdate", [&]() {
-                        script.Instance->OnUpdate(deltaTime);
+                ScriptInstance* slot = FindSlotByInstance(this, handle, instance);
+                if (slot && entityActive && slot->Enabled) {
+                    InvokeScriptCallback(this, handle, *slot, "OnUpdate", [&]() {
+                        instance->OnUpdate(deltaTime);
                     });
                 }
             }
         }
+
+        // Unity's LateUpdate: a second pass once EVERY script has updated this frame.
+        for (auto handle : behaviourView) {
+            if (!IsEffectivelyActive(Entity(handle, this)))
+                continue;
+            for (size_t i = 0;; ++i) {
+                auto* bc = m_Registry.try_get<BehaviourComponent>(handle);
+                if (!bc || i >= bc->Scripts.size())
+                    break;
+                ScriptInstance& script = bc->Scripts[i];
+                if (!script.Instance || !script.Enabled || !script.WasEnabledLastFrame)
+                    continue;
+                Behaviour* instance = script.Instance;
+                InvokeScriptCallback(this, handle, script, "OnLateUpdate", [&]() {
+                    instance->OnLateUpdate(deltaTime);
+                });
+            }
+        }
+
+        // TypeScript coroutines / invoke() timers advance once per frame, after LateUpdate.
+        JsScripting::OnSceneFrameEnd(this);
+
+        // Unity destroys Object.Destroy'd objects at the end of the frame.
+        FlushPendingDestroys();
     }
 
     void Scene::OnApplicationFocus(bool focused) {
@@ -1968,22 +2335,36 @@ namespace Duality {
             src.Paused = false;
         }
 
+        // Anything Destroy()ed during the last frame's callbacks is torn down like a normal
+        // end-of-frame destroy first, then Play mode ends (no new runtime scripts after this).
+        FlushPendingDestroys();
+        m_Running = false;
+
         auto behaviourView = m_Registry.view<BehaviourComponent>();
         for (auto handle : behaviourView) {
-            auto& bc = behaviourView.get<BehaviourComponent>(handle);
-            for (auto& script : bc.Scripts) {
-                if (script.Instance) {
-                    if (script.WasEnabledLastFrame)
-                        InvokeScriptCallback(this, handle, script, "OnDisable", [&]() { script.Instance->OnDisable(); });
-                    InvokeScriptCallback(this, handle, script, "OnDestroy", [&]() { script.Instance->OnDestroy(); });
-                    if (script.Destroy)
-                        script.Destroy(script.Instance);
+            for (size_t i = 0;; ++i) {
+                auto* bc = m_Registry.try_get<BehaviourComponent>(handle);
+                if (!bc || i >= bc->Scripts.size())
+                    break;
+                Behaviour* instance = bc->Scripts[i].Instance;
+                if (!instance)
+                    continue;
+                if (bc->Scripts[i].WasEnabledLastFrame)
+                    InvokeScriptCallback(this, handle, bc->Scripts[i], "OnDisable", [&]() { instance->OnDisable(); });
+                if (ScriptInstance* slot = FindSlotByInstance(this, handle, instance))
+                    InvokeScriptCallback(this, handle, *slot, "OnDestroy", [&]() { instance->OnDestroy(); });
+                if (ScriptInstance* slot = FindSlotByInstance(this, handle, instance)) {
+                    if (slot->Destroy)
+                        slot->Destroy(instance);
                     else
-                        Log::Error("Script '" + script.ClassName + "' has no destroy function.");
-                    script.Instance = nullptr;
+                        Log::Error("Script '" + slot->ClassName + "' has no destroy function.");
+                    slot->Instance = nullptr;
+                    slot->WasEnabledLastFrame = false;
                 }
             }
         }
+        m_PendingDestroy.clear();
+        JsScripting::OnSceneStopped(this);
 
         if (m_PhysicsWorld) {
             Physics2DWorld* world2D = PhysicsWorld2D(m_PhysicsWorld);

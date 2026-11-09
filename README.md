@@ -14,7 +14,9 @@ three targets from one source tree:
   (Homebrew Launcher / `3dslink`) and `.cia` (installable via FBI on real
   hardware/CFW).
 
-Both 2D (sprites, flipbook animation) and 3D (unlit meshes, OBJ import) render
+Both 2D (sprites, flipbook animation) and 3D (Unity-style Materials/Shaders with
+per-pixel lighting -- see "Rendering: Materials, Shaders & Lighting" -- OBJ/FBX import,
+skinned meshes) render
 and physics-simulate side by side on the same screen -- a camera's projection
 is just a lens property (Unity's own convention), never a switch between
 mutually exclusive pipelines.
@@ -225,14 +227,19 @@ or opened via the File menu.
 
 ### Writing gameplay scripts
 
-Scripts compile into one `GameScripts` module either way -- a hot-reloadable
+Gameplay scripts can be written in **C++** (this section) or **TypeScript**
+(see "TypeScript scripts (QuickJS)" below) -- both kinds live side by side on
+the same entity, appear in the same **Add Component** list, serialize into the
+same scene JSON and run through the exact same lifecycle dispatch.
+
+C++ scripts compile into one `GameScripts` module either way -- a hot-reloadable
 DLL for desktop Play-in-Editor, or linked statically straight into
 `DualityPlayer` for the 3DS build (same source files, no code changes either
 way) -- from two possible locations:
 
 - **A project's own scripts** (the common case): right-click in the Content
   Browser (inside `Assets/Scripts/` or anywhere else under the project's
-  `Assets/`) and pick **Create > Script**. Writes a ready-to-edit `.h`/`.cpp`
+  `Assets/`) and pick **Create > C++ Script**. Writes a ready-to-edit `.h`/`.cpp`
   pair (`NewBehaviour`, `NewBehaviour1`, ... if the plain name is taken --
   unlike Scene/Material's `"NewScene (1)"` numbering, a script's filename has
   to stay a valid C++ identifier, since it also becomes the class name) with
@@ -307,6 +314,11 @@ reload (see "Known limitations").
   fire many times across one Play session. `OnUpdate` simply isn't called
   while inactive.
 - `OnUpdate(float deltaTime)` -- every frame, while active.
+- `OnLateUpdate(float deltaTime)` -- every frame, after EVERY script's
+  `OnUpdate` (camera follow etc.), same gating.
+- `OnFixedUpdate(float fixedDeltaTime)` -- once per fixed 1/60 s physics step
+  (0..N times per frame), right before that step is simulated; only for
+  scripts that already got `OnEnable`.
 - `OnCollisionEnter(Entity other)` / `OnCollisionExit(Entity other)` --
   fires for BOTH sides of a touching pair (Unity's own convention) when
   neither collider involved is a trigger. Works identically whether `other`
@@ -314,7 +326,15 @@ reload (see "Known limitations").
 - `OnTriggerEnter(Entity other)` / `OnTriggerExit(Entity other)` -- same as
   above, but for a pair where at least one collider has `IsTrigger` set.
 - `OnDestroy()` -- once, at Stop (a still-enabled instance gets one final
-  `OnDisable()` immediately before this).
+  `OnDisable()` immediately before this), or at the end of the frame its
+  entity was destroyed (`ScriptScene::Destroy(entity)` / TS `destroy(go)`).
+
+Entities that appear **during Play** -- a prefab spawned with
+`ScriptScene::Instantiate` / TS `instantiate`, or a script added at runtime --
+get their physics bodies and script instances (Awake) immediately, then
+`OnEnable`/`OnUpdate` from the next frame, like Unity. Destroying an entity
+during Play is deferred to the end of the frame (scripts get
+`OnDisable`/`OnDestroy`, Box2D/Bullet bodies are released).
 
 ### Scripting API
 
@@ -370,6 +390,204 @@ a Rigidbody + collider and watch the Console panel as it touches things.
 (`PlayerSpeed`/`ScorePerCoin`/`GameTitle`); `SampleProject/Assets/
 GameSettings.asset` is a real instance of it, editable in Properties by
 selecting it in the Content Browser.
+
+**C++ ↔ TypeScript**: `Behaviour::FindScript("ClassName")`,
+`GetScriptField("Mover", "speed", value)` / `SetScriptField(...)` and
+`SendScriptMessage("Mover", "jump")` reach any other script on an entity --
+C++ or TypeScript -- by class name (through `EngineServices`, so they work
+across the desktop DLL boundary too).
+
+### TypeScript scripts (QuickJS)
+
+Gameplay scripts can also be written in **TypeScript**, with a Unity/PiaEngine-
+style API, running on an embedded **QuickJS-ng** interpreter
+(`Vendor/quickjs-ng`, v0.17.0) on desktop *and* on the 3DS:
+
+```ts
+// SampleProject/Assets/TypeScriptDemo/Scripts/Spawner.ts (shortened)
+import { MonoBehaviour, Prefab, Random, Vector3, WaitForSeconds, field } from 'duality';
+
+export class Spawner extends MonoBehaviour {
+  @field(Prefab) prefab: Prefab | null = null;          // drag a .prefab here
+  @field({ range: [0.05, 5] }) interval = 0.6;           // slider
+  @field('int') maxAlive = 8;                            // integer field
+  spreadX = 1.4;                                         // plain public field: shown + saved
+
+  start() { this.startCoroutine(this.spawnLoop()); }
+
+  *spawnLoop() {
+    for (;;) {
+      const x = Random.range(-this.spreadX, this.spreadX);
+      this.instantiate(this.prefab!, null, this.transform.position.add(new Vector3(x, 0, 0)));
+      yield new WaitForSeconds(this.interval);
+    }
+  }
+}
+```
+
+- **Where**: any `*.ts` under the project's `Assets/` (Content Browser
+  **Create > TypeScript Script**). Every *exported* class extending
+  `MonoBehaviour` is a script class (name = export name; must not clash with
+  a C++ class) and shows in **Add Component** as `Name (TS)`.
+- **Toolchain**: `Tools/TypeScript/build-scripts.mjs` (Node.js + esbuild +
+  TypeScript, `npm install`ed automatically on first use) bundles all of a
+  project's scripts plus the `duality` API (`Tools/TypeScript/duality/
+  duality.ts`) into ONE file, `<project>/Library/ScriptAssemblies/scripts.js`
+  (+ source map). It also writes `<project>/tsconfig.json` and
+  `Library/Types/duality.d.ts` so VS Code gives completions/type errors.
+  Requires `node` on `PATH` for the Editor and the build scripts (the
+  *players* only need the bundle).
+- **Editor**: compiles + loads the bundle at startup (before the scene is
+  read), watches `*.ts` and recompiles in the background on save (type-checked;
+  errors appear in the Console as `Assets/...ts:line:col: message`, and any
+  syntax/type error keeps the previous scripts loaded, like Unity). A change
+  made during Play is applied right after Stop -- live instances are never
+  swapped mid-Play. **Reload Scripts** rebuilds C++ and TS together. Script
+  errors at runtime are logged with the TypeScript file:line (source map) and
+  disable only the faulty script for that Play session (same rule as C++
+  exceptions). A per-call watchdog interrupts infinite loops (3 s desktop,
+  5 s 3DS).
+- **Players**: `DualityPlayerDesktop` loads `Library/ScriptAssemblies/
+  scripts.js`; **Build for 3DS** (`BuildPipeline::CookTypeScript`) bundles in
+  release mode, compiles it to QuickJS **bytecode** with `DualityJsc`
+  (`build/DualityEngine/DualityJsc.exe`, built with the desktop tree) and packs
+  `romfs:/Scripts/scripts.jsbc` (+ `scripts.js` fallback + `.map`). Logs go to
+  the 3DS debug output (`svcOutputDebugString`; Citra shows it in its log).
+- **Fields** (Inspector + scene JSON, the same `PropertyOverrides` format as
+  `DUALITY_PROPERTY`): public fields with a number/string/boolean/`Vector2`/
+  `Vector3`/`Color`/asset default are picked up automatically (`_private`
+  ones never). `@field(...)`: `range: [min,max]` (slider), `'int'`,
+  `options: ['A','B']` / `enum: MyEnum` (dropdown), `tooltip`, `header`,
+  `GameObject` / `Transform` / a component or script class (entity
+  reference), `Prefab` / `AudioClip` / `Texture` / `Material` /
+  `ScriptableObject` (asset by GUID), `[GameObject]` / `[Prefab]` (lists).
+  `@nonSerialized` hides an auto-detected field.
+- **Lifecycle**: `awake`, `onEnable`, `start`, `fixedUpdate`, `update`,
+  `lateUpdate`, `onDisable`, `onDestroy`, `onApplicationFocus/Pause/Quit`,
+  `onCollisionEnter/Exit(Collision)`, `onTriggerEnter/Exit(Collider)` and the
+  2D variants `onCollisionEnter2D(Collision2D)` / `onTriggerEnter2D(Collider2D)`
+  (a 2D contact calls the 2D method, falling back to the 3D-named one).
+  Coroutines: `startCoroutine(gen)` with `yield null` /
+  `WaitForSeconds` / `WaitUntil` / another coroutine; `invoke`,
+  `invokeRepeating`.
+- **API** (`import { ... } from 'duality'`): `GameObject` (`find`,
+  `findWithTag`, `getComponent(s)`, `getComponentInChildren/Parent`,
+  `addComponent`, `setActive`, `sendMessage`, `new GameObject(name)`),
+  `Transform` (`position`/`localPosition`/`eulerAngles`/`rotation`/
+  `localScale`, `translate`, `rotate`, `parent`, `getChild`, `find`,
+  allocation-free `getPosition(out)`/`setPosition(x,y,z)`), `instantiate`,
+  `destroy(go, delay?)`, `Time`, `Input` (+ `KeyCode`, 3DS buttons,
+  touch/mouse), `Debug`/`console`, `Physics2D.raycast/overlapPoint`,
+  `Physics.raycast/screenPointToRay`, `SceneManager`, built-in component
+  wrappers (`Rigidbody2D`, `Rigidbody`, `Collider2D`, `BoxCollider2D`,
+  `CircleCollider2D`, `Collider`, `BoxCollider`, `SphereCollider`,
+  `AudioSource`, `SpriteRenderer`, `MeshRenderer`, `Camera`, `ParticleSystem`)
+  plus `getComponent('Any Inspector Name').get/set(field)` for every other
+  component, C++ scripts via `getComponent('CppClass')` (a `NativeScript` with
+  `get/set` of its `DUALITY_PROPERTY` fields), math (`Vector2/3/4`,
+  `Quaternion`, `Color`, `Mathf`, `Random`), `Application`. +Y points down
+  (`Vector2.up` is `(0,-1)`), matching the engine's world.
+- **Memory (3DS)**: one runtime for the whole game, 8 MB JS heap limit, GC
+  threshold 512 KB, 192 KB JS stack (`JsRuntimeOptions::PlatformDefault`).
+  The demo uses ~0.25-0.3 MB of JS heap on the 3DS (~0.5 MB on 64-bit desktop);
+  QuickJS adds ~0.85 MB of ARM code to the `.3dsx`; the demo bundle is 39 KB
+  minified JS / 61 KB bytecode, loaded in ~80 ms (measured in Citra).
+- **Sample**: `SampleProject/Assets/TypeScriptDemo/TypeScriptDemo.scene` --
+  `Mover` (input/patrol/spin), `Spawner` (prefab + coroutine), `FallingBox`
+  (physics + self-destruct) and `CollisionLogger` (2D/3D collisions and
+  triggers). Run it with
+  `DualityPlayerDesktop.exe --scene TypeScriptDemo/TypeScriptDemo.scene`.
+- **Measured** (desktop, this repo's unoptimized default build): 200 entities
+  with a TS `update()` cost ~1.8 µs more per entity per frame than the same
+  C++ Behaviour (`Tests/JsScriptingTests.cpp` prints the numbers). In Citra the
+  demo scene's whole `Scene::OnRuntimeUpdate` (scripts + Box2D, ~12 entities)
+  averages ~0.8 ms/frame. Rough Old-3DS estimate (ARM11 @ 268 MHz, ~15-25x
+  slower than the desktop CPU): ~30-40 µs per TS `update()`, i.e. keep
+  per-frame TS work to a few dozen to ~100 active scripts, prefer
+  `getPosition(out)`/`setPosition(x,y,z)` over allocating `Vector3`s in hot
+  loops.
+
+## Rendering: Materials, Shaders & Lighting
+
+A Unity-style Material/Shader model that renders the same on desktop (OpenGL) and on
+the 3DS (PICA200). The PICA200 has no programmable fragment stage, so a "shader" is a
+built-in pipeline configuration implemented twice: a GLSL uber-shader on desktop
+(`OpenGLRenderer3D.cpp`) and, on 3DS, a PICA vertex program (`DualityEngine/Assets3DS/
+*.v.pica`) + TEV combiner stages + the hardware **fragment lighting** unit with LUTs
+(`Citro3DRenderer.cpp`). Every non-linear curve (specular, toon ramp, spot cone,
+distance falloff) lives once in `Renderer/LightingMath.h`: the 3DS samples it into its
+256-entry LUTs, the desktop shader evaluates the identical formula.
+
+**Built-in shaders** (`Renderer/BuiltinShaders.h`, picked by name in the Material inspector):
+
+| Shader | Look | Desktop | 3DS (PICA200) |
+|---|---|---|---|
+| `Unlit/Color` | flat `_Color` (ignores texture + vertex colors) | uber-shader, no lights | 1 TEV stage (constant color) |
+| `Unlit/Texture` | `_MainTex` x `_Color` x vertex color | same | 1 TEV stage |
+| `Unlit/Transparent` | alpha blended, ZWrite off, queue 3000 | same | blend SrcAlpha/1-SrcAlpha |
+| `Unlit/Transparent Cutout` | alpha test at `_Cutoff` | `discard` | hardware alpha test |
+| `Unlit/Additive` | Blend SrcAlpha One (glows, lasers) | same | same |
+| `Unlit/Vertex Color` | vertex color x `_Color` | same | 1 TEV stage |
+| `Mobile/VertexLit` | Gouraud: ambient + main Directional Light (the old "VertexLit") | per vertex | in `mesh.v.pica`, no fragment lighting |
+| `Lit/Diffuse` | per-pixel Lambert, up to 8 lights, `_BumpMap` normal map, `_EmissionColor` | per pixel | fragment lighting, bump mapping on texture unit 1, 2-3 TEV stages |
+| `Lit/Specular` | + Blinn-Phong `_SpecColor`, `_Shininess` (exponent = x128) | per pixel | + D0 LUT = pow(N.H, e) |
+| `Toon/Lit` | banded diffuse (`_ToonSteps`, `_ToonSmoothness`), `_ShadeColor` on the dark side, hard highlight | per pixel | D1 LUT on L.N (ramp) + D0 LUT on N.H (highlight) |
+
+Every material also has **render state**: Surface Type (Opaque / Cutout / Transparent /
+Additive), Cull (Back / Front / Off), ZWrite (Auto / On / Off), Render Queue (from the
+surface: 2000 / 2450 / 3000, or explicit), and `_MainTex` tiling/offset. The mesh pass
+(`SceneRenderer::RenderMeshPass`, shared by Game, Scene view and the 3DS) sorts by queue:
+opaque grouped by GPU state then front-to-back, transparent back-to-front, blob shadows in
+between.
+
+**Lights** (components): `Directional Light` (color, intensity, Cast Shadows), `Point
+Light` (color, intensity, range) and `Spot Light` (color, intensity, range, Spot Angle +
+Inner Spot Angle, full cone angles like Unity; points along the entity's -Z). Each object is
+lit by its **8 most important lights** (the PICA200 hardware limit; the desktop applies the
+same selection): directional lights first, then point/spot lights by brightness x
+attenuation at the object, skipping lights whose range/cone can't reach its bounds.
+Falloff reaches exactly 0 at Range. **Window > Rendering > Lighting** edits the scene's
+environment (Ambient Color x Intensity -- saved in the `.scene` under `"Lighting"`), lists
+the lights against the 8-light limit, the project shadow technique and the last frame's
+lighting stats.
+
+**Shadows** keep working with lit materials: the main Directional Light's Cast Shadows +
+Project Settings > Rendering > Shadow Technique. Desktop "Shadow Maps (Experimental)"
+darkens only that light's contribution on Lit/Toon materials (Unlit/VertexLit keep the old
+whole-surface darkening); the 3DS always uses projected blob shadows on Plane receivers.
+
+**Editor**: select a `.mat` in the Content Browser -- the inspector shows a live lit-sphere
+preview, the Shader dropdown (grouped Lit / Toon / Mobile / Unlit), Surface Options and only
+the selected shader's properties (color pickers, texture slots with drag-and-drop, sliders).
+Edits save immediately and show in the Scene and Game views next frame. **Create >
+Material** makes a `Lit/Diffuse`, back-face-culled material. Point/Spot lights draw gizmos
+in the 3D Scene view (icon; range spheres / cone when selected) and are clickable.
+
+**Compatibility**: old `.mat` files (`Color` + `Texture` [+ `Shading Mode`]) load unchanged
+and are migrated *in memory* to `Unlit/Texture` or `Mobile/VertexLit` with Cull Off and an
+opaque surface -- pixel-identical to before; the file is only rewritten (format v2, Unity
+property names `_Color`, `_MainTex`, ...) when edited. An empty material slot still renders
+legacy unlit white. Scenes without a `"Lighting"` block get the previous 0.18 ambient.
+Skinned meshes (palette skinning on both GPUs, `mesh_skin_lit.v.pica` skins normal + tangent)
+and multi-material meshes (one material per submesh) work with every shader.
+
+**Desktop vs 3DS differences** (by design, documented rather than hidden): LUT
+quantization (256 entries, linear interpolation) slightly softens very tight highlights and
+hard toon edges on 3DS; light colors (color x intensity) and emission saturate at 1.0 per
+channel on both platforms (8-bit PICA registers); normal maps share `_MainTex` tiling and
+mirrored-UV islands invert the normal map's green channel on both (a quaternion can't
+encode a mirrored tangent frame); the 3DS has no shadow map (blob shadows), no per-pixel fog
+and no gradient/skybox ambient (one global ambient register); `Mobile/VertexLit` is lit by
+the main Directional Light only.
+
+**Sample**: `SampleProject/Assets/LightingDemo/LightingDemo.scene` -- Lit/Specular sphere
+with a normal map, Toon capsule, transparent glass cube, cutout leaves, additive glow,
+emissive panel, Unlit/Color cube, the legacy v1 `TestOrange.mat` (Mobile/VertexLit),
+Directional (shadows) + Point + Spot lights. Desktop: `DualityPlayerDesktop.exe --scene
+LightingDemo/LightingDemo.scene` (add `--screenshot out.bmp [--frames N]` to save a frame
+and exit). On 3DS, put it first in Build Settings and Build for 3DS. Set `"PerfLog": true`
+in `DualityPlayer/romfs/BuildSettings.json` to append CPU/GPU ms, command-buffer usage and
+renderer counters to `sdmc:/duality_perf.txt` every 120 frames.
 
 ## 3DS: build and run on-device
 
@@ -439,6 +657,17 @@ for small dependency-free infrastructure over a new library. `.github/
 workflows/ci.yml` runs `build.bat` + `run-tests.bat` on every push/PR
 (desktop only for now -- the 3DS cross-compile isn't wired into CI yet).
 
+`Tests/JsScriptingTests.cpp` covers the TypeScript bridge: class registration
+next to C++ classes, lifecycle order (awake -> onEnable -> start -> update ->
+lateUpdate, fixedUpdate, enable/disable edges, onDestroy), fields round-tripping
+through scene JSON (incl. entity/asset refs and range metadata), 2D/3D
+collision + trigger callbacks, getComponent C++ <-> TS both ways, runtime
+`instantiate` (scripts + physics body at the spawn position) and
+`destroy(go, t)`, coroutines, error reporting at the TS file:line, bytecode
+load, and a 200-entity C++-vs-TS `update()` timing. Its fixture
+(`Tests/TypeScriptFixture/`) is bundled at build time with node; without node
+those cases report "skipped".
+
 ## Repository layout
 
 ```
@@ -458,19 +687,30 @@ Tests/               Automated engine-logic test suite (see "Testing" above)
 Vendor/              Third-party dependencies (vendored as source, see below)
 Tools/               makerom.exe / bannertool.exe (fetched from their own
                      releases -- see "3DS: build and run on-device" above)
+Tools/TypeScript/    TypeScript toolchain: duality/duality.ts (the TS API),
+                     types/duality.d.ts (generated), build-scripts.mjs
+                     (esbuild bundler, npm-installed on first use)
 SampleProject/       The Editor's one (for now) project: Assets/, Scene.scene
 References/          Prior-art repos consulted during development (not built)
 .github/workflows/   CI (desktop build + automated tests on every push/PR)
 ```
 
 Third-party dependencies in `Vendor/` (EnTT, GLM, nlohmann/json, ImGui,
-stb_image, miniaudio, Box2D, Bullet Physics) are vendored as plain source
+stb_image, miniaudio, Box2D, Bullet Physics, QuickJS-ng) are vendored as plain source
 files rather than fetched via CMake `FetchContent`, for fast, offline,
 reproducible builds. GLFW/GLEW instead come from the mingw-w64 package
 repo (prebuilt binaries).
 
 ## Known limitations
 
+- TypeScript scripts: the Editor and build scripts need Node.js on `PATH`
+  (the players don't); a `.ts` change made during Play is applied after Stop
+  (no live patching of running instances); scripts can't remove a component
+  at runtime (`destroy(script)` only disables it); ScriptableObject classes
+  can only be defined in C++ (TS reads/writes their `.asset` files);
+  `Collision`/`Collision2D` carry the other object but no contact points yet
+  (the engine's contact events don't expose them); a TS class name must not
+  clash with a C++ class name. See `ROADMAP.md`.
 - No Project Hub / recent-projects list -- New Project/Open Project are
   plain native file dialogs for now, no recent-project history.
 - The Project Settings window (Edit menu) is mostly read-only for this first
@@ -517,11 +757,12 @@ repo (prebuilt binaries).
 - The in-game UI system covers Panel/Image and Button widgets only -- no
   text/label widget yet (needs real font rendering, not built on desktop),
   no 9-slice/border scaling, and no visual drag-and-drop UI builder.
-- No 3D lighting system yet (meshes are unlit; `Material` is currently just
-  Color + Texture) and no skeletal/mesh animation for imported OBJ meshes.
-  A mesh CAN carry multiple materials now (`MeshRendererComponent::Materials`,
-  one real draw call per OBJ `usemtl` submesh group -- see `ROADMAP.md`), but
-  each submesh is still unlit, same Color+Texture-only `Material`.
+- Materials use a fixed set of built-in shaders (see "Rendering: Materials, Shaders &
+  Lighting") -- no user-written shaders (the PICA200 has no programmable fragment stage;
+  a custom-shader path would be desktop-only). At most 8 lights affect one object
+  (PICA200 limit). No shadow maps on 3DS (projected blob shadows only), no fog, no
+  gradient/skybox ambient, no lightmaps; normal maps share the main texture's tiling and
+  mirrored UVs flip their green channel. Light/emission colors saturate at 1.0 (no HDR).
 
 See `ROADMAP.md` at the repo root for the fuller list of planned/deferred
 work (kept up to date independently of this section).

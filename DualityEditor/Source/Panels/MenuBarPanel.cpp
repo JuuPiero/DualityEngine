@@ -7,6 +7,7 @@
 #include "DualityEditor/BuildPipeline.h"
 #include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/Panels/LightingPanel.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -96,6 +97,11 @@ namespace Duality {
 
             if (ImGui::BeginMenu("Window")) {
                 ImGui::MenuItem((std::string(EditorIcons::Package) + " Package Manager...").c_str(), nullptr, &ctx.ShowPackageManager);
+                if (ImGui::BeginMenu("Rendering")) {
+                    // Unity: Window > Rendering > Lighting (scene ambient, lights, shadows).
+                    ImGui::MenuItem("Lighting", nullptr, &LightingPanel::IsOpen());
+                    ImGui::EndMenu();
+                }
                 ImGui::EndMenu();
             }
 

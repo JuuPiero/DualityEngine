@@ -1,10 +1,12 @@
-; DualityEngine forward mesh shader. VertexLit uses Gouraud Lambert lighting;
-; the backend supplies white ambient/zero diffuse for backwards-compatible Unlit draws.
+; DualityEngine forward mesh shader for Unlit/* and Mobile/VertexLit materials.
+; Mobile/VertexLit uses Gouraud Lambert lighting (ambient + main directional light); the backend
+; supplies white ambient/zero diffuse for Unlit draws, which therefore cost nothing extra.
+; Lit/* and Toon/* materials use mesh_lit.v.pica + PICA200 fragment lighting instead.
 ; Shape based on References/devkitpro-3ds-templates/graphics/gpu/{simple_tri,textured_cube}'s
 ; own proven vshader.v.pica sources.
 
 ; Uniforms
-.fvec projection[4], modelView[4], lightVec, lightColor, ambientColor
+.fvec projection[4], modelView[4], lightVec, lightColor, ambientColor, uvTransform
 
 ; Constants
 .constf myconst(0.0, 1.0, -1.0, -0.5)
@@ -40,8 +42,8 @@
 	dp4 outpos.z, projection[2], r1
 	dp4 outpos.w, projection[3], r1
 
-	; Transform and normalize the normal. The first PICA VertexLit tier supports
-	; uniform scale; desktop's GLSL path additionally uses an inverse-transpose normal matrix.
+	; Transform and normalize the normal. The VertexLit tier supports uniform scale;
+	; desktop's GLSL path additionally uses an inverse-transpose normal matrix.
 	mov r2.xyz, innrm
 	mov r2.w, zeros
 	dp4 r3.x, modelView[0], r2
@@ -57,8 +59,13 @@
 	mul r4, lightColor, r4.xxxx
 	add r4, ambientColor, r4
 
+	; Texture coordinates: _MainTex_ST tiling (xy) and offset (zw).
+	mov r9, uvTransform
+	mov r10, intex
+	mad r10.xy, r10.xy, r9.xy, r9.zw
+	mov outtc0, r10
+
 	; Modulate material and imported baked vertex color by the lighting result.
-	mov outtc0, intex
 	; PICA cannot use two v-registers as operands of one arithmetic instruction.
 	; Stage vertex color in a temporary first, then apply fixed material color.
 	mov r5, invclr

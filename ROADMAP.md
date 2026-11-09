@@ -24,7 +24,32 @@ this file whenever something below actually gets built, or a new deferred item c
       falls back to the procedural `Primitive`). A two-tier full/lite material system (arbitrary
       shader graph on desktop, a simplified fixed-function/TEV-stage model for the 3DS's
       PICA200 GPU) and real lighting remain open, carried over from the earlier
-      Polyphase-Engine research.
+      Polyphase-Engine research. (Lighting + the PICA-friendly material model: see next entry.)
+- [x] Material/Shader system + real-time lighting, same look on desktop and 3DS. Built-in
+      Unity-named shaders (`Renderer/BuiltinShaders.h`): Unlit/Color, Unlit/Texture,
+      Unlit/Transparent, Unlit/Transparent Cutout, Unlit/Additive, Unlit/Vertex Color,
+      Mobile/VertexLit, Lit/Diffuse, Lit/Specular (Blinn-Phong), Toon/Lit; per-material render
+      state (Surface Type, Cull, ZWrite, Render Queue, tiling/offset). `.mat` format v2 with
+      Unity property names; v1 files migrate in memory with an identical look. Desktop: one
+      GLSL uber-shader; 3DS: `mesh_lit.v.pica`/`mesh_skin_lit.v.pica` (view vector + normal
+      quaternion from N/T) + PICA200 fragment lighting (D0 specular / toon highlight, D1 toon
+      ramp, per-light DA + SP LUTs, bump mapping) + 2-3 TEV stages; shared curves in
+      `Renderer/LightingMath.h`. Point/Spot Light components, scene Lighting settings (ambient,
+      `"Lighting"` in the .scene, Window > Rendering > Lighting), per-object selection of the 8
+      most important lights, render-queue sorting in the shared `RenderMeshPass` (also used by
+      the Editor's 3D Scene view, which now shows skinned meshes too), Material inspector with
+      live preview, Point/Spot gizmos, tangents generated at load (`MeshVertex::Tangent`, 4
+      bytes), Plane/Sphere primitives re-wound counter-clockwise (outward) for back-face
+      culling, desktop 3D textures now honour their import settings (Wrap Repeat). Sample:
+      `SampleProject/Assets/LightingDemo/`. Tests: `Tests/RenderingMaterialTests.cpp`.
+- [ ] PICA200 shadow maps (the hardware has a shadow-texture mode + GPU_SHADOW_* light env
+      flags) to replace blob shadows on 3DS; today only desktop has a shadow map.
+- [ ] Fog (PICA fog LUT on 3DS, linear/exp on desktop) in the Lighting window.
+- [ ] Separate `_BumpMap` tiling, mirrored-UV tangent handedness (needs a flipped-normal-map
+      variant on PICA, a quaternion can't encode a left-handed frame), HDR emission.
+- [ ] Gradient (sky/equator/ground) ambient -- would need per-vertex ambient on 3DS since the
+      fragment lighting unit has a single global ambient register.
+- [ ] Desktop-only custom shaders (ShaderLab-like) with a mandatory built-in 3DS fallback.
 - [x] Fixed a real OBJ-import bug: `MeshLoader::Load`'s per-face-vertex parser called
       `std::strtok` again internally (to split "1/1/1" on "/") from INSIDE the outer loop that
       was ALSO mid-iteration over the same face line via its own `std::strtok` call --
@@ -1107,6 +1132,41 @@ this file whenever something below actually gets built, or a new deferred item c
       like Unity's real Input Manager UI (`GetAxis` only recognizes the two hardcoded
       default axis names) and gamepad support in the desktop Editor (no controller
       polling there, only keyboard/mouse).
+- [x] **TypeScript scripting on QuickJS-ng** (next to C++, desktop + 3DS) -- see README
+      "TypeScript scripts (QuickJS)". `Vendor/quickjs-ng` (v0.17.0, core only, builds with
+      MinGW and devkitARM); `DualityEngine/Source/Scripting/JS/` (JsRuntime: one runtime,
+      memory limit/GC threshold/stack per platform, watchdog, errors mapped to TS file:line
+      through the bundle's source map; JsBindings: the flat `__duality` bridge; JsBehaviour:
+      a Behaviour subclass per TS instance, so Scene's lifecycle/collision dispatch,
+      `ScriptRegistry`, scene JSON and the Properties panel are shared with C++ scripts --
+      `ScriptRegistry::RegisterDynamic` + `ScriptLanguage`, C++ DLL reloads only clear C++
+      classes); the `duality` API in TypeScript (`Tools/TypeScript/duality/duality.ts`,
+      bundled into each game; generated `types/duality.d.ts`); `Tools/TypeScript/
+      build-scripts.mjs` (esbuild bundle + optional type check + `--jsc` bytecode via the new
+      `DualityJsc` tool). Editor: compile at startup, file watching + background rebuild,
+      swap outside Play, Console diagnostics, Create > TypeScript Script, `(TS)` labels.
+      3DS: `BuildPipeline::CookTypeScript` -> `romfs:/Scripts/scripts.jsbc`. Tests:
+      `Tests/JsScriptingTests.cpp` (+ fixture project `Tests/TypeScriptFixture`). Sample:
+      `SampleProject/Assets/TypeScriptDemo/`.
+- [x] Coroutines for TypeScript scripts (`startCoroutine`, `WaitForSeconds`, `WaitUntil`,
+      `invoke`, `invokeRepeating`, `destroy(go, delay)`). C++ still has none (entry above).
+- [x] `OnLateUpdate` / `OnFixedUpdate` for C++ Behaviours (and TS `lateUpdate`/
+      `fixedUpdate`); runtime-spawned prefabs get physics bodies + script instances
+      immediately (`Scene::CreateRuntimeScripts`), `ScriptScene::Destroy` / end-of-frame
+      destroy with OnDisable/OnDestroy and body release (`Scene::DestroyEntityDeferred`);
+      C++ <-> TS script access (`Behaviour::FindScript/GetScriptField/SetScriptField/
+      SendScriptMessage`); `FieldHandle` range/tooltip/header metadata (slider in the
+      Inspector); overrides of a not-yet-registered script class are preserved verbatim
+      (`ScriptInstance::UnresolvedOverridesJson`) instead of being dropped on save.
+- [ ] TypeScript follow-ups: live-patching TS instances during Play (today a change applies
+      after Stop); `destroy(component)` / runtime component removal; ScriptableObject
+      classes written in TypeScript (TS reads/writes C++-defined `.asset` files only);
+      `@serializable` nested TS classes as fields; `Collision` contact points/relative
+      velocity (not exposed by the engine's contact events yet); a configurable
+      `Input` axis map; real-hardware profiling of the QuickJS heap/GC on Old 3DS; source
+      map load on 3DS is lazy (first error) but still parses JSON with nlohmann.
+- [ ] `DUALITY_PROPERTY` attributes for C++ (Range/Tooltip/Header) -- `FieldHandle` now
+      carries the metadata (TS fills it), `generate_fields.py` doesn't emit it yet.
 
 ## Other
 

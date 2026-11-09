@@ -101,6 +101,16 @@ namespace Duality {
         std::string Name;
         std::function<FieldValue(void*)> Get;
         std::function<void(void*, const FieldValue&)> Set;
+
+        // Optional Inspector-only presentation metadata (Unity's [Range]/[Tooltip]/[Header]).
+        // Never serialized and never needed by Get/Set; currently filled by TypeScript
+        // `@field({ range, tooltip, header })` declarations (see Scripting/JS/JsScripting.h).
+        // Default-initialized so every existing `FieldHandle{...}`/MakeField site is unchanged.
+        bool HasRange = false;
+        float RangeMin = 0.0f;
+        float RangeMax = 0.0f;
+        std::string Tooltip;
+        std::string Header;
     };
 
     template<typename C, typename T>

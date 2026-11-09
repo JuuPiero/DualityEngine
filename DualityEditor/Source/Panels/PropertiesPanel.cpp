@@ -61,9 +61,15 @@ namespace Duality {
         // seeded from PropertyOverrides, rendered, and destroyed -- edits are captured back
         // into PropertyOverrides instead.
         void DrawScriptFields(EditorContext& ctx, ScriptInstance& script) {
+            // Values saved while this class wasn't compiled/loaded yet (e.g. a TypeScript
+            // bundle that failed to build at startup) become editable once it is.
+            ScriptRegistry::ResolvePendingOverrides(script);
             const std::vector<FieldHandle>& fields = ScriptRegistry::GetFields(script.ClassName);
-            if (fields.empty())
+            if (fields.empty()) {
+                if (!ScriptRegistry::IsRegistered(script.ClassName))
+                    ImGui::TextDisabled("Script class '%s' is not compiled -- check the Console", script.ClassName.c_str());
                 return;
+            }
 
             Behaviour* target = script.Instance;
             Behaviour* scratch = nullptr;
@@ -147,7 +153,11 @@ namespace Duality {
                 ImGui::SameLine();
 
                 ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap;
-                bool open = ImGui::CollapsingHeader(script.ClassName.c_str(), flags);
+                // "(TS)" marks TypeScript classes (QuickJS) -- C++ and TS scripts share every
+                // other part of this card; "##" keeps the ImGui id stable either way.
+                const bool isTypeScript = ScriptRegistry::GetLanguage(script.ClassName) == ScriptLanguage::TypeScript;
+                const std::string header = script.ClassName + (isTypeScript ? "  (TS)" : "") + "##" + script.ClassName;
+                bool open = ImGui::CollapsingHeader(header.c_str(), flags);
                 ImGui::SameLine(ImGui::GetContentRegionAvail().x - 24.0f);
                 if (ImGui::Button("...", ImVec2(24.0f, 0.0f)))
                     ImGui::OpenPopup("ScriptSettings");
@@ -387,7 +397,9 @@ namespace Duality {
                 if (!ContainsCaseInsensitive(className, m_AddComponentFilter))
                     continue;
                 hasScriptMatch = true;
-                if (ImGui::MenuItem(className.c_str())) {
+                const bool isTypeScript = ScriptRegistry::GetLanguage(className) == ScriptLanguage::TypeScript;
+                const std::string label = className + (isTypeScript ? "  (TS)" : "  (C++)") + "##add_" + className;
+                if (ImGui::MenuItem(label.c_str())) {
                     BehaviourComponent& behaviour = selected.HasComponent<BehaviourComponent>()
                         ? selected.GetComponent<BehaviourComponent>()
                         : selected.AddComponent<BehaviourComponent>();

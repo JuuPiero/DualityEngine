@@ -1,0 +1,57 @@
+{
+  "CanvasUIVersion": 1,
+  "WorldUnitsVersion": 2,
+  "Entities": [
+    {
+      "Active": { "Active": true },
+      "Box Collider 2D": {
+        "Density": 1.0,
+        "Edit": false,
+        "Enabled": true,
+        "Friction": 0.4,
+        "Is Trigger": false,
+        "Offset": [0.0, 0.0],
+        "Physics Material": "",
+        "Restitution": 0.3,
+        "Size": [0.08, 0.08]
+      },
+      "Layer": { "Layer": "TOP" },
+      "Name": { "Name": "FallingBox" },
+      "Parent": -1,
+      "Rigidbody 2D": {
+        "Angular Drag": 0.05,
+        "Body Type": "Dynamic",
+        "Enabled": true,
+        "Fixed Rotation": false,
+        "Gravity Scale": 1.0,
+        "Linear Drag": 0.0,
+        "Mass": 0.0,
+        "Use Gravity": true
+      },
+      "Scripts": [
+        {
+          "ClassName": "FallingBox",
+          "Enabled": true,
+          "PropertyOverrides": { "lifetime": 3.5 }
+        }
+      ],
+      "Sprite Renderer": {
+        "Color": [1.0, 1.0, 1.0, 1.0],
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [0.5, 0.5],
+        "Size": [0.16, 0.16],
+        "Slice Border": [0.0, 0.0, 0.0, 0.0],
+        "Sort Order": 1,
+        "Texture": ""
+      },
+      "Tag": { "Tag": "Box" },
+      "Transform": {
+        "Rotation": [0.0, 0.0, 0.0],
+        "Scale": [1.0, 1.0, 1.0],
+        "Translation": [0.0, 0.0, 0.0]
+      }
+    }
+  ]
+}

@@ -15,6 +15,8 @@
 #include "DualityEditor/FileDialogs.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
+#include "DualityEditor/TypeScriptCompiler.h"
+#include "DualityEngine/Scripting/JS/JsScripting.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
@@ -94,6 +96,9 @@ namespace Duality {
         m_BuildDirectory = GetBuildDirectory();
         m_RepoRoot = m_BuildDirectory.substr(0, m_BuildDirectory.find_last_of("\\/")); // parent of "build-desktop"
         ScriptEngine::Reload(m_BuildDirectory);
+        // TypeScript scripts (QuickJS) -- compiled + loaded before the start scene is read so
+        // every TS class is registered when its Scripts entries deserialize.
+        TypeScriptCompiler::CompileAndLoadSync(m_RepoRoot, m_Project->GetDirectory());
 
         m_Renderer.Init();
         m_Renderer3D.Init();
@@ -339,7 +344,7 @@ namespace Duality {
         // stand-in Cube/Sphere) so its visual shape actually matches its collider.
         Entity physicsCapsule3D = m_Scene.CreateEntity("PhysicsCapsule3D");
         physicsCapsule3D.GetComponent<TransformComponent>().Translation = { -80.0f, -40.0f, 0.0f };
-        physicsCapsule3D.GetComponent<TransformComponent>().Scale = { 20.0f, 40.0f, 20.0f };
+        physicsCapsule3D.GetComponent<TransformComponent>().Scale = { 40.0f, 40.0f, 40.0f }; // uniform: the capsule mesh is 1 tall, 0.5 wide
         physicsCapsule3D.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Capsule;
         physicsCapsule3D.AddComponent<Rigidbody3DComponent>();
         physicsCapsule3D.AddComponent<CapsuleCollider3DComponent>();
@@ -550,6 +555,7 @@ namespace Duality {
         // SceneSerializer only stores ScriptInstance::ClassName strings, it doesn't need
         // ScriptRegistry to already know the class until Play actually starts.
         ScriptEngine::ReloadAsync(m_BuildDirectory);
+        TypeScriptCompiler::CompileAsync(m_RepoRoot, m_Project->GetDirectory());
 
         // A brand new project has no configured start scene yet -- Deserialize logs an
         // error and leaves m_Scene empty in that case, same as clicking
@@ -605,6 +611,7 @@ namespace Duality {
         // Same reasoning as OpenProjectFromDialog's own call -- compiles+loads this brand new
         // project's (empty, until Content Browser's "Create > Script" is used) Assets/Scripts.
         ScriptEngine::ReloadAsync(m_BuildDirectory);
+        TypeScriptCompiler::CompileAsync(m_RepoRoot, m_Project->GetDirectory());
 
         // Always a no-op in practice (a brand new project's Assets/ is empty) -- kept for the
         // exact same reason OpenProjectFromDialog keeps its own call: logs a normal "could not
@@ -666,6 +673,8 @@ namespace Duality {
             // submenu) -- see ScriptEngine::ReloadAsync's own comment for why this can't happen
             // on the background thread itself (a real, reproducible crash otherwise).
             ScriptEngine::PollMainThread();
+            // TypeScript: file watching + background rebuild, bundle swap outside Play.
+            TypeScriptCompiler::Update(deltaTime, m_IsPlaying, m_RepoRoot, m_Project->GetDirectory());
 
             if (m_IsPlaying) {
                 // Before OnRuntimeUpdate, not after -- a script polling UIButtonComponent::
@@ -897,6 +906,7 @@ namespace Duality {
             m_ProjectSettingsPanel.OnImGuiRender(ctx);
             m_PackageManagerPanel.OnImGuiRender(ctx);
             m_PreferencesPanel.OnImGuiRender(ctx);
+            m_LightingPanel.OnImGuiRender(ctx);
 
             // MarkSceneDirty is called by every Scene mutation path (Inspector, gizmo,
             // hierarchy, creation/deletion, drag-drop). Capture after all panels have run so
@@ -915,6 +925,7 @@ namespace Duality {
         }
 
         ScriptEngine::Shutdown();
+        JsScripting::Unload();
         m_Renderer.Shutdown();
         m_Renderer3D.Shutdown();
         AudioEngine::Shutdown();

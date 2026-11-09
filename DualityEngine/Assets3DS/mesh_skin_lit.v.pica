@@ -1,0 +1,225 @@
+; PICA200 skinned vertex shader for Lit/* and Toon/* materials: mesh_skin.v.pica's palette
+; skinning (<= 24 bones per submesh, 3 fvecs each) applied to position, normal AND tangent, then
+; mesh_lit.v.pica's view-vector + normal-quaternion outputs for hardware fragment lighting.
+; Uniform budget: 4 + 4 + 3 + 1 + 72 + 1 = 85 fvecs + 2 constants (of 96).
+
+.fvec projection[4], modelView[4], normalMatrix[3], uvTransform, bones[72], boneIndexScale
+
+.constf myconst(0.0, 1.0, 2.0, 0.5)
+.constf byteconst(0.007874016, 0.0, 0.0, 0.0) ; 1/127: signed-byte tangent -> [-1,1]
+.alias  zeros myconst.xxxx
+.alias  ones  myconst.yyyy
+.alias  twos  myconst.zzzz
+.alias  half  myconst.wwww
+.alias  bytescale byteconst.xxxx
+
+.out outpos position
+.out outtc0 texcoord0
+.out outtc1 texcoord1
+.out outclr color
+.out outview view
+.out outnq normalquat
+
+.alias inpos v0
+.alias intex v1
+.alias innrm v2
+.alias invclr v3
+.alias intng v4
+.alias inbone v5
+.alias inweight v6
+.alias inmat v7
+
+.proc main
+	; Object-space position (r0), normal (r1) and tangent (r15); r2/r3/r9 accumulate the
+	; four weighted affine bone transforms (relative addressing through a0).
+	mov r0.xyz, inpos
+	mov r0.w, ones
+	mov r1.xyz, innrm
+	mov r1.w, zeros
+	mul r15, bytescale, intng
+	mov r15.w, zeros
+	mov r2, zeros
+	mov r3, zeros
+	mov r9, zeros
+	mov r8, boneIndexScale
+	mul r8, inbone, r8
+	mova a0.xy, r8
+
+	; Influence 0 (a0.x)
+	dp4 r4.x, bones[a0.x+0], r0
+	dp4 r4.y, bones[a0.x+1], r0
+	dp4 r4.z, bones[a0.x+2], r0
+	mov r4.w, ones
+	mad r2, r4, inweight.xxxx, r2
+	dp4 r4.x, bones[a0.x+0], r1
+	dp4 r4.y, bones[a0.x+1], r1
+	dp4 r4.z, bones[a0.x+2], r1
+	mov r4.w, zeros
+	mad r3, r4, inweight.xxxx, r3
+	dp4 r4.x, bones[a0.x+0], r15
+	dp4 r4.y, bones[a0.x+1], r15
+	dp4 r4.z, bones[a0.x+2], r15
+	mov r4.w, zeros
+	mad r9, r4, inweight.xxxx, r9
+
+	; Influence 1 (a0.y)
+	dp4 r4.x, bones[a0.y+0], r0
+	dp4 r4.y, bones[a0.y+1], r0
+	dp4 r4.z, bones[a0.y+2], r0
+	mov r4.w, ones
+	mad r2, r4, inweight.yyyy, r2
+	dp4 r4.x, bones[a0.y+0], r1
+	dp4 r4.y, bones[a0.y+1], r1
+	dp4 r4.z, bones[a0.y+2], r1
+	mov r4.w, zeros
+	mad r3, r4, inweight.yyyy, r3
+	dp4 r4.x, bones[a0.y+0], r15
+	dp4 r4.y, bones[a0.y+1], r15
+	dp4 r4.z, bones[a0.y+2], r15
+	mov r4.w, zeros
+	mad r9, r4, inweight.yyyy, r9
+
+	mova a0.xy, r8.zw
+	; Influence 2 (a0.x)
+	dp4 r4.x, bones[a0.x+0], r0
+	dp4 r4.y, bones[a0.x+1], r0
+	dp4 r4.z, bones[a0.x+2], r0
+	mov r4.w, ones
+	mad r2, r4, inweight.zzzz, r2
+	dp4 r4.x, bones[a0.x+0], r1
+	dp4 r4.y, bones[a0.x+1], r1
+	dp4 r4.z, bones[a0.x+2], r1
+	mov r4.w, zeros
+	mad r3, r4, inweight.zzzz, r3
+	dp4 r4.x, bones[a0.x+0], r15
+	dp4 r4.y, bones[a0.x+1], r15
+	dp4 r4.z, bones[a0.x+2], r15
+	mov r4.w, zeros
+	mad r9, r4, inweight.zzzz, r9
+
+	; Influence 3 (a0.y)
+	dp4 r4.x, bones[a0.y+0], r0
+	dp4 r4.y, bones[a0.y+1], r0
+	dp4 r4.z, bones[a0.y+2], r0
+	mov r4.w, ones
+	mad r2, r4, inweight.wwww, r2
+	dp4 r4.x, bones[a0.y+0], r1
+	dp4 r4.y, bones[a0.y+1], r1
+	dp4 r4.z, bones[a0.y+2], r1
+	mov r4.w, zeros
+	mad r3, r4, inweight.wwww, r3
+	dp4 r4.x, bones[a0.y+0], r15
+	dp4 r4.y, bones[a0.y+1], r15
+	dp4 r4.z, bones[a0.y+2], r15
+	mov r4.w, zeros
+	mad r9, r4, inweight.wwww, r9
+
+	; Vertices without influences keep their bind pose (partially rigged models).
+	add r7.x, inweight.x, inweight.y
+	add r7.x, r7.x, inweight.z
+	add r7.x, r7.x, inweight.w
+	add r7.x, ones, -r7.x
+	mad r0, r0, r7.xxxx, r2
+	mad r1, r1, r7.xxxx, r3
+	mad r15, r15, r7.xxxx, r9
+
+	; r5 = modelView * position
+	dp4 r5.x, modelView[0], r0
+	dp4 r5.y, modelView[1], r0
+	dp4 r5.z, modelView[2], r0
+	dp4 r5.w, modelView[3], r0
+	mov outview, -r5
+	dp4 outpos.x, projection[0], r5
+	dp4 outpos.y, projection[1], r5
+	dp4 outpos.z, projection[2], r5
+	dp4 outpos.w, projection[3], r5
+
+	mov r9, uvTransform
+	mov r10, intex
+	mad r10.xy, r10.xy, r9.xy, r9.zw
+	mov outtc0, r10
+	mov outtc1, r10
+
+	mov r5, invclr
+	mul r5, r5, inmat
+	mov outclr, r5
+
+	; N = normalize(normalMatrix * skinned normal)
+	dp3 r14.x, normalMatrix[0], r1
+	dp3 r14.y, normalMatrix[1], r1
+	dp3 r14.z, normalMatrix[2], r1
+	dp3 r6.x, r14, r14
+	rsq r6.x, r6.x
+	mul r14.xyz, r14.xyz, r6.x
+
+	; T = normalize(modelView3x3 * skinned tangent)
+	dp3 r12.x, modelView[0], r15
+	dp3 r12.y, modelView[1], r15
+	dp3 r12.z, modelView[2], r15
+	dp3 r6.x, r12, r12
+	rsq r6.x, r6.x
+	mul r12.xyz, r12.xyz, r6.x
+
+	; Cross N x T = B
+	mul r13.xyz, r14.yzx, r12.zxy
+	mad r13.xyz, -r12.yzx, r14.zxy, r13
+
+	; Cross B x N = T (re-orthonormalizes T against N)
+	mul r12.xyz, r13.yzx, r14.zxy
+	mad r12.xyz, -r14.yzx, r13.zxy, r12
+
+	; Readjust vectors for easier calculation:
+	; r12 = (Tx, Ty, Tz, Bz)
+	; r13 = (Tx, By, Nz, 1 )
+	; r14 = (Nx, Ny, Nz, Bx)
+	mov r12.w, r13.z
+	mov r14.w, r13.x
+	mov r13.x, r12.x
+	mov r13.z, r14.z
+	mov r13.w, ones
+
+	; Perform case discrimination
+	mov r11.z, zeros
+	sge r10, zeros, r14.z
+	mov r11.xyw, r13.zxzy
+	add r10, r10, r10
+	mad r11.y, r10, r11, -r11
+	cmp r11.xy, le, ge, r11.zw
+
+	ifc cmp.x
+		ifc cmp.y
+			; X case
+			mov r13.yz, -r13
+			mov r14.y, -r14
+			dp4 r0.x, r13.w, r13
+			add r0.yzw, r12.yyzw, r14.wwxy
+		.else
+			; Y case
+			mov r13.xz, -r13
+			mov r12.z, -r12
+			dp4 r0.y, r13.w, r13
+			add r0.xzw, r12.yywz, r14.wwyx
+		.end
+	.else
+		ifc cmp.y
+			; Z case
+			mov r13.xy, -r13
+			mov r14.w, -r14
+			dp4 r0.z, r13.w, r13
+			add r0.xyw, r12.zwwy, r14.xyyw
+		.else
+			; W case
+			mov r12.z, -r12
+			mov r14.yw, -r14
+			dp4 r0.w, r13.w, r13
+			add r0.xyz, r12.wzyy, r14.yxww
+		.end
+	.end
+
+	; Renormalize quaternion and output
+	dp4 r1.x, r0, r0
+	rsq r1.x, r1.x
+	mul outnq, r0, r1.x
+
+	end
+.end

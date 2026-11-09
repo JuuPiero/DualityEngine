@@ -11,6 +11,8 @@
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
+#include "DualityEditor/TypeScriptCompiler.h"
+#include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Input/InputManager.h"
 #include "DualityEngine/Renderer/Screen.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
@@ -228,17 +230,26 @@ namespace Duality {
             if (ctx.IsPlaying)
                 StopPlaying(ctx);
             ScriptEngine::ReloadAsync(ctx.BuildDirectory);
+            // TypeScript scripts rebuild too (they also hot-reload on save by themselves).
+            if (auto project = Project::GetActive())
+                TypeScriptCompiler::CompileAsync(ctx.RepoRoot, project->GetDirectory());
         }
         ImGui::EndDisabled();
+        if (TypeScriptCompiler::HasScripts()) {
+            ImGui::SameLine();
+            const TsCompileStatus tsStatus = TypeScriptCompiler::GetStatus();
+            ImGui::TextDisabled(tsStatus == TsCompileStatus::Running ? "TS: compiling..." : tsStatus == TsCompileStatus::Failed ? "TS: errors (see Console)" : "TS: ok");
+        }
 
         // Stats overlay -- FPS (Editor frame rate, smoothed) and draw calls (the
         // real dual-screen render pass below, both backends are unbatched so this
         // is an exact count, not an estimate -- see IRenderer2D::GetDrawCallCount).
         ImGui::SameLine();
         ImGui::TextDisabled("| FPS: %.0f  Draw Calls: %u", ctx.Fps, ctx.GameDrawCallCount);
-        ImGui::TextDisabled("Meshes: %u visible / %u culled  Lit: %u  Shadow map: %u  Blob: %u  Sprites: %u",
+        ImGui::TextDisabled("Meshes: %u visible / %u culled  Lit: %u (+%u vertex-lit)  Transparent: %u  Lights: %u  Shadow map: %u  Blob: %u  Sprites: %u",
             ctx.GameRenderStats.VisibleMeshes, ctx.GameRenderStats.CulledMeshes,
-            ctx.GameRenderStats.VertexLitDrawCalls, ctx.GameRenderStats.ShadowMapCasterDrawCalls, ctx.GameRenderStats.BlobShadowDrawCalls,
+            ctx.GameRenderStats.LitDrawCalls, ctx.GameRenderStats.VertexLitDrawCalls, ctx.GameRenderStats.TransparentDrawCalls,
+            ctx.GameRenderStats.ActiveLights, ctx.GameRenderStats.ShadowMapCasterDrawCalls, ctx.GameRenderStats.BlobShadowDrawCalls,
             ctx.GameRenderStats.VisibleSprites);
 
         ImGui::Separator();

@@ -24,6 +24,7 @@ add_library(DualityEngine STATIC
     Source/Scene/PrefabSerializer.cpp
     Source/Renderer/SceneRenderer.cpp
     Source/Renderer/RenderSettings.cpp
+    Source/Renderer/BuiltinShaders.cpp
     Source/Renderer/DrawHelpers2D.cpp
     Source/Renderer/UIRenderer.cpp
     Source/Renderer/UIAnchor.cpp
@@ -41,6 +42,25 @@ target_include_directories(DualityEngine PUBLIC Include)
 # explicitly here, most-dependent first, same order Bullet's own exported
 # BULLET_LIBRARIES list implies).
 target_link_libraries(DualityEngine PUBLIC EnTT::EnTT glm::glm nlohmann_json::nlohmann_json box2d BulletDynamics BulletCollision LinearMath)
+
+# TypeScript scripting on QuickJS-ng (both platforms) -- see
+# Include/DualityEngine/Scripting/JS/JsScripting.h and Tools/TypeScript/.
+target_sources(DualityEngine PRIVATE
+    Source/Scripting/JS/JsRuntime.cpp
+    Source/Scripting/JS/JsBindings.cpp
+    Source/Scripting/JS/JsCompile.cpp
+    Source/Scripting/JS/SourceMap.cpp
+)
+target_link_libraries(DualityEngine PUBLIC quickjs)
+
+# DualityJsc: desktop command-line tool compiling a TS bundle (scripts.js) to QuickJS bytecode
+# (scripts.jsbc) for the 3DS romfs -- `DualityJsc <in.js> <out.jsbc>`. Links QuickJS only, so it
+# builds in seconds and never drags the engine/GL into a build step.
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
+    add_executable(DualityJsc Source/Scripting/JS/JscMain.cpp Source/Scripting/JS/JsCompile.cpp)
+    target_link_libraries(DualityJsc PRIVATE quickjs)
+    target_link_options(DualityJsc PRIVATE -static)
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
     target_sources(DualityEngine PRIVATE
@@ -76,9 +96,21 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Nintendo3DS")
         ${CMAKE_CURRENT_SOURCE_DIR}/Assets3DS/mesh_skin.v.pica
         OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mesh_skin.shbin
     )
+    # Lit/* and Toon/* materials: same inputs plus a tangent, outputting the view vector and the
+    # normal quaternion PICA200's hardware fragment lighting consumes (see Citro3DRenderer.cpp).
+    ctr_add_shader_library(mesh_lit_shader
+        ${CMAKE_CURRENT_SOURCE_DIR}/Assets3DS/mesh_lit.v.pica
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mesh_lit.shbin
+    )
+    ctr_add_shader_library(mesh_skin_lit_shader
+        ${CMAKE_CURRENT_SOURCE_DIR}/Assets3DS/mesh_skin_lit.v.pica
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/mesh_skin_lit.shbin
+    )
     dkp_add_embedded_binary_library(mesh_shader_embed mesh_shader)
     dkp_add_embedded_binary_library(mesh_skin_shader_embed mesh_skin_shader)
-    target_link_libraries(DualityEngine PUBLIC mesh_shader_embed mesh_skin_shader_embed)
+    dkp_add_embedded_binary_library(mesh_lit_shader_embed mesh_lit_shader)
+    dkp_add_embedded_binary_library(mesh_skin_lit_shader_embed mesh_skin_lit_shader)
+    target_link_libraries(DualityEngine PUBLIC mesh_shader_embed mesh_skin_shader_embed mesh_lit_shader_embed mesh_skin_lit_shader_embed)
 else()
     target_sources(DualityEngine PRIVATE
         Source/Renderer/OpenGL/OpenGLRenderer2D.cpp

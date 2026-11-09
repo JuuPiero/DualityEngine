@@ -10,6 +10,7 @@
 
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Reflection/Field.h"
+#include "DualityEngine/Reflection/FieldSerialization.h"
 #include "DualityEngine/Reflection/TypeRegistry.h"
 #include "DualityEngine/Scene/Components.h"
 #include "EntitySerialization.h"
@@ -261,6 +262,14 @@ namespace Duality {
         }
 
         root["Entities"] = entities;
+
+        // Scene-wide environment lighting (Lighting window). Written through the same generic
+        // FieldHandle serializer every component uses.
+        json lighting = json::object();
+        LightingSettings& lightingSettings = m_Scene.GetLightingSettings();
+        for (const FieldHandle& field : LightingSettings::Fields())
+            lighting[field.Name] = FieldValueToJson(field.Get(&lightingSettings));
+        root["Lighting"] = lighting;
         return root;
     }
 
@@ -271,6 +280,23 @@ namespace Duality {
         MigrateSceneToCanvasUI(normalizedRoot);
         if (!normalizedRoot.contains("Entities"))
             return false;
+
+        // A scene saved before Lighting settings existed gets the defaults, which equal the
+        // previously hard-coded ambient -- its lit materials keep their exact look.
+        LightingSettings lightingSettings;
+        if (normalizedRoot.contains("Lighting") && normalizedRoot["Lighting"].is_object()) {
+            const json& lighting = normalizedRoot["Lighting"];
+            for (const FieldHandle& field : LightingSettings::Fields()) {
+                if (!lighting.contains(field.Name))
+                    continue;
+                try {
+                    field.Set(&lightingSettings, JsonToFieldValue(lighting[field.Name], field.Get(&lightingSettings)));
+                } catch (const json::exception&) {
+                    // Keep the default for a malformed value.
+                }
+            }
+        }
+        m_Scene.GetLightingSettings() = lightingSettings;
 
         // First pass: create every entity and hydrate its registered components, in
         // file order -- `orderedEntities` ends up index-aligned with root["Entities"]

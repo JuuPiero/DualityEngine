@@ -21,6 +21,12 @@ namespace Duality {
         uint32_t ShadowMapCasterDrawCalls = 0;
         uint32_t BlobShadowDrawCalls = 0;
         uint32_t VisibleSprites = 0;
+        // Material/lighting diagnostics (Lit/* and Toon/* draws use per-pixel lights).
+        uint32_t LitDrawCalls = 0;
+        uint32_t TransparentDrawCalls = 0;
+        uint32_t ActiveLights = 0;        // enabled lights in the view(s)
+        uint32_t LightsPerDrawTotal = 0;  // sum over lit draws (average = total / LitDrawCalls)
+        uint32_t MaxLightsInDraw = 0;
 
         SceneRenderStats& operator+=(const SceneRenderStats& other) {
             VisibleMeshes += other.VisibleMeshes;
@@ -30,8 +36,21 @@ namespace Duality {
             ShadowMapCasterDrawCalls += other.ShadowMapCasterDrawCalls;
             BlobShadowDrawCalls += other.BlobShadowDrawCalls;
             VisibleSprites += other.VisibleSprites;
+            LitDrawCalls += other.LitDrawCalls;
+            TransparentDrawCalls += other.TransparentDrawCalls;
+            ActiveLights = ActiveLights > other.ActiveLights ? ActiveLights : other.ActiveLights;
+            LightsPerDrawTotal += other.LightsPerDrawTotal;
+            MaxLightsInDraw = MaxLightsInDraw > other.MaxLightsInDraw ? MaxLightsInDraw : other.MaxLightsInDraw;
             return *this;
         }
+    };
+
+    // Options for RenderMeshPass -- the shared forward mesh pass used by the Game renderer
+    // (RenderScreen3D) and the Editor's free-camera 3D Scene view alike.
+    struct MeshPassOptions {
+        const CameraComponent* CameraFilter = nullptr; // Culling Mask filter; null = every layer
+        bool FrustumCull = true;
+        bool BlobShadows = true;
     };
 
     // Shared per-screen render pass, used identically by DualityPlayer (real
@@ -79,7 +98,31 @@ namespace Duality {
     // its authored state into `view`. The editor's free-roam Scene camera uses this too, keeping
     // its light choice identical to the Game renderer without pretending the editor camera is a
     // gameplay CameraComponent.
+    // Now an alias of PopulateSceneLighting (kept for existing callers).
     void PopulateMainDirectionalLight(Scene& scene, RenderView& view);
+
+    // Fills every lighting input of `view` from the scene: MainLight (first enabled Directional
+    // Light in hierarchy order -- Mobile/VertexLit, blob shadows, the desktop shadow map), the
+    // full Lights list (Directional/Point/Spot, main light first, Color * Intensity saturated
+    // per channel) and AmbientColor from the scene's LightingSettings.
+    void PopulateSceneLighting(Scene& scene, RenderView& view);
+
+    // Picks the (up to MaxLightsPerDraw = 8, PICA200's hardware limit) lights affecting a
+    // bounding sphere: directional lights first (main light first), then point/spot lights by
+    // brightness x attenuation at the sphere, skipping lights whose range/cone can't reach it.
+    // Returns the count written to `outIndices` (indices into view.Lights).
+    uint8_t SelectLightsForBounds(const RenderView& view, const glm::vec3& center, float radius, uint8_t outIndices[MaxLightsPerDraw]);
+
+    // Resolves a Material asset into backend-ready draw state (texture handles, exponent,
+    // effective surface/zwrite). `outTextureId` receives the _MainTex handle (0 = none).
+    RenderMaterial BuildRenderMaterial(IRenderer3D& renderer, const Material& material, uint32_t& outTextureId);
+
+    // The forward mesh pass shared by RenderScreen3D and the Editor's 3D Scene view: collects
+    // MeshRenderer + SkinnedMeshRenderer submeshes, frustum-culls against `view`, resolves
+    // materials, picks lights per object, sorts by render queue (opaque by GPU state then
+    // front-to-back, transparent back-to-front), draws, and inserts the projected blob shadows
+    // between the opaque and transparent queues. The caller owns BeginScene/EndScene.
+    SceneRenderStats RenderMeshPass(IRenderer3D& renderer, Scene& scene, Screen screen, const RenderView& view, const MeshPassOptions& options = {});
 
     // Draws the light's low-cost projected blob-shadow tier onto active Plane primitives. Each
     // non-plane mesh is projected along the selected light's ray direction. It is a deliberately

@@ -1,0 +1,120 @@
+{
+  "CanvasUIVersion": 1,
+  "WorldUnitsVersion": 2,
+  "Entities": [
+    {
+      "Active": { "Active": true },
+      "Camera": {
+        "Background": [0.08, 0.09, 0.14, 1.0],
+        "Culling Mask": 4294967295,
+        "Enabled": true,
+        "Far Plane": 1000.0,
+        "Fov Degrees": 60.0,
+        "Near Plane": 0.1,
+        "Primary": true,
+        "Projection": "Orthographic",
+        "Screen": "Top",
+        "Zoom": 1.0
+      },
+      "Layer": { "Layer": "TOP" },
+      "Name": { "Name": "TopCamera" },
+      "Parent": -1,
+      "Physics Raycaster 2D": { "Enabled": true },
+      "Tag": { "Tag": "MainCamera" },
+      "Transform": { "Rotation": [0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0], "Translation": [0.0, 0.0, 0.0] }
+    },
+    {
+      "Active": { "Active": true },
+      "Camera": {
+        "Background": [0.12, 0.08, 0.1, 1.0],
+        "Culling Mask": 4294967295,
+        "Enabled": true,
+        "Far Plane": 1000.0,
+        "Fov Degrees": 60.0,
+        "Near Plane": 0.1,
+        "Primary": true,
+        "Projection": "Orthographic",
+        "Screen": "Bottom",
+        "Zoom": 1.0
+      },
+      "Layer": { "Layer": "BOTTOM" },
+      "Name": { "Name": "BottomCamera" },
+      "Parent": -1,
+      "Tag": { "Tag": "Untagged" },
+      "Transform": { "Rotation": [0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0], "Translation": [0.0, 5.0, 0.0] }
+    },
+    {
+      "Active": { "Active": true },
+      "Box Collider 2D": {
+        "Density": 1.0, "Edit": false, "Enabled": true, "Friction": 0.6, "Is Trigger": false,
+        "Offset": [0.0, 0.0], "Physics Material": "", "Restitution": 0.0, "Size": [1.8, 0.08]
+      },
+      "Layer": { "Layer": "TOP" },
+      "Name": { "Name": "Ground" },
+      "Parent": -1,
+      "Scripts": [
+        { "ClassName": "CollisionLogger", "Enabled": true, "PropertyOverrides": { "logEvery": 3 } }
+      ],
+      "Sprite Renderer": {
+        "Color": [0.35, 0.45, 0.6, 1.0], "Enabled": true, "Flip X": false, "Flip Y": false,
+        "Pivot": [0.5, 0.5], "Size": [3.6, 0.16], "Slice Border": [0.0, 0.0, 0.0, 0.0], "Sort Order": 0, "Texture": ""
+      },
+      "Tag": { "Tag": "Ground" },
+      "Transform": { "Rotation": [0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0], "Translation": [0.0, 1.0, 0.0] }
+    },
+    {
+      "Active": { "Active": true },
+      "Box Collider 2D": {
+        "Density": 1.0, "Edit": false, "Enabled": true, "Friction": 0.5, "Is Trigger": true,
+        "Offset": [0.0, 0.0], "Physics Material": "", "Restitution": 0.0, "Size": [0.35, 0.2]
+      },
+      "Layer": { "Layer": "TOP" },
+      "Name": { "Name": "TriggerZone" },
+      "Parent": -1,
+      "Scripts": [
+        { "ClassName": "CollisionLogger", "Enabled": true, "PropertyOverrides": { "logEvery": 1 } }
+      ],
+      "Sprite Renderer": {
+        "Color": [0.2, 0.6, 0.35, 1.0], "Enabled": true, "Flip X": false, "Flip Y": false,
+        "Pivot": [0.5, 0.5], "Size": [0.7, 0.4], "Slice Border": [0.0, 0.0, 0.0, 0.0], "Sort Order": 0, "Texture": ""
+      },
+      "Tag": { "Tag": "Untagged" },
+      "Transform": { "Rotation": [0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0], "Translation": [0.9, 0.35, 0.0] }
+    },
+    {
+      "Active": { "Active": true },
+      "Layer": { "Layer": "TOP" },
+      "Name": { "Name": "Player" },
+      "Parent": -1,
+      "Scripts": [
+        { "ClassName": "Mover", "Enabled": true, "PropertyOverrides": { "speed": 1.2, "bobAmplitude": 0.12 } }
+      ],
+      "Sprite Renderer": {
+        "Color": [1.0, 1.0, 1.0, 1.0], "Enabled": true, "Flip X": false, "Flip Y": false,
+        "Pivot": [0.5, 0.5], "Size": [0.3, 0.3], "Slice Border": [0.0, 0.0, 0.0, 0.0], "Sort Order": 1, "Texture": ""
+      },
+      "Tag": { "Tag": "Player" },
+      "Transform": { "Rotation": [0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0], "Translation": [0.0, -0.55, 0.0] }
+    },
+    {
+      "Active": { "Active": true },
+      "Layer": { "Layer": "TOP" },
+      "Name": { "Name": "Spawner" },
+      "Parent": -1,
+      "Scripts": [
+        {
+          "ClassName": "Spawner",
+          "Enabled": true,
+          "PropertyOverrides": {
+            "prefab": "4fb33d5863da5b37063c1af19c0e11d2",
+            "interval": 0.45,
+            "maxAlive": 10,
+            "spreadX": 1.4
+          }
+        }
+      ],
+      "Tag": { "Tag": "Untagged" },
+      "Transform": { "Rotation": [0.0, 0.0, 0.0], "Scale": [1.0, 1.0, 1.0], "Translation": [0.0, -1.05, 0.0] }
+    }
+  ]
+}

@@ -150,6 +150,8 @@ namespace Duality {
                         Log::Warn("MeshLoader: truncated .dmesh '" + path + "'");
                     } else {
                         data.BoundingRadius = radius;
+                        // Tangents aren't part of the cooked format; derive them for Lit normal maps.
+                        GenerateTangents(data.Vertices);
                     }
                 }
                 std::fclose(file);
@@ -261,6 +263,8 @@ namespace Duality {
             if (data.Vertices.empty())
                 Log::Warn("MeshLoader: '" + path + "' produced 0 vertices -- only \"v\"/\"vt\"/\"f\" lines are "
                     "supported (space-separated, positive 1-based indices), check the file uses that shape");
+
+            GenerateTangents(data.Vertices);
 
             float maxDistanceSq = 0.0f;
             for (const MeshVertex& vertex : data.Vertices)
