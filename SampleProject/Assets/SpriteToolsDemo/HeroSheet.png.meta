@@ -1,0 +1,128 @@
+{
+    "Importer": {
+        "FilterMode": "Point",
+        "GenerateMipmaps": false,
+        "PixelsPerUnit": 16.0,
+        "SpriteMode": "Multiple",
+        "Sprites": [
+            {
+                "Id": "86c162f1ab86bac5",
+                "Name": "HeroSheet_0",
+                "Pivot": [
+                    0.5,
+                    1.0
+                ],
+                "Rect": [
+                    0.0,
+                    0.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "387053f7270f3a37",
+                "Name": "HeroSheet_1",
+                "Pivot": [
+                    0.5,
+                    1.0
+                ],
+                "Rect": [
+                    16.0,
+                    0.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "f8140f872806b460",
+                "Name": "HeroSheet_2",
+                "Pivot": [
+                    0.5,
+                    1.0
+                ],
+                "Rect": [
+                    32.0,
+                    0.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "87990c0ceae0513b",
+                "Name": "HeroSheet_3",
+                "Pivot": [
+                    0.5,
+                    1.0
+                ],
+                "Rect": [
+                    48.0,
+                    0.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "44cc124b5e17d0a1",
+                "Name": "HeroSheet_4",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    0.0,
+                    16.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "91af365256bcb294",
+                "Name": "HeroSheet_5",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    16.0,
+                    16.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "8cd49fc01c6afaf7",
+                "Name": "HeroSheet_6",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    32.0,
+                    16.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "c326f07175b1fdca",
+                "Name": "HeroSheet_7",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    48.0,
+                    16.0,
+                    16.0,
+                    16.0
+                ]
+            }
+        ],
+        "TextureSize": [
+            64,
+            32
+        ],
+        "WrapMode": "Clamp"
+    },
+    "guid": "318ad971251949060071cb1c4559ca6c"
+}

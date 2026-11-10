@@ -129,6 +129,8 @@ namespace Duality {
         // Source-model paths whose Assimp-discovered children are currently visible in the grid.
         // The same inventory is always available as a tree child in the left Project pane.
         std::unordered_set<std::string> m_ExpandedModelPaths;
+        // Models copied in by ImportFile, queued for import on the next frame.
+        std::vector<std::filesystem::path> m_PendingModelImports;
 
         // Empty = no delete confirmation open; otherwise the path awaiting a Yes/Cancel
         // decision in the modal popup rendered at the bottom of OnImGuiRender.

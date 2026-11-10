@@ -20,7 +20,7 @@ namespace Duality {
             } else if constexpr (std::is_same_v<T, ProjectionType>) {
                 return v == ProjectionType::Orthographic ? "Orthographic" : "Perspective";
             } else if constexpr (std::is_same_v<T, MeshPrimitive>) {
-                const char* names[] = { "Cube", "Sphere", "Plane", "Capsule" };
+                const char* names[] = { "Cube", "Sphere", "Plane", "Capsule", "Cylinder", "Quad" };
                 return names[static_cast<int>(v)];
             } else if constexpr (std::is_same_v<T, UIAnchor>) {
                 const char* names[] = { "TopLeft", "TopCenter", "TopRight", "MiddleLeft", "MiddleCenter", "MiddleRight", "BottomLeft", "BottomCenter", "BottomRight" };
@@ -99,6 +99,8 @@ namespace Duality {
                 if (name == "Sphere") return MeshPrimitive::Sphere;
                 if (name == "Plane") return MeshPrimitive::Plane;
                 if (name == "Capsule") return MeshPrimitive::Capsule;
+                if (name == "Cylinder") return MeshPrimitive::Cylinder;
+                if (name == "Quad") return MeshPrimitive::Quad;
                 return MeshPrimitive::Cube;
             } else if constexpr (std::is_same_v<T, UIAnchor>) {
                 std::string name = j.get<std::string>();

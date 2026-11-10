@@ -11,6 +11,7 @@
 
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/ModelAsset.h"
 #include "DualityEngine/Scene/Components.h"
 #include "EntitySerialization.h"
 
@@ -305,6 +306,7 @@ namespace Duality {
         json rootJson;
         rootJson["WorldUnitsVersion"] = WorldUnitsVersion;
         rootJson["CanvasUIVersion"] = CanvasUIVersion;
+        rootJson["MeshFilterVersion"] = 1; // see SceneSerializer::SerializeToJson
         rootJson["Entities"] = entities;
 
         std::ofstream file(path);
@@ -390,6 +392,12 @@ namespace Duality {
             Log::Error("Prefab apply failed: source asset cannot be resolved");
             return false;
         }
+        // A model (FBX/glTF) instance links to its source file, which is not a prefab JSON:
+        // like Unity, model prefabs are read-only -- change the import settings instead.
+        if (ModelAsset::IsModelFile(path)) {
+            Log::Warn("Prefab apply: '" + path + "' is a model; model prefabs are read-only (edit its import settings, or Unpack)");
+            return false;
+        }
         return Save(instanceRoot, path);
     }
 
@@ -399,7 +407,8 @@ namespace Duality {
             return Entity{};
 
         const AssetRef source = instanceRoot.GetComponent<PrefabInstanceComponent>().Prefab;
-        const std::string path = AssetDatabase::ResolvePath(source.Guid);
+        // .prefab assets resolve to themselves; a model resolves to its generated prefab.
+        const std::string path = ModelAsset::ResolveInstantiablePrefab(source.Guid);
         if (path.empty()) {
             Log::Error("Prefab revert failed: source asset cannot be resolved");
             return Entity{};
@@ -526,6 +535,7 @@ namespace Duality {
         clipboard["DualityClipboard"] = 1;
         clipboard["WorldUnitsVersion"] = WorldUnitsVersion;
         clipboard["CanvasUIVersion"] = CanvasUIVersion;
+        clipboard["MeshFilterVersion"] = 1;
         clipboard["Entities"] = std::move(entities);
         clipboard["Roots"] = std::move(rootsJson);
         return clipboard;

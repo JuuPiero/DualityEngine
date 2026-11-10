@@ -11,6 +11,8 @@
 
 namespace Duality {
 
+    struct ControllerColliderHit; // Scene/Components/Physics3D.h
+
     // The MonoBehaviour-equivalent base class for gameplay code, written as
     // plain C++ (no embedded scripting language). Subclasses can declare
     // Inspector-editable public fields (Unity's [SerializeField]-equivalent)
@@ -75,6 +77,16 @@ namespace Duality {
         virtual void OnCollisionExit(Entity other) {}
         virtual void OnTriggerEnter(Entity other) {}
         virtual void OnTriggerExit(Entity other) {}
+
+        // Unity's OnJointBreak2D / OnJointBreak -- sent to the scripts of the entity whose joint
+        // exceeded its Break Force / Break Torque, right after the fixed step that broke it.
+        // `joint` is that entity, `breakForce` the force (or torque) that broke it. The joint
+        // component is removed right after the callbacks, like Unity destroying the Joint.
+        virtual void OnJointBreak2D(Entity joint, float breakForce) {}
+        virtual void OnJointBreak(Entity joint, float breakForce) {}
+        // Unity's OnControllerColliderHit -- sent during CharacterController Move/SimpleMove
+        // for every collider the capsule hit while moving (see Scripting/CharacterController.h).
+        virtual void OnControllerColliderHit(const ControllerColliderHit& hit) {}
 
         template<typename T>
         T& GetComponent() { return m_Entity.GetComponent<T>(); }

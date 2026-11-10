@@ -68,12 +68,24 @@
 };</code></pre>
                 <p>Vẽ như một quad axis-aligned tại <code>TransformComponent::Translation</code>, xoay theo <code>Rotation.z</code>.</p>
 
-                <h2>MeshRendererComponent, Material, Mesh</h2>
-                <pre><code><span class="tok-kw">struct</span> MeshRendererComponent {
-    MeshPrimitive Primitive = Cube;   <span class="tok-com">// Cube | Sphere | Plane | Capsule -- dựng thủ tục, không cần asset</span>
-    std::vector&lt;AssetRef&gt; Materials; <span class="tok-com">// một .mat cho mỗi submesh; rỗng = Unlit trắng (giữ nguyên hình cũ)</span>
-    AssetRef Mesh;                    <span class="tok-com">// rỗng = dùng Primitive; có giá trị = mesh OBJ/model import</span>
+                <h2>MeshFilter + MeshRenderer, Material, Mesh</h2>
+                <pre><code><span class="tok-kw">struct</span> MeshFilterComponent {
+    AssetRef Mesh;                    <span class="tok-com">// "builtin:Cube" | Sphere | Capsule | Cylinder | Plane | Quad, hoặc GUID mesh import; rỗng = không vẽ</span>
+};
+<span class="tok-kw">struct</span> MeshRendererComponent {
+    <span class="tok-kw">bool</span> Enabled = <span class="tok-kw">true</span>;
+    std::vector&lt;AssetRef&gt; Materials; <span class="tok-com">// một .mat cho mỗi submesh; rỗng = Unlit trắng</span>
+    <span class="tok-kw">int</span> SortOrder = <span class="tok-num">0</span>;
 };</code></pre>
+                <p>
+                    Giống Unity: <strong>Mesh Filter</strong> chọn mesh, <strong>Mesh Renderer</strong> vẽ nó. Mesh dựng sẵn
+                    (<code>Renderer/BuiltinMeshes.h</code>, header-only, dùng được cả trong GameScripts) được tạo thủ tục
+                    trên cả desktop lẫn 3DS — không cần asset; khi cook cho 3DS, tham chiếu <code>builtin:*</code> không kéo
+                    theo file nào. Bán kính bao (culling, blob shadow) lấy theo mesh thật
+                    (<code>Asset/MeshReference.h</code>): Plane/Quad 0.707, Cube 0.866, Sphere/Capsule 0.5... Bóng blob chỉ
+                    nhận trên <code>builtin:Plane</code>. Scene cũ có <code>Primitive</code> trong Mesh Renderer được
+                    chuyển tự động khi load (xem <a href="components.html">Components</a>).
+                </p>
                 <p>
                     <strong>Material</strong> (<code>.mat</code>, JSON v2) = một <strong>Shader</strong> dựng sẵn +
                     giá trị thuộc tính (tên kiểu Unity: <code>_Color</code>, <code>_MainTex</code>,
@@ -105,6 +117,21 @@
                     <strong>Mesh</strong> import từ <code>.obj</code> (hoặc model qua Assimp ở Editor) — kéo file
                     từ Content Browser vào field <code>Mesh</code>. Tangent cho normal map được tạo khi load
                     (<code>MeshVertex::Tangent</code>, 4 byte), không đổi định dạng file mesh.
+                </p>
+                <p>
+                    <strong>Model FBX/glTF</strong> (xem <a href="assets.html#model-importer">Model Importer</a>): thả vào
+                    Editor là được bake thành <code>.dmesh</code> v4 + material Lit/Diffuse + texture power-of-two +
+                    clip <code>.anim</code> + model prefab. Giới hạn 3DS được xử lý lúc import: mỗi draw skinned ≤ 24 xương
+                    (<code>mesh_skin*.v.pica</code>: 24 ma trận affine = 72 uniform), ≤ 4 influence/vertex có tổng weight 1
+                    (shader cộng thẳng, không chuẩn hóa), ≤ 65535 vertex mỗi draw. GPU skinning chạy trên cả desktop (GLSL)
+                    lẫn 3DS (PICA) bằng palette của từng submesh; file V2 cũ vẫn dùng đường CPU skinning.
+                    Runtime vẫn vẽ danh sách tam giác phẳng (non-indexed, 72 byte/góc) — mục 3DS Budget của
+                    Inspector báo đúng con số bộ nhớ này.
+                </p>
+                <p>
+                    Transform thế giới của entity con được ghép <strong>3D thật</strong> (quaternion, thứ tự Rz·Ry·Rx như
+                    renderer) khi có xoay X/Y hoặc offset Z dưới cha có scale Z — cần cho hierarchy/skeleton của model.
+                    Scene 2D (chỉ xoay Z) vẫn dùng đúng công thức phẳng cũ, kết quả không đổi từng bit.
                 </p>
 
                 <h2>Ánh sáng</h2>

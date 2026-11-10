@@ -232,6 +232,70 @@ namespace Duality {
             }
             return vertices;
         }
+
+        // Unity's Cylinder at the same half scale as the capsule above: height 1 (y -0.5..+0.5),
+        // radius 0.25, 16 segments. Radial normals on the side, flat ones on the two caps.
+        std::vector<MeshVertex> MakeCylinder() {
+            constexpr float Radius = 0.25f;
+            constexpr float HalfHeight = 0.5f;
+            constexpr int Segments = 16;
+            constexpr float Pi = 3.14159265358979323846f;
+
+            auto sidePoint = [&](int segment, float y) {
+                const float u = static_cast<float>(segment) / Segments;
+                const float angle = u * 2.0f * Pi;
+                const float c = std::cos(angle), s = std::sin(angle);
+                MeshVertex vertex{ { Radius * c, y, Radius * s }, { u, y > 0.0f ? 1.0f : 0.0f } };
+                vertex.Normal = glm::vec3(c, 0.0f, s);
+                return vertex;
+            };
+            auto capPoint = [&](int segment, float y, float normalY) {
+                const float angle = static_cast<float>(segment) / Segments * 2.0f * Pi;
+                const float c = std::cos(angle), s = std::sin(angle);
+                MeshVertex vertex{ { Radius * c, y, Radius * s }, { 0.5f + 0.5f * c, 0.5f + 0.5f * s } };
+                vertex.Normal = glm::vec3(0.0f, normalY, 0.0f);
+                return vertex;
+            };
+
+            std::vector<MeshVertex> vertices;
+            vertices.reserve(Segments * 12);
+            for (int segment = 0; segment < Segments; ++segment) {
+                // Side quad, counter-clockwise seen from outside (same winding as the capsule).
+                const MeshVertex p00 = sidePoint(segment, -HalfHeight);
+                const MeshVertex p10 = sidePoint(segment + 1, -HalfHeight);
+                const MeshVertex p01 = sidePoint(segment, HalfHeight);
+                const MeshVertex p11 = sidePoint(segment + 1, HalfHeight);
+                vertices.push_back(p00);
+                vertices.push_back(p01);
+                vertices.push_back(p11);
+                vertices.push_back(p11);
+                vertices.push_back(p10);
+                vertices.push_back(p00);
+
+                // Caps as triangle fans around their centers.
+                MeshVertex top{ { 0.0f, HalfHeight, 0.0f }, { 0.5f, 0.5f } };
+                top.Normal = glm::vec3(0.0f, 1.0f, 0.0f);
+                vertices.push_back(top);
+                vertices.push_back(capPoint(segment + 1, HalfHeight, 1.0f));
+                vertices.push_back(capPoint(segment, HalfHeight, 1.0f));
+
+                MeshVertex bottom{ { 0.0f, -HalfHeight, 0.0f }, { 0.5f, 0.5f } };
+                bottom.Normal = glm::vec3(0.0f, -1.0f, 0.0f);
+                vertices.push_back(bottom);
+                vertices.push_back(capPoint(segment, -HalfHeight, -1.0f));
+                vertices.push_back(capPoint(segment + 1, -HalfHeight, -1.0f));
+            }
+            return vertices;
+        }
+
+        // Unity's Quad: a 1x1 square in the XY plane facing +Z -- towards a camera looking down
+        // -Z, this engine's camera forward (it is the cube's +Z face moved to z = 0).
+        std::vector<MeshVertex> MakeQuad() {
+            return {
+                { {-0.5f,-0.5f, 0.0f}, {0.0f,0.0f} }, { {+0.5f,-0.5f, 0.0f}, {1.0f,0.0f} }, { {+0.5f,+0.5f, 0.0f}, {1.0f,1.0f} },
+                { {+0.5f,+0.5f, 0.0f}, {1.0f,1.0f} }, { {-0.5f,+0.5f, 0.0f}, {0.0f,1.0f} }, { {-0.5f,-0.5f, 0.0f}, {0.0f,0.0f} },
+            };
+        }
     }
 
     const std::vector<MeshVertex>& GetPrimitiveMesh(MeshPrimitive primitive) {
@@ -239,11 +303,15 @@ namespace Duality {
         static const std::vector<MeshVertex> sphere = [] { auto v = MakeSphere(); for (auto& vertex : v) vertex.Normal = glm::normalize(vertex.Position); GenerateTangents(v); return v; }();
         static const std::vector<MeshVertex> plane = [] { auto v = MakePlane(); GenerateFlatNormals(v); GenerateTangents(v); return v; }();
         static const std::vector<MeshVertex> capsule = [] { auto v = MakeCapsule(); GenerateTangents(v); return v; }(); // normals set by MakeCapsule
+        static const std::vector<MeshVertex> cylinder = [] { auto v = MakeCylinder(); GenerateTangents(v); return v; }(); // normals set by MakeCylinder
+        static const std::vector<MeshVertex> quad = [] { auto v = MakeQuad(); GenerateFlatNormals(v); GenerateTangents(v); return v; }();
 
         switch (primitive) {
             case MeshPrimitive::Sphere: return sphere;
             case MeshPrimitive::Plane: return plane;
             case MeshPrimitive::Capsule: return capsule;
+            case MeshPrimitive::Cylinder: return cylinder;
+            case MeshPrimitive::Quad: return quad;
             default: return cube;
         }
     }

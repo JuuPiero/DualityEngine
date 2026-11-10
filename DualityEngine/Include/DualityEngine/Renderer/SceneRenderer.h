@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "DualityEngine/Asset/Material.h"
+#include "DualityEngine/Renderer/DrawHelpers2D.h"
 #include "DualityEngine/Renderer/IRenderer2D.h"
 #include "DualityEngine/Renderer/IRenderer3D.h"
 #include "DualityEngine/Scene/Components.h"
@@ -144,6 +145,24 @@ namespace Duality {
     // Scene view.
     uint32_t ResolveSpriteTexture(IRenderer2D& renderer, const AssetRef& textureRef);
 
+    // Everything a SpriteRenderer entity draws this frame (flipbook / sheet-animator frame,
+    // sliced sub-sprite UVs, sprite pivot, Draw Mode Sliced borders, flips, negative scale),
+    // in a draw space where the entity's pivot lands at `pivotDrawPosition` and one world unit
+    // is `drawUnitsPerWorldUnit` draw units. Shared by RenderScreen (screen pixels) and the
+    // editor Scene view (world units, 1.0) so both views always match. False = no renderer.
+    bool BuildSpriteRendererDrawData(IRenderer2D& renderer, Scene& scene, entt::entity handle,
+        const glm::vec2& pivotDrawPosition, float drawUnitsPerWorldUnit, SpriteDrawData& out);
+
+    // The pivot a SpriteRenderer entity really uses: its sliced sprite's pivot (Sprite Editor)
+    // when Texture names one, else SpriteRenderer::Pivot. Editor outlines / hit tests use it.
+    glm::vec2 EffectiveSpritePivot(Scene& scene, entt::entity handle);
+
+    // Draws a Tilemap entity's tiles: draw = (world - cameraPosition) * drawUnitsPerWorldUnit
+    // + drawOffset. A tile index picks the tileset's index-th sliced sprite (Sprite Editor);
+    // a tileset without sprites draws the whole texture per tile. Returns the quads drawn.
+    int DrawTilemap2D(IRenderer2D& renderer, Scene& scene, entt::entity handle, const glm::vec2& cameraPosition,
+        float drawUnitsPerWorldUnit, const glm::vec2& drawOffset, const glm::vec4& tint = glm::vec4(1.0f));
+
     // Same guid->path->LoadTexture chain as ResolveSpriteTexture, just against
     // IRenderer3D's own LoadTexture instead. Shared by RenderScreen3D and the
     // Editor's 3D Scene view.
@@ -156,8 +175,13 @@ namespace Duality {
     // per submesh now (see IRenderer3D::DrawMesh's own comment on subMeshIndex).
     Material ResolveMeshMaterial(const AssetRef& materialRef);
 
-    // Guid->path->IRenderer3D::LoadMesh chain for a MeshRendererComponent::Mesh reference --
-    // returns 0 (meaning "fall back to the procedural MeshPrimitive") when the ref is empty or
+    // What a MeshRenderer draws for its MeshFilter's Mesh reference: a built-in mesh
+    // ("builtin:Cube" -> `primitive`, `meshHandle` 0) or an imported one (`meshHandle` from
+    // ResolveMeshGeometry). False when there is nothing to draw (empty or missing mesh).
+    bool ResolveMeshFilter(IRenderer3D& renderer, const AssetRef& mesh, MeshPrimitive& primitive, uint32_t& meshHandle);
+
+    // Guid->path->IRenderer3D::LoadMesh chain for an imported mesh reference --
+    // returns 0 (meaning "the primitive mesh of the draw command") when the ref is empty or
     // doesn't resolve to an existing/parsable file. Shared by RenderScreen3D and the Editor's
     // 3D Scene view.
     uint32_t ResolveMeshGeometry(IRenderer3D& renderer, const AssetRef& meshRef);

@@ -69,7 +69,10 @@ namespace Duality {
     }
 
     std::string AssetDatabase::ResolvePath(const std::string& guid) {
-        auto it = s_GuidToPath.find(guid);
+        // A sprite reference "<textureGuid>#<spriteId>" (Asset/SpriteDatabase.h) resolves to its
+        // texture file, so code that only needs the image keeps working with sub-sprites.
+        const size_t subAsset = guid.find('#');
+        auto it = subAsset == std::string::npos ? s_GuidToPath.find(guid) : s_GuidToPath.find(guid.substr(0, subAsset));
         return it != s_GuidToPath.end() ? it->second : std::string();
     }
 

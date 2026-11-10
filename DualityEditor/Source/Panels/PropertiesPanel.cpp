@@ -28,6 +28,7 @@
 #include "DualityEditor/Panels/ContentBrowserPanel.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/ModelAsset.h"
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Reflection/FieldSerialization.h"
@@ -39,11 +40,6 @@
 namespace Duality {
 
     namespace {
-        // Rows of the GameObject header -- never shown as component cards (Unity).
-        bool IsHeaderComponent(const std::string& name) {
-            return name == "Name" || name == "Tag" || name == "Active" || name == "Layer" || name == "Prefab Instance";
-        }
-
         bool IsLive(EditorContext& ctx, Entity entity) {
             return entity && entity.GetScene() == &ctx.SceneRef && ctx.SceneRef.Registry().valid(entity.Handle());
         }
@@ -190,6 +186,26 @@ namespace Duality {
         }
 
         // Unity-style "Anchor Presets" quick-set (3x3 point anchors).
+        // Unity shows nothing for a MeshRenderer without a MeshFilter; say why, with a fix.
+        void DrawMeshFilterHelpBox(EditorContext& ctx, const std::vector<Entity>& targets) {
+            bool anyMissing = false;
+            for (Entity entity : targets)
+                anyMissing |= !entity.HasComponent<MeshFilterComponent>();
+            if (!anyMissing)
+                return;
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.35f, 0.28f, 0.10f, 0.55f));
+            ImGui::BeginChild("##meshFilterHelp", ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * 2.0f + ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().WindowPadding.y * 2.0f), ImGuiChildFlags_Borders);
+            ImGui::TextWrapped("%s  This Mesh Renderer has no Mesh Filter, so it draws nothing. Add a Mesh Filter and pick a mesh.", EditorIcons::Warning);
+            if (ImGui::SmallButton("Add Mesh Filter")) {
+                for (Entity entity : targets)
+                    if (!entity.HasComponent<MeshFilterComponent>())
+                        entity.AddComponent<MeshFilterComponent>();
+                MarkSceneDirty(ctx, "Add Mesh Filter");
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+        }
+
         void DrawUIRectAnchorPresets(UIRectComponent* rect, EditorContext& ctx) {
             static const UIAnchor kGrid[3][3] = {
                 { UIAnchor::TopLeft,    UIAnchor::TopCenter,    UIAnchor::TopRight },
@@ -291,7 +307,8 @@ namespace Duality {
         Entity root = PrefabRootOf(entity);
         if (!root)
             return nullptr;
-        const std::string path = AssetDatabase::ResolvePath(root.GetComponent<PrefabInstanceComponent>().Prefab.Guid);
+        // .prefab itself, or the generated prefab of a model instance (overrides compare against it).
+        const std::string path = ModelAsset::ResolveInstantiablePrefab(root.GetComponent<PrefabInstanceComponent>().Prefab.Guid);
         if (path.empty())
             return nullptr;
         std::error_code error;
@@ -368,8 +385,11 @@ namespace Duality {
         ImGui::PopStyleColor();
         ImGui::SameLine(FieldLabelWidth());
         ImGui::BeginDisabled(path.empty());
+        // A model prefab (FBX/glTF instance) is read-only like Unity's: no Prefab Mode.
+        ImGui::BeginDisabled(ModelAsset::IsModelFile(path));
         if (ImGui::Button("Open"))
             ctx.RequestOpenPrefabPath = path;
+        ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button("Select")) {
             ctx.Session.PingAssetPath = path;
@@ -653,6 +673,8 @@ namespace Duality {
             ImGui::PushID("Fields");
             if (type.DisplayName == "UI Rect" && targets.size() == 1)
                 DrawUIRectAnchorPresets(static_cast<UIRectComponent*>(component), ctx);
+            if (type.DisplayName == "Mesh Renderer")
+                DrawMeshFilterHelpBox(ctx, targets);
             for (auto& field : type.Fields) {
                 if (field.Name == "Enabled")
                     continue; // drawn on the header
@@ -803,7 +825,7 @@ namespace Duality {
             ImGui::CloseCurrentPopup();
         };
         auto addableComponent = [&](ComponentTypeInfo& type) {
-            if (type.Mandatory || type.DisplayName == "Scripts" || IsHeaderComponent(type.DisplayName))
+            if (type.Category.empty() || type.HeaderComponent)
                 return false;
             for (Entity entity : targets)
                 if (!type.Has(entity))
@@ -994,7 +1016,7 @@ namespace Duality {
         // Fully generic: adding a component type (or a field) to TypeRegistry never needs changes
         // here. With several targets only the components every target has are shown (Unity).
         for (ComponentTypeInfo& type : TypeRegistry::All()) {
-            if (IsHeaderComponent(type.DisplayName))
+            if (type.HeaderComponent)
                 continue;
             bool shared = true;
             for (Entity entity : targets)
@@ -1018,7 +1040,7 @@ namespace Duality {
         if (targets.size() > 1) {
             int hidden = 0;
             for (ComponentTypeInfo& type : TypeRegistry::All()) {
-                if (IsHeaderComponent(type.DisplayName))
+                if (type.HeaderComponent)
                     continue;
                 bool any = false, all = true;
                 for (Entity entity : targets) {

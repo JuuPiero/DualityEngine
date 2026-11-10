@@ -105,10 +105,19 @@ The Editor mirrors Unity's editor: names, menus, shortcuts and behaviour. Full r
   (shared components only, differing values shown as "-", one edit applies to all as one Undo
   step), prefab overrides in bold (right-click > Revert), and a categorized searchable Add
   Component popup with Scripts `(C++)`/`(TS)` and **New Script** (TypeScript or C++).
-- **Scene view** -- RMB look + WASD/QE fly (Shift faster, wheel = speed), Alt+LMB orbit,
-  Alt+RMB / wheel zoom, MMB pan (2D: MMB/RMB pan, wheel zooms toward the cursor), handles for
-  the whole selection, Ctrl increment snapping (Move 0.25, Rotate 15 deg, Scale 0.1), orange
-  selection outlines, a draggable splitter between the Top/Bottom panes.
+- **Scene view** (navigation like PiaEngine / Unity; full table in `Docs/pages/editor.html`)
+  -- each pane (Top / Bottom screen) has a toolbar (2D | 3D, Grid, Gizmos, pipeline badge)
+  and a floating tools column (Hand / Move / Rotate / Scale / Rect). 3D: LMB select (click,
+  Ctrl/Shift toggle, drag = marquee), MMB pan (the point under the cursor follows it), RMB
+  look + WASD/QE fly (speed scales with the pivot distance, Shift x3, wheel while flying =
+  fly speed, shown bottom-left), Alt+LMB orbit, Alt+RMB dolly, wheel zoom (x1.12 per notch),
+  axis gizmo top-right (click a cone = animated snap to that orthographic view, click the
+  centre / "Persp" label = perspective <-> iso, drag = orbit), F frames the selection
+  (animated). 2D: MMB / RMB / Alt+LMB / Hand pan, wheel zooms toward the cursor (x1.15). The
+  grid follows the camera (density by zoom). Each scene remembers its Scene view cameras
+  (`<Project>/Library/SceneViewState.json`). Handles for the whole selection, Ctrl increment
+  snapping (Move 0.25, Rotate 15 deg, Scale 0.1), orange selection outlines, a draggable
+  splitter between the panes.
 - **Console** -- Clear, Collapse, Clear on Play, Error Pause, per-level counts/toggles, search,
   a details pane with the full selected message.
 - **Project** (was "Project window") -- folder tree + grid, "+" Create menu, clickable
@@ -118,6 +127,76 @@ The Editor mirrors Unity's editor: names, menus, shortcuts and behaviour. Full r
 - **Automation** -- `DualityEditor --editor-test script.txt [--project X.dproj] [--size WxH]`
   drives the editor in-process (ImGui input queue + editor commands, offscreen screenshots,
   `expect-*` checks; exit code = failures) without touching the desktop's real mouse/keyboard.
+
+#### Built-in components (Unity names, Add Component categories)
+
+Besides Sprite/Mesh/Skinned renderers, lights, camera, audio, particles, Line Renderer,
+Tilemap, Rigidbody 2D/3D, Box/Circle/Capsule/Polygon Collider 2D, Box/Sphere/Capsule
+Collider 3D and the Canvas UI (Rect, Image, Text, Button, Toggle, Slider, Input Field, Layout
+Group), the engine ships (`Scene/Components/*.h`, fields: `Docs/pages/components.html`,
+demo: `SampleProject/Assets/ComponentsDemo/ComponentsDemo.scene`):
+
+- **Physics 2D** -- Edge Collider 2D; Distance / Hinge / Spring / Fixed / Slider / Wheel /
+  Friction / Relative / Target Joint 2D (Connected Body, anchors draggable in the Scene view,
+  Break Force/Torque -> `OnJointBreak2D`); Area / Point / Surface / Platform (one-way) /
+  Buoyancy Effector 2D (colliders get **Used By Effector**); Constant Force 2D.
+- **Physics 3D** -- Fixed / Hinge (motor, limits, spring) / Spring / Character Joint
+  (`OnJointBreak`), Mesh Collider (triangle mesh static, convex hull dynamic), Character
+  Controller (`Move`/`SimpleMove`, slope limit, step offset, `isGrounded`,
+  `OnControllerColliderHit`), Constant Force.
+- **UI** -- Scroll Rect + Scrollbar, Mask / Rect Mask 2D (GPU scissor on desktop **and** 3DS),
+  Dropdown, Canvas Group, Grid Layout Group, Content Size Fitter, Aspect Ratio Fitter,
+  Shadow / Outline.
+- **Rendering / misc** -- Trail Renderer, Text Mesh, LOD Group, Billboard, Position /
+  Rotation / Scale / Parent / Look At / Aim Constraint.
+
+All of them serialize like every other component (scenes, prefabs, copy/paste, undo), have
+Inspector ranges/enums/entity pickers, Scene-view gizmos where Unity has them, and typed
+TypeScript wrappers (`HingeJoint2D`, `CharacterController`, `ScrollRect`, `TextMesh`...).
+
+#### Tool windows: Sprite Editor, Animation, Tile Palette, Profiler
+
+Unity's 2D / animation / analysis windows, opened from the **Window** menu (details and
+shortcuts: `Docs/pages/editor.html`, sample: `SampleProject/Assets/SpriteToolsDemo/`).
+
+- **Sprite Editor** (Window > 2D > Sprite Editor, or the texture Inspector's **Sprite Editor**
+  button). The texture Inspector has **Sprite Mode** (Single / Multiple) and **Pixels Per Unit**.
+  Multiple mode slices a texture into sprites: **Slice** menu (Automatic by alpha islands, Grid By
+  Cell Size, Grid By Cell Count; offset, padding, Keep Empty Rects, pivot, Delete Existing / Safe),
+  drag on empty space to draw a rect, move / resize with handles, **Trim**, Delete. Every sprite
+  has a name, a pivot (presets or the blue pivot handle) and a 9-slice border (green handles);
+  Single mode edits the whole texture's pivot / border. Changes stay in the window (own Undo /
+  Redo, Ctrl+Z while it is focused) until **Apply**; **Revert** drops them. Sprites live in the
+  texture's `.meta` (`Importer.Sprites`) and are referenced as `"<textureGuid>#<spriteId>"`
+  wherever a texture can be assigned (SpriteRenderer, UI Image, Sprite Flipbook frames, Sprite
+  Sheet Animator, Particle System); a plain GUID still means the whole texture, so existing scenes
+  are unchanged. A Multiple texture unfolds into its sprites in the **Project** window; sprites
+  drag onto fields, into the Scene (a SpriteRenderer at native size = rect / PPU) or the
+  Hierarchy. SpriteRenderer gained **Draw Mode** (Simple / Sliced: 9-slice with the sprite's
+  border); a sprite's pivot replaces the renderer's Pivot (like Unity). Desktop and 3DS draw the
+  sub-rect (Citro2D maps it through the `.t3x` subtexture, so power-of-two padding and the 1024
+  px resize are handled); builds ship the texture of every referenced sprite with its sprite data.
+- **Animation** (Window > Animation > Animation, Ctrl+6) for the selected object's Animation clip:
+  property list + **Dopesheet** / **Curves** view, **Add Property** (any reflected field of the
+  object or its children), keyframes (double-click adds, drag moves, Delete removes), playback /
+  scrubbing in Edit mode as a preview that restores the authored values afterwards (never saved,
+  never dirties the scene), **Record** mode (changing a field keys it at the playhead), sprite
+  keyframes (drop sprites, or a whole sliced texture, on the timeline = a flipbook clip at 12
+  samples/s), **Create** a new clip (+ Animation component). Clip edits are written to the `.anim`
+  immediately and are part of the scene Undo history. Imported model clips are read-only.
+- **Tile Palette** (Window > 2D > Tile Palette): the active Tilemap's tileset sprites as a
+  palette (click a tile or drag a rectangle = multi-tile brush), tools Paint (B), Box Fill (U),
+  Picker (I), Erase (D), Flood Fill (G) painting in the Scene view; one stroke = one Undo step
+  (the `.tilemap` file is tracked by the scene history; a missing tile-data asset is created in
+  `Assets/Tilemaps/`). A tile index is the index of a sprite in the tileset's sprite list;
+  tilemaps now sort with sprites by Sort Order and also draw in the Scene view.
+- **Profiler** (Window > Analysis > Profiler, Ctrl+7): records while open -- a stacked CPU
+  graph (Rendering, Scripts, Physics, Animation, UI, Editor, Others), a Rendering / Memory
+  counter chart (draw calls, sprites, meshes, texture memory, JS heap, entities) and the
+  Hierarchy table (Total / Self %, calls, ms) of the selected frame. Markers come from
+  `DUALITY_PROFILE_SCOPE` (`Core/Profiler.h`): PlayerLoop, Scripts.C++ / Scripts.TypeScript,
+  Physics.FixedStep, Scene.RuntimeSystems / Animation.Sample, Render.3D / Render.2D /
+  Render.UI, UI.Events; they compile out of the 3DS player.
 
 
 - **File menu** (top) -- **New Project...** (pick a location + name via a
@@ -390,7 +469,9 @@ during Play is deferred to the end of the frame (scripts get
 `Behaviour` giữ lifecycle, `GetComponent`, `SetActive`, `ResolveEntityRef`, và
 factory helpers (`GetRigidbody2D/3D`, `GetAudioSource`). Các API engine còn lại
 là Unity-style static classes trong `DualityEngine/Scripting/` (Scene bind
-`ScriptContext` trước mỗi callback):
+`ScriptContext` trước mỗi callback). Một include duy nhất cho script (giống `using
+UnityEngine;`): `#include "DualityEngine/Scripting/Scripting.h"` (Behaviour + mọi wrapper,
+header-only); include từng header riêng như trước vẫn dùng được.
 
 | Unity | Duality |
 |-------|---------|
@@ -401,6 +482,8 @@ là Unity-style static classes trong `DualityEngine/Scripting/` (Scene bind
 | `Object.Instantiate` | `Duality::ScriptScene::Instantiate` |
 | `Rigidbody2D` | `GetRigidbody2D()` → `Rigidbody2D` wrapper |
 | `AudioSource` | `GetAudioSource()` hoặc `AudioSourceComponent` + `GetAudioSource().Play()` |
+| `MeshFilter.sharedMesh` | `MeshFilter(GetEntity()).SetMesh(MeshPrimitive::Sphere)` / `SetMesh(assetRef)` |
+| `MeshRenderer.material.color` | `MeshRenderer(GetEntity()).SetMaterialColor(color)` |
 
 - **Active state** (trên `Behaviour`): `SetActive(bool)` / `IsActive()`.
 - **Rigidbody**: `GetRigidbody2D().SetVelocity(v)` / `AddForce(f)` (và `GetRigidbody3D()`).
@@ -530,7 +613,8 @@ export class Spawner extends MonoBehaviour {
   `Physics.raycast/screenPointToRay`, `SceneManager`, built-in component
   wrappers (`Rigidbody2D`, `Rigidbody`, `Collider2D`, `BoxCollider2D`,
   `CircleCollider2D`, `Collider`, `BoxCollider`, `SphereCollider`,
-  `AudioSource`, `SpriteRenderer`, `MeshRenderer`, `Camera`, `ParticleSystem`)
+  `AudioSource`, `SpriteRenderer`, `MeshFilter` (+ `Mesh.builtin(...)`), `MeshRenderer`,
+  `Camera`, `ParticleSystem`)
   plus `getComponent('Any Inspector Name').get/set(field)` for every other
   component, C++ scripts via `getComponent('CppClass')` (a `NativeScript` with
   `get/set` of its `DUALITY_PROPERTY` fields), math (`Vector2/3/4`,
@@ -566,6 +650,23 @@ built-in pipeline configuration implemented twice: a GLSL uber-shader on desktop
 (`Citro3DRenderer.cpp`). Every non-linear curve (specular, toon ramp, spot cone,
 distance falloff) lives once in `Renderer/LightingMath.h`: the 3DS samples it into its
 256-entry LUTs, the desktop shader evaluates the identical formula.
+
+**Meshes: Mesh Filter + Mesh Renderer** (Unity's split). A **Mesh Filter** holds *which* mesh
+(`Mesh`, an asset reference); the **Mesh Renderer** holds *how* it is drawn (`Materials`,
+one per submesh, `Sort Order`). Built-in meshes are referenced like assets --
+`builtin:Cube`, `builtin:Sphere`, `builtin:Capsule`, `builtin:Cylinder`, `builtin:Plane`,
+`builtin:Quad` (Unity's sizes: Cube/Sphere 1 unit, Capsule/Cylinder 1 high with radius 0.25,
+Plane/Quad 1x1; Plane lies in XZ, Quad faces +Z) -- and appear in the Mesh object field's
+picker under **Built-in** with thumbnails (draggable like any asset); imported `.obj` /
+`.dmesh` / model meshes use their GUID. **GameObject > 3D Object > Cube/Sphere/...** creates
+Mesh Filter + Mesh Renderer + the matching collider (Box / Sphere / Capsule / Mesh Collider).
+A Mesh Renderer without a Mesh Filter (or with an empty / unloadable mesh) draws nothing; the
+Inspector then shows a warning with an **Add Mesh Filter** button. Scenes and prefabs saved
+before the split (`Mesh Renderer { Primitive, Mesh }`) are migrated when loaded -- `Mesh` (if
+set) or `builtin:<Primitive>` moves into a new Mesh Filter -- and are saved in the new form
+(`"MeshFilterVersion": 1`). Scripts: C++ `MeshFilter(GetEntity()).SetMesh(...)` (the old
+`MeshRenderer::SetPrimitive/SetMesh` still work and forward to the Mesh Filter), TypeScript
+`getComponent(MeshFilter).mesh = Mesh.builtin('Sphere')`, `MeshRenderer.materials`.
 
 **Built-in shaders** (`Renderer/BuiltinShaders.h`, picked by name in the Material inspector):
 
@@ -636,7 +737,51 @@ Directional (shadows) + Point + Spot lights. Desktop: `DualityPlayerDesktop.exe 
 LightingDemo/LightingDemo.scene` (add `--screenshot out.bmp [--frames N]` to save a frame
 and exit). On 3DS, put it first in Build Settings and Build for 3DS. Set `"PerfLog": true`
 in `DualityPlayer/romfs/BuildSettings.json` to append CPU/GPU ms, command-buffer usage and
-renderer counters to `sdmc:/duality_perf.txt` every 120 frames.
+renderer counters to `sdmc:/duality_perf.txt` every 120 frames (plus the top-screen
+framebuffer address, which lets an emulator-side script read the frame back through Citra's
+scripting RPC).
+
+### Model import (FBX / glTF / GLB / OBJ, Unity's ModelImporter)
+
+Drop a model onto the Editor window (or copy it into `Assets/`, or change it on disk -- the
+Editor rescans every ~2 s) and it is imported **immediately on a worker thread** (the Project
+tile shows *Importing* + progress, a small status window shows the job; the UI never blocks)
+and baked into everything the 3DS can load. Assimp (`Vendor/assimp`) stays Editor-only; the
+importer converts its scene into an Assimp-free `ImportedModel`
+(`DualityEditor/Include/DualityEditor/Import/`) that the pure, unit-tested `ModelCooker` turns
+into runtime assets under `<modelDir>/.duality-import/<modelGuid>/`:
+
+- **Meshes** -> `.dmesh` **v4** (indexed u16 + optional 16/8-bit quantization, `Asset/MeshLoader.h`;
+  V1-V3 still load). Skinned meshes are partitioned into draws of <= 24 bones (the PICA200
+  uniform budget of `mesh_skin*.v.pica`), every draw <= 65535 vertices, <= 4 influences per
+  vertex (Max Bones/Vertex), weights renormalized to 1 (the shaders blend them as stored),
+  unweighted skinned vertices bound to a neighbouring bone. Scale Factor x Convert Units (FBX cm
+  -> m) is baked into vertices, bone offsets, node positions and clips.
+- **Materials** -> generated read-only Material v2 `.mat` (Lit/Diffuse by default; Lit/Specular
+  for real specular, Unlit for unlit; glTF MASK -> Cutout, BLEND/opacity -> Transparent,
+  double-sided -> Cull Off; base color/texture/normal map/emission mapped). Remap table +
+  **Extract Materials...** (moves them into `Materials/` next to the model, same GUIDs).
+- **Textures** (embedded or next to the model) -> power-of-two PNG <= Max Texture Size, Repeat +
+  mipmaps, cooked by tex3ds in the model's **3DS Format** (`TextureImportSettings::N3DSFormat`,
+  `MaxSize`); **Extract Textures...**.
+- **Animations** -> `.anim` sampled at Sample Rate with keyframe reduction (rotation/position/
+  scale error), Unity-style clip list (name, take, start/end, loop), optional in-place clips
+  (Remove Root Motion). Rig: None / Generic.
+- **Model prefab** (`model.prefab`): one entity per node, Mesh Filter + Mesh Renderer or Skinned
+  Mesh Renderer bound to the bone entities, an Animation component on the root. Dropping the
+  model into the Scene/Hierarchy instantiates it as a prefab instance linked to the model GUID
+  (Revert rebuilds from the model, Apply is refused: model prefabs are read-only).
+
+Sub-asset GUIDs are **stable**: kept by key (`mesh:<node path>/<mesh>#<slot>`, `material:<name>`,
+`texture:<source>`, `clip:<name>`) and otherwise derived from model GUID + key, so re-imports,
+setting changes, even deleting `.duality-import` never break scene references; first-importer
+inventories are upgraded keeping their mesh/clip GUIDs. Results + settings live in `<model>.meta`
+(`"ModelImporter"` inventory with source hash / settings hash / importer version,
+`"ModelImporterSettings"`). The Inspector shows **Model Import Settings** (Model / Rig /
+Animation / Materials tabs, Apply / Revert) and a **3DS Budget** report (triangles, draws,
+bones per draw, runtime vertex memory, texture VRAM per format, warnings). Build for 3DS ships
+only the cooked files a scene references -- never the `.fbx/.gltf/.glb`. Sample:
+`Assets/Models/DualityBot.gltf` (CC0, generated by `Tools/Models/make-dualitybot.ps1`).
 
 ## 3DS: build and run on-device
 
@@ -724,6 +869,25 @@ states, labels and selection restore by stable entity id, history bounds, clipbo
 prefab EntityRefs (prefab-local indices, legacy raw handles dropped) and Inspector
 multi-object editing (mixed masks, per-element propagation).
 
+`Tests/SpriteToolsTests.cpp` covers the engine side of the tool windows: sprite import data in
+`.meta` (round trip, legacy metas unchanged), `guid#id` references, sub-sprite UVs / pivots /
+borders, slicing (grids, automatic alpha islands, id reuse on re-slice), `DrawSprite2D` (pivot,
+flip and rotation around the pivot, 9-slice patches), sliced sprites on SpriteRenderer / Sprite
+Sheet Animator / tilemaps, tilemap brush operations, animation curves (sampling, key editing,
+JSON round trip, playback onto an entity tree), the Profiler, and the scene history's tracked
+asset files.
+
+`Tests/MeshFilterTests.cpp` covers the Mesh Filter split (built-in references, migration of old
+`Mesh Renderer { Primitive, Mesh }` scenes / prefabs / clipboard, rendering and Mesh Collider
+rules, the C++ compatibility wrappers, every Mesh Renderer of SampleProject);
+`Tests/SampleSceneSerializationTests.cpp` loads and re-saves every SampleProject scene and
+prefab and round-trips every registered component; `Tests/RegistrationTests.cpp` checks that
+every component has a category and that `duality.ts` only names registered components /
+fields; `Tests/SceneViewNavigationTests.cpp` pins the Scene view camera rules (pan follows
+the cursor, zoom toward the cursor, fly / orbit / dolly factors, framing, axis snaps).
+`DualityPlayerDesktop --fixed-dt 0.0166667` makes player screenshots (`--screenshot`)
+reproducible.
+
 The editor UI itself is checked with its automation mode: `DualityEditor --editor-test
 script.txt [--project Game.dproj] [--size 1600x900]` runs a script of editor commands, keyboard
 / mouse events fed into ImGui's own input queue (never the desktop's real input), `expect-*`
@@ -757,6 +921,59 @@ SampleProject/       The Editor's one (for now) project: Assets/, Scene.scene
 References/          Prior-art repos consulted during development (not built)
 .github/workflows/   CI (desktop build + automated tests on every push/PR)
 ```
+
+### Code layout by domain (engine + editor)
+
+```
+DualityEngine/Include/DualityEngine/
+  Scene/Components.h           umbrella: includes every component header below
+  Scene/Components/            component structs by domain -- Core (Name, Tag, Transform,
+                               Hierarchy, Layer...), Rendering2D, Rendering3D (Mesh Filter,
+                               Mesh Renderer, lights, camera...), Animation, Physics2D,
+                               Physics3D, UI, Audio, Scripting, Constraints
+  Scene/SceneRuntimeSystems.h  per-frame runtime systems (UI layout/interaction, constraints,
+                               billboards, trails...) used by Scene::Update
+  Scene/PhysicsSystems.h       joints / effectors / character controller hooks
+  Reflection/TypeRegistry.h    ComponentTypeInfo (display name, fields, Category, flags)
+  Renderer/BuiltinMeshes.h     "builtin:Cube"... references (header-only)
+  Scripting/Scripting.h        one include for C++ scripts (Behaviour + every wrapper)
+DualityEngine/Source/
+  Scene/Components/*Components.cpp   ONE registration file per domain (display name, Add
+                               Component category, Inspector fields = serialization contract)
+  Scene/Systems/               Physics2DSystem / Physics3DSystem (Box2D / Bullet worlds,
+                               shared collider-shape builders), Physics2DJoints /
+                               Physics3DJoints, ConstraintSystem, UISystem
+  Scene/Scene.cpp              entity lifecycle, transforms, update order
+  Renderer/                    SceneRenderer (shared Game / Scene view / 3DS passes),
+                               TrailTextLODRendering, UIWidgetRenderer, backends
+DualityEditor/
+  Source/Panels/ScenePanel.cpp       Scene window: panes, picking, transform handles
+  Source/SceneView/                  SceneViewNavigation (camera rules, unit-tested),
+                                     SceneViewState (per-scene cameras), SceneViewOverlays
+                                     (axis gizmo, tools column), SceneGizmoDrawing (camera /
+                                     light / collider / grid drawing), ComponentGizmos (joints,
+                                     effectors, controller, LOD), SceneAssetDrop
+  Source/EditorCommands.cpp          the single command layer (menus, shortcuts, automation)
+```
+
+#### Adding a component
+
+1. Declare the struct in the matching `Scene/Components/<Domain>.h` (plain data, Unity field
+   names; members you do not register in step 2 stay runtime-only and are never saved).
+2. Register it once in `Source/Scene/Components/<Domain>Components.cpp` with
+   `Component<T>("Display Name", ComponentCategory::Physics, { MakeField(...), ... })`
+   (helpers in `ComponentRegistration.h`: `Ranged`, `Tip`, `Header`, `MeshAsset`...). The
+   display name and field names are what scene / prefab JSON stores -- never rename them
+   without a migration. This one call gives serialization, copy/paste/undo, the Inspector,
+   multi-edit and the Add Component menu entry (by `Category`).
+3. Runtime behaviour goes into the domain's system (`Source/Scene/Systems/...`), drawing into
+   `SceneRenderer` / the 2D pass, Scene-view gizmos into `DualityEditor/Source/SceneView/
+   ComponentGizmos.cpp`.
+4. Script access: a header-only wrapper in `Scripting/` (add it to `Scripting/Scripting.h`)
+   and a TypeScript class in `Tools/TypeScript/duality/duality.ts` with
+   `static readonly typeNames = ['Display Name']`. `Tests/RegistrationTests.cpp` fails if a
+   component has no category or if duality.ts names a component / field the registry does not
+   know.
 
 Third-party dependencies in `Vendor/` (EnTT, GLM, nlohmann/json, ImGui,
 stb_image, miniaudio, Box2D, Bullet Physics, QuickJS-ng) are vendored as plain source

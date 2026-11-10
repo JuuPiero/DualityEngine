@@ -1,0 +1,470 @@
+{
+  "CanvasUIVersion": 1,
+  "Entities": [
+    {
+      "Active": {
+        "Active": true
+      },
+      "Camera": {
+        "Background": [
+          0.44999998807907104,
+          0.699999988079071,
+          0.949999988079071,
+          1.0
+        ],
+        "Culling Mask": 4294967295,
+        "Enabled": true,
+        "Far Plane": 1000.0,
+        "Fov Degrees": 60.0,
+        "Near Plane": 0.10000000149011612,
+        "Primary": true,
+        "Projection": "Orthographic",
+        "Screen": "Top",
+        "Zoom": 0.3199999928474426
+      },
+      "Layer": {
+        "Layer": "TOP"
+      },
+      "Name": {
+        "Name": "Top Camera"
+      },
+      "Parent": -1,
+      "Physics Raycaster 2D": {
+        "Enabled": true
+      },
+      "Tag": {
+        "Tag": "MainCamera"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Animation": {
+        "Clip": "bca2f3bf7009b1180378b80af2400d7e",
+        "Enabled": true,
+        "Loop": true,
+        "Play On Awake": true,
+        "Playing": true,
+        "Speed": 1.0
+      },
+      "Name": {
+        "Name": "Hero"
+      },
+      "Parent": 0,
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Draw Mode": "Simple",
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          1.0,
+          1.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": "318ad971251949060071cb1c4559ca6c#86c162f1ab86bac5"
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          -3.0,
+          2.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "Coin"
+      },
+      "Parent": 0,
+      "Sprite Flipbook": {
+        "Enabled": true,
+        "Frame 0": "318ad971251949060071cb1c4559ca6c#44cc124b5e17d0a1",
+        "Frame 1": "318ad971251949060071cb1c4559ca6c#91af365256bcb294",
+        "Frame 2": "318ad971251949060071cb1c4559ca6c#8cd49fc01c6afaf7",
+        "Frame 3": "318ad971251949060071cb1c4559ca6c#c326f07175b1fdca",
+        "Frame 4": "",
+        "Frame 5": "",
+        "Frame 6": "",
+        "Frame 7": "",
+        "Frame Duration": 0.11999999731779099,
+        "Loop": true,
+        "Playing": true
+      },
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Draw Mode": "Simple",
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          1.0,
+          1.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": "318ad971251949060071cb1c4559ca6c#44cc124b5e17d0a1"
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          3.0,
+          -1.5,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Camera": {
+        "Background": [
+          0.18000000715255737,
+          0.1599999964237213,
+          0.2199999988079071,
+          1.0
+        ],
+        "Culling Mask": 4294967295,
+        "Enabled": true,
+        "Far Plane": 1000.0,
+        "Fov Degrees": 60.0,
+        "Near Plane": 0.10000000149011612,
+        "Primary": true,
+        "Projection": "Orthographic",
+        "Screen": "Bottom",
+        "Zoom": 0.3199999928474426
+      },
+      "Layer": {
+        "Layer": "BOTTOM"
+      },
+      "Name": {
+        "Name": "Bottom Camera"
+      },
+      "Parent": -1,
+      "Physics Raycaster 2D": {
+        "Enabled": true
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "Panel"
+      },
+      "Parent": 3,
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Draw Mode": "Sliced",
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          8.0,
+          4.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": "481ec79aaeb2cd1b4f8c237bac4bca47"
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "Stretched"
+      },
+      "Parent": 3,
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Draw Mode": "Simple",
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          8.0,
+          1.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": "481ec79aaeb2cd1b4f8c237bac4bca47"
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          -2.700000047683716,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Name": {
+        "Name": "Flower"
+      },
+      "Parent": 3,
+      "Sprite Renderer": {
+        "Color": [
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Draw Mode": "Simple",
+        "Enabled": true,
+        "Flip X": false,
+        "Flip Y": false,
+        "Pivot": [
+          0.5,
+          0.5
+        ],
+        "Size": [
+          2.0,
+          2.0
+        ],
+        "Slice Border": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Sort Order": 0,
+        "Texture": "549fc56a2fff425aa63b7fbb44bb2701#20d98fdcecfc3d8b"
+      },
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          0.0,
+          0.5,
+          0.0
+        ]
+      }
+    },
+    {
+      "Active": {
+        "Active": true
+      },
+      "Layer": {
+        "Layer": "TOP"
+      },
+      "Name": {
+        "Name": "Ground"
+      },
+      "Parent": -1,
+      "Tag": {
+        "Tag": "Untagged"
+      },
+      "Tilemap": {
+        "Cell Size": [
+          1.0,
+          1.0
+        ],
+        "Enabled": true,
+        "Grid Height": 8,
+        "Grid Width": 14,
+        "Sort Order": -1,
+        "Tile Data": "9362d5b18f64113588ab6f80dc53e224",
+        "Tileset": "549fc56a2fff425aa63b7fbb44bb2701"
+      },
+      "Transform": {
+        "Rotation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "Translation": [
+          -6.5,
+          -3.5,
+          0.0
+        ]
+      }
+    }
+  ],
+  "Lighting": {
+    "Ambient Color": [
+      0.18000000715255737,
+      0.18000000715255737,
+      0.18000000715255737,
+      1.0
+    ],
+    "Ambient Intensity": 1.0
+  },
+  "WorldUnitsVersion": 2
+}

@@ -180,7 +180,10 @@ namespace Duality {
         // for automation runs so every popup is part of the main window's screenshot.
         if (!background)
             io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-        ImGui_ImplGlfw_InitForOpenGL(m_Handle, true);
+        // Automation runs get no OS mouse/keyboard callbacks: the script injects every input
+        // event itself, and the user's real cursor passing over the window must not move the
+        // scripted mouse (it made Scene view navigation checks and screenshots flaky).
+        ImGui_ImplGlfw_InitForOpenGL(m_Handle, !background);
         ImGui_ImplOpenGL3_Init("#version 130");
     }
 

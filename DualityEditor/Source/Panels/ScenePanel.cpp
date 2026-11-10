@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <limits>
 #include <string>
@@ -19,18 +20,34 @@
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorTheme.h"
+#include "DualityEditor/SceneView/ComponentGizmos.h"
+#include "DualityEditor/SceneView/SceneAssetDrop.h"
+#include "DualityEditor/SceneView/SceneGizmoDrawing.h"
+#include "DualityEditor/SceneView/SceneViewOverlays.h"
 #include "DualityEditor/SceneGizmo.h"
+#include "DualityEditor/SceneView/SceneViewNavigation.h"
+#include "DualityEditor/SceneView/SceneViewState.h"
 #include "DualityEditor/SceneOps.h"
+#include "DualityEditor/Windows/SpriteAssetUI.h"
+#include "DualityEditor/Windows/TilePaletteWindow.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MeshLoader.h"
+#include "DualityEngine/Asset/MeshReference.h"
+#include "DualityEngine/Asset/ModelAsset.h"
+#include "DualityEngine/Asset/SpriteDatabase.h"
 #include "DualityEngine/Physics/PhysicsUnits.h"
+#include "DualityEngine/Renderer/BuiltinMeshes.h"
 #include "DualityEngine/Renderer/DrawHelpers2D.h"
+#include "DualityEngine/Renderer/TrailTextLODRendering.h"
+#include "DualityEngine/Renderer/UIWidgetRenderer.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/PrefabSerializer.h"
 
 namespace Duality {
+
+    using namespace SceneViewDraw;
 
     namespace {
         // Dragging the Scale gizmo's axis handles moves the mouse by tens
@@ -39,200 +56,6 @@ namespace Duality {
         // feels proportionate instead of scale exploding after a few
         // pixels of movement.
         constexpr float ScaleDragSensitivity = 1.0f;
-        // PPU-based 2D assets commonly measure around 1 world unit. Scene 3D
-        // must be able to inspect them closer than the old 10-unit floor.
-        constexpr float MinSceneViewDistance3D = 0.25f;
-
-        // Content Browser uses one generic ASSET_GUID drag payload for every asset type. Map
-        // each spawnable asset to its natural component rather than treating all files as a
-        // texture: images create Sprite/UI Image, mesh/material create Mesh Renderer, audio
-        // creates Audio Source, and prefab creates a linked prefab instance.
-        bool IsImageAsset(const std::string& guid) {
-            const std::string path = AssetDatabase::ResolvePath(guid);
-            if (path.empty())
-                return false;
-            std::string extension = std::filesystem::path(path).extension().string();
-            std::transform(extension.begin(), extension.end(), extension.begin(),
-                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return extension == ".png" || extension == ".jpg" || extension == ".jpeg" ||
-                extension == ".bmp" || extension == ".tga" || extension == ".gif" ||
-                extension == ".psd" || extension == ".hdr";
-        }
-
-        bool IsPrefabAsset(const std::string& guid) {
-            const std::string path = AssetDatabase::ResolvePath(guid);
-            if (path.empty())
-                return false;
-            std::string extension = std::filesystem::path(path).extension().string();
-            std::transform(extension.begin(), extension.end(), extension.begin(),
-                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return extension == ".prefab";
-        }
-
-        std::string AssetExtension(const std::string& guid) {
-            const std::string path = AssetDatabase::ResolvePath(guid);
-            std::string extension = std::filesystem::path(path).extension().string();
-            std::transform(extension.begin(), extension.end(), extension.begin(),
-                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            return extension;
-        }
-
-        bool IsMeshAsset(const std::string& guid) {
-            const std::string extension = AssetExtension(guid);
-            return extension == ".obj" || extension == ".mesh" || extension == ".dmesh";
-        }
-
-        bool IsAnimationAsset(const std::string& guid) { return AssetExtension(guid) == ".anim"; }
-
-        bool IsMaterialAsset(const std::string& guid) { return AssetExtension(guid) == ".mat"; }
-        bool IsAudioAsset(const std::string& guid) {
-            const std::string extension = AssetExtension(guid);
-            return extension == ".wav" || extension == ".ogg" || extension == ".mp3";
-        }
-
-        std::string EntityNameFromAsset(const std::string& guid) {
-            const std::string path = AssetDatabase::ResolvePath(guid);
-            const std::string stem = path.empty() ? std::string() : std::filesystem::path(path).stem().string();
-            return stem.empty() ? "Image" : stem;
-        }
-
-        // A Canvas is a screen-space layout context rather than a world-space rectangle.  The
-        // currently selected Canvas (or one of its children) therefore makes the user's intent
-        // explicit: dropping an image in the matching Scene pane creates an Image under it;
-        // otherwise the exact same gesture creates a world SpriteRenderer.
-        Entity SelectedCanvasForScreen(EditorContext& ctx, Screen screen) {
-            if (!ctx.Selected)
-                return {};
-            Entity canvas = FindOwningCanvas(ctx.SceneRef, ctx.Selected);
-            if (!canvas || !canvas.HasComponent<CanvasComponent>())
-                return {};
-            const CanvasComponent& component = canvas.GetComponent<CanvasComponent>();
-            return component.Enabled && component.Screen == screen ? canvas : Entity{};
-        }
-
-        void CreateDroppedImage(EditorContext& ctx, Screen screen, const std::string& guid,
-            const glm::vec3& worldPosition, const glm::vec2& canvasPosition) {
-            const std::string entityName = EntityNameFromAsset(guid);
-            Entity canvas = SelectedCanvasForScreen(ctx, screen);
-            if (canvas) {
-                Entity image = ctx.SceneRef.CreateEntity(entityName);
-                UIRectComponent& rect = image.AddComponent<UIRectComponent>();
-                rect.AnchorMin = { 0.5f, 0.5f };
-                rect.AnchorMax = { 0.5f, 0.5f };
-                rect.Pivot = { 0.5f, 0.5f };
-                const glm::vec2 screenSize = screen == Screen::Top
-                    ? glm::vec2{ static_cast<float>(TopScreenWidth), static_cast<float>(TopScreenHeight) }
-                    : glm::vec2{ static_cast<float>(BottomScreenWidth), static_cast<float>(BottomScreenHeight) };
-                rect.AnchoredPosition = canvasPosition - screenSize * 0.5f;
-                // A neutral square is intentional until texture import metadata owns native
-                // pixel dimensions. It is immediately visible and easy to resize in Inspector.
-                rect.SizeDelta = { 100.0f, 100.0f };
-                image.AddComponent<UIImageComponent>().Texture.Guid = guid;
-                ctx.SceneRef.SetParent(image, canvas);
-                ctx.Selected = image;
-            } else {
-                Entity sprite = ctx.SceneRef.CreateEntity(entityName);
-                sprite.GetComponent<TransformComponent>().Translation = worldPosition;
-                sprite.AddComponent<SpriteRendererComponent>().Texture.Guid = guid;
-                // Keep 3DS screen routing explicit, rather than leaving a dropped sprite on
-                // Default where it could appear on both physical screens.
-                ctx.SceneRef.SetParent(sprite, ctx.SceneRef.EnsureScreenRoot(screen), {}, true);
-                ctx.Selected = sprite;
-            }
-            MarkSceneDirty(ctx);
-        }
-
-        void CreateDroppedPrefab(EditorContext& ctx, Screen screen, const std::string& guid,
-            const glm::vec3& worldPosition, const glm::vec2& canvasPosition) {
-            const std::string path = AssetDatabase::ResolvePath(guid);
-            Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path, {}, AssetRef{ guid });
-            if (!instance)
-                return;
-
-            Entity canvas = SelectedCanvasForScreen(ctx, screen);
-            if (canvas && instance.HasComponent<UIRectComponent>()) {
-                // A UI prefab gets the same pointer-position treatment as a directly dropped
-                // image, while retaining all authored anchors, visuals and child hierarchy.
-                ctx.SceneRef.SetParent(instance, canvas, {}, false);
-                const glm::vec2 screenSize = screen == Screen::Top
-                    ? glm::vec2{ static_cast<float>(TopScreenWidth), static_cast<float>(TopScreenHeight) }
-                    : glm::vec2{ static_cast<float>(BottomScreenWidth), static_cast<float>(BottomScreenHeight) };
-                instance.GetComponent<UIRectComponent>().AnchoredPosition = canvasPosition - screenSize * 0.5f;
-            } else {
-                // Non-UI prefabs stay in the world and inherit the physical-screen layer from
-                // the Top/Bottom root, exactly like a directly dropped SpriteRenderer.
-                ctx.SceneRef.SetParent(instance, ctx.SceneRef.EnsureScreenRoot(screen), {}, true);
-                instance.GetComponent<TransformComponent>().Translation = worldPosition;
-            }
-            ctx.Selected = instance;
-            MarkSceneDirty(ctx);
-        }
-
-        void CreateDroppedWorldResource(EditorContext& ctx, Screen screen, const std::string& guid,
-            const glm::vec3& worldPosition) {
-            const std::string name = EntityNameFromAsset(guid);
-            Entity entity = ctx.SceneRef.CreateEntity(name);
-            entity.GetComponent<TransformComponent>().Translation = worldPosition;
-            if (IsMeshAsset(guid)) {
-                entity.AddComponent<MeshRendererComponent>().Mesh = AssetRef{ guid };
-            } else if (IsMaterialAsset(guid)) {
-                entity.AddComponent<MeshRendererComponent>().Materials = { AssetRef{ guid } };
-            } else if (IsAudioAsset(guid)) {
-                entity.AddComponent<AudioSourceComponent>().Clip = AssetRef{ guid };
-            } else if (IsAnimationAsset(guid)) {
-                entity.AddComponent<AnimationComponent>().Clip = AssetRef{ guid };
-            } else {
-                ctx.SceneRef.DestroyEntity(entity);
-                return;
-            }
-            ctx.SceneRef.SetParent(entity, ctx.SceneRef.EnsureScreenRoot(screen), {}, true);
-            ctx.Selected = entity;
-            ctx.SelectedEntities = { entity };
-            MarkSceneDirty(ctx);
-        }
-
-        // Called directly after a Scene framebuffer Image(), while that image is still ImGui's
-        // active drop target. `worldPosition` and `canvasPosition` are each precomputed in the
-        // coordinate system relevant to the possible entity type.
-        void AcceptSceneAssetDrop(EditorContext& ctx, Screen screen, ImVec2 imagePos, ImVec2 imageSize,
-            const glm::vec3& worldPosition, const glm::vec2& canvasPosition) {
-            const ImGuiPayload* activePayload = ImGui::GetDragDropPayload();
-            const bool draggingAsset = activePayload && activePayload->IsDataType("ASSET_GUID");
-            const bool willCreateUI = SelectedCanvasForScreen(ctx, screen);
-            const std::string activeGuid = draggingAsset ? static_cast<const char*>(activePayload->Data) : std::string{};
-            const bool draggingPrefab = draggingAsset && IsPrefabAsset(activeGuid);
-            const bool draggingWorldResource = draggingAsset &&
-                (IsMeshAsset(activeGuid) || IsMaterialAsset(activeGuid) || IsAudioAsset(activeGuid) || IsAnimationAsset(activeGuid));
-            if (draggingAsset && (draggingPrefab || IsImageAsset(activeGuid) || draggingWorldResource)) {
-                ImDrawList* drawList = ImGui::GetWindowDrawList();
-                const ImU32 border = willCreateUI ? IM_COL32(84, 210, 170, 255) : IM_COL32(85, 160, 255, 255);
-                drawList->AddRect(imagePos, ImVec2(imagePos.x + imageSize.x, imagePos.y + imageSize.y), border, 2.0f, 0, 2.0f);
-                const char* hint = draggingPrefab ? "Drop prefab: instantiate"
-                    : (IsMeshAsset(activeGuid) ? "Drop mesh: create Mesh Renderer"
-                    : (IsMaterialAsset(activeGuid) ? "Drop material: create Mesh Renderer"
-                    : (IsAudioAsset(activeGuid) ? "Drop audio: create Audio Source"
-                    : (IsAnimationAsset(activeGuid) ? "Drop animation: create Animation"
-                    : (willCreateUI ? "Drop image: create UI Image" : "Drop image: create Sprite")))));
-                const ImVec2 textSize = ImGui::CalcTextSize(hint);
-                const ImVec2 textPos{ imagePos.x + (imageSize.x - textSize.x) * 0.5f, imagePos.y + 10.0f };
-                drawList->AddRectFilled(ImVec2(textPos.x - 6.0f, textPos.y - 3.0f),
-                    ImVec2(textPos.x + textSize.x + 6.0f, textPos.y + textSize.y + 3.0f), IM_COL32(15, 20, 30, 210), 3.0f);
-                drawList->AddText(textPos, border, hint);
-            }
-
-            if (!ImGui::BeginDragDropTarget())
-                return;
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
-                const std::string guid(static_cast<const char*>(payload->Data));
-                if (IsImageAsset(guid))
-                    CreateDroppedImage(ctx, screen, guid, worldPosition, canvasPosition);
-                else if (IsPrefabAsset(guid))
-                    CreateDroppedPrefab(ctx, screen, guid, worldPosition, canvasPosition);
-                else
-                    CreateDroppedWorldResource(ctx, screen, guid, worldPosition);
-            }
-            ImGui::EndDragDropTarget();
-        }
 
         // A handful of "nice" round grid-cell sizes stepped by zoom level, rather than one
         // fixed size (which would look absurdly dense zoomed out or absurdly sparse zoomed in
@@ -243,13 +66,6 @@ namespace Duality {
             if (pixelsPerUnit > 100.0f) return 0.5f;
             if (pixelsPerUnit > 40.0f) return 1.0f;
             return 2.5f;
-        }
-        float GridCellSize3D(float cameraDistance) {
-            if (cameraDistance < 50.0f) return 10.0f;
-            if (cameraDistance < 200.0f) return 25.0f;
-            if (cameraDistance < 800.0f) return 50.0f;
-            if (cameraDistance < 2000.0f) return 200.0f;
-            return 500.0f;
         }
 
         // Converts a world-space delta (raw mouse movement) into the local-space
@@ -268,822 +84,6 @@ namespace Duality {
             glm::vec2 unrotated{ worldDelta.x * cosR - worldDelta.y * sinR, worldDelta.x * sinR + worldDelta.y * cosR };
             auto safeDiv = [](float a, float b) { return std::abs(b) > 1e-6f ? a / b : a; };
             return { safeDiv(unrotated.x, parentWorld.Scale.x), safeDiv(unrotated.y, parentWorld.Scale.y) };
-        }
-
-        // Camera-local forward direction for an orbit camera at (pitchDegrees, yawDegrees, 0)
-        // -- must match ComposeWorldMtx's own Rx-then-Ry-then-Rz composition order (Citro3DRenderer.
-        // cpp / OpenGLRenderer3D.cpp), i.e. this is Rz(0)*Ry(yaw)*Rx(pitch) applied to a base
-        // local-forward of (0,0,-1) (OpenGL's own looking-down--Z convention). Only used by this
-        // desktop-editor-only orbit camera (never serialized, never shared with a real
-        // CameraComponent/device), so there's no cross-platform invariant to preserve here --
-        // just internal self-consistency between this function, the pan code, and the pick ray.
-        glm::vec3 OrbitForward(float pitchDegrees, float yawDegrees) {
-            float pitch = glm::radians(pitchDegrees);
-            float yaw = glm::radians(yawDegrees);
-            return glm::normalize(glm::vec3{
-                -std::cos(pitch) * std::sin(yaw),
-                std::sin(pitch),
-                -std::cos(pitch) * std::cos(yaw)
-            });
-        }
-
-        // Builds a quaternion matching the SAME composition order OrbitForward/ComposeWorldMtx
-        // use (M = T*Rz*Ry*Rx) -- used only to seed SceneViewCamera3D::Rotation from a
-        // CameraComponent's plain Euler Rotation (roll is always 0 for that seed, so this
-        // reduces to qy*qx, exactly reproducing OrbitForward(pitch, yaw)).
-        glm::quat EulerDegreesToQuat(const glm::vec3& rotationDegrees) {
-            glm::quat qx = glm::angleAxis(glm::radians(rotationDegrees.x), glm::vec3(1.0f, 0.0f, 0.0f));
-            glm::quat qy = glm::angleAxis(glm::radians(rotationDegrees.y), glm::vec3(0.0f, 1.0f, 0.0f));
-            glm::quat qz = glm::angleAxis(glm::radians(rotationDegrees.z), glm::vec3(0.0f, 0.0f, 1.0f));
-            return glm::normalize(qz * qy * qx);
-        }
-
-        // Inverse of EulerDegreesToQuat -- classic ZYX Tait-Bryan extraction, needed only to
-        // feed SceneViewCamera3D::Rotation into IRenderer3D::BeginScene's Euler-degrees
-        // parameter (that API stays Euler-based since it's shared with real CameraComponent
-        // rendering, authored via plain Euler fields in the Properties panel). Degenerates at
-        // pitch near +-90 the same way any Euler extraction does (Rotation.x/y/z can jump
-        // discontinuously right at a pole crossing even though the camera's actual orientation,
-        // and therefore the rendered view, stays perfectly smooth) -- this is exactly why the
-        // orbit camera itself is stored as a quaternion and never round-tripped through Euler
-        // except at this one renderer-API boundary.
-        glm::vec3 QuatToEulerDegrees(const glm::quat& q) {
-            glm::mat3 r = glm::mat3_cast(q);
-            float y = std::asin(std::clamp(-r[0][2], -1.0f, 1.0f));
-            float x = std::atan2(r[1][2], r[2][2]);
-            float z = std::atan2(r[0][1], r[0][0]);
-            return glm::degrees(glm::vec3(x, y, z));
-        }
-
-        // Bounding-sphere radius for a unit-sized primitive (see PrimitiveMeshes.cpp -- Cube
-        // spans [-0.5,0.5]^3, Sphere has radius 0.5, Plane spans [-0.5,0.5] in XZ) before the
-        // entity's own Scale is applied. A rough approximation (not exact per-axis OBB/AABB),
-        // matching the plan's explicit "simple bounding-sphere ray test" scope cut -- no 3D
-        // gizmo/precise picking yet.
-        float PrimitiveBoundingRadius(MeshPrimitive primitive) {
-            switch (primitive) {
-                case MeshPrimitive::Sphere: return 0.5f;
-                case MeshPrimitive::Plane:  return 0.5f * std::sqrt(2.0f);
-                case MeshPrimitive::Capsule: return 0.5f;
-                case MeshPrimitive::Cube:
-                default:                    return 0.5f * std::sqrt(3.0f);
-            }
-        }
-
-        // Same fallback convention as rendering (see SceneRenderer.cpp's ResolveMeshGeometry):
-        // an imported Mesh, when it resolves, replaces the procedural Primitive's own radius.
-        float MeshBoundingRadius(const MeshRendererComponent& mesh) {
-            if (!mesh.Mesh.Guid.empty()) {
-                std::string path = AssetDatabase::ResolvePath(mesh.Mesh.Guid);
-                if (!path.empty()) {
-                    float radius = MeshLoader::Load(path).BoundingRadius;
-                    if (radius > 0.0f)
-                        return radius;
-                }
-            }
-            return PrimitiveBoundingRadius(mesh.Primitive);
-        }
-
-        // Projects world-space points into this pane's screen-space pixels, given the orbit
-        // camera's own basis vectors -- the exact inverse of the pick-ray math in
-        // DrawScenePane3D's click handler (same forward/right/up, fov, aspect). Shared by the
-        // 3D gizmo's drawing, hit-testing, and drag math below.
-        struct Projector3D {
-            glm::vec3 CameraPos, Forward, Right, Up;
-            float FovDegrees, Aspect;
-            ImVec2 ImagePos;
-            int ViewportW, ViewportH;
-
-            bool Project(const glm::vec3& worldPos, ImVec2& outScreen) const {
-                glm::vec3 rel = worldPos - CameraPos;
-                // Forward-facing depth: positive and growing for a point further in front of
-                // the camera (rel increasingly parallel to Forward) -- NOT negated, matching
-                // the pick-ray code's own dot(toSphere, rayDir) > 0 "in front" convention below.
-                float viewZ = glm::dot(rel, Forward);
-                if (viewZ <= 0.01f)
-                    return false; // behind the camera
-                float tanHalfFov = std::tan(glm::radians(FovDegrees) * 0.5f);
-                float ndcX = glm::dot(rel, Right) / (viewZ * tanHalfFov * Aspect);
-                float ndcY = glm::dot(rel, Up) / (viewZ * tanHalfFov);
-                outScreen = ImVec2(ImagePos.x + (ndcX * 0.5f + 0.5f) * ViewportW, ImagePos.y + (0.5f - ndcY * 0.5f) * ViewportH);
-                return true;
-            }
-        };
-
-        float PointSegmentDistance(const ImVec2& p, const ImVec2& a, const ImVec2& b) {
-            ImVec2 ab{ b.x - a.x, b.y - a.y };
-            float lenSq = ab.x * ab.x + ab.y * ab.y;
-            float t = lenSq > 1e-6f ? std::clamp(((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / lenSq, 0.0f, 1.0f) : 0.0f;
-            ImVec2 closest{ a.x + ab.x * t, a.y + ab.y * t };
-            return std::sqrt((p.x - closest.x) * (p.x - closest.x) + (p.y - closest.y) * (p.y - closest.y));
-        }
-
-        // Transform handles are an editor overlay, so their visual size is measured in screen
-        // pixels rather than world units. A fixed 60-unit gizmo dwarfs normal PPU sprites (a
-        // 128px texture may be only 1.28 world units), as well as becoming unusable at range.
-        constexpr float Gizmo3DTargetPixels = 52.0f;
-        constexpr float Gizmo3DHitBand = 8.0f;
-        constexpr float Gizmo3DScaleHandleHalfSize = 5.0f;
-        constexpr float Gizmo3DCenterRadius = 6.0f;
-
-        float Gizmo3DWorldAxisLength(const Projector3D& proj, const glm::vec3& originWorld) {
-            const float depth = glm::dot(originWorld - proj.CameraPos, proj.Forward);
-            if (depth <= 0.01f || proj.ViewportH <= 0)
-                return 1.0f;
-            const float worldPerPixel = (2.0f * depth * std::tan(glm::radians(proj.FovDegrees) * 0.5f)) /
-                static_cast<float>(proj.ViewportH);
-            return std::clamp(worldPerPixel * Gizmo3DTargetPixels, 0.01f, 1000.0f);
-        }
-
-        // Unity/Blender-style frustum wireframe for a camera entity, screen-space-projected via
-        // `proj` -- shows at a glance where it's looking and its Fov/Zoom, not just its
-        // position (the plain sphere marker alone). Visual only, not hit-tested (the sphere
-        // marker still handles picking). `camForward/Right/Up` are the CAMERA ENTITY's own
-        // basis (ignoring roll -- see caller's own comment), unrelated to the pane's own orbit
-        // camera basis vectors of the same name.
-        void DrawCameraFrustum(const Projector3D& proj, const glm::vec3& camPos, const glm::vec3& camForward, const glm::vec3& camRight, const glm::vec3& camUp, ProjectionType projectionType, float fovDegrees, float orthoHalfHeight, float aspect, float nearPlane, float farPlane, ImU32 color) {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-            // FarPlane can be huge (hundreds/thousands of units) -- clamped to something that
-            // reads clearly at typical scene scale instead of drawing lines off into nothing.
-            float visDistance = std::min(farPlane, 300.0f);
-
-            auto cornerAt = [&](float distance, float sx, float sy) {
-                float halfH = (projectionType == ProjectionType::Perspective)
-                    ? distance * std::tan(glm::radians(fovDegrees) * 0.5f)
-                    : orthoHalfHeight;
-                float halfW = halfH * aspect;
-                return camPos + camForward * distance + camRight * (halfW * sx) + camUp * (halfH * sy);
-            };
-
-            glm::vec3 nearCorners[4] = { cornerAt(nearPlane, -1, -1), cornerAt(nearPlane, 1, -1), cornerAt(nearPlane, 1, 1), cornerAt(nearPlane, -1, 1) };
-            glm::vec3 farCorners[4] = { cornerAt(visDistance, -1, -1), cornerAt(visDistance, 1, -1), cornerAt(visDistance, 1, 1), cornerAt(visDistance, -1, 1) };
-
-            auto drawLine = [&](const glm::vec3& a, const glm::vec3& b) {
-                ImVec2 sa, sb;
-                if (proj.Project(a, sa) && proj.Project(b, sb))
-                    drawList->AddLine(sa, sb, color, 1.5f);
-            };
-
-            for (int i = 0; i < 4; i++) {
-                drawLine(nearCorners[i], nearCorners[(i + 1) % 4]);
-                drawLine(farCorners[i], farCorners[(i + 1) % 4]);
-                drawLine(nearCorners[i], farCorners[i]);
-            }
-            // Perspective only -- an orthographic frustum is a parallel box with no real apex
-            // to converge to (would misleadingly look like a pyramid otherwise).
-            if (projectionType == ProjectionType::Perspective) {
-                for (int i = 0; i < 4; i++)
-                    drawLine(camPos, nearCorners[i]);
-            }
-        }
-
-        // A compact camera body + lens makes the camera entity itself readable even when its
-        // frustum is edge-on or extends beyond the Scene pane. The forward arrow uses the same
-        // basis as DrawCameraFrustum, so the icon never contradicts the Game camera direction.
-        void DrawCameraBodyGizmo(const Projector3D& proj, const glm::vec3& cameraPosition, const glm::vec3& cameraForward, ImU32 color) {
-            ImVec2 center;
-            if (!proj.Project(cameraPosition, center))
-                return;
-
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            const ImU32 bodyFill = (color & 0x00FFFFFFu) | 0xB0000000u;
-            drawList->AddRectFilled(ImVec2(center.x - 8.0f, center.y - 5.0f), ImVec2(center.x + 8.0f, center.y + 5.0f), bodyFill, 2.0f);
-            drawList->AddRect(ImVec2(center.x - 8.0f, center.y - 5.0f), ImVec2(center.x + 8.0f, center.y + 5.0f), color, 2.0f, 0, 1.5f);
-            drawList->AddCircle(center, 3.0f, color, 12, 1.5f);
-
-            ImVec2 tip;
-            const float arrowLength = Gizmo3DWorldAxisLength(proj, cameraPosition) * 0.7f;
-            if (!proj.Project(cameraPosition + cameraForward * arrowLength, tip))
-                return;
-            drawList->AddLine(center, tip, color, 1.75f);
-            const ImVec2 direction{ tip.x - center.x, tip.y - center.y };
-            const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
-            if (length <= 0.01f)
-                return;
-            const ImVec2 unit{ direction.x / length, direction.y / length };
-            const ImVec2 perpendicular{ -unit.y, unit.x };
-            drawList->AddTriangleFilled(tip,
-                ImVec2(tip.x - unit.x * 7.0f + perpendicular.x * 3.5f, tip.y - unit.y * 7.0f + perpendicular.y * 3.5f),
-                ImVec2(tip.x - unit.x * 7.0f - perpendicular.x * 3.5f, tip.y - unit.y * 7.0f - perpendicular.y * 3.5f), color);
-        }
-
-        // Unity-like directional-light gizmo: a yellow sun at the entity position plus three
-        // parallel, arrowed rays. Directional lights have no physical range, therefore the ray
-        // length is only an editor visual aid and is kept screen-size stable via the projector.
-        // Rays travel along entity local -Z, the same direction RenderView derives before it
-        // converts it to the shader's point-to-light vector.
-        void DrawDirectionalLightGizmo(const Projector3D& proj, const TransformComponent& transform) {
-            constexpr ImU32 SunColor = IM_COL32(255, 220, 70, 255);
-            constexpr ImU32 RayColor = IM_COL32(255, 235, 130, 235);
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-            ImVec2 center;
-            if (proj.Project(transform.Translation, center)) {
-                drawList->AddCircleFilled(center, 5.0f, SunColor, 16);
-                drawList->AddCircle(center, 8.0f, SunColor, 16, 1.5f);
-                for (int i = 0; i < 8; ++i) {
-                    const float angle = glm::two_pi<float>() * static_cast<float>(i) / 8.0f;
-                    const ImVec2 rayStart{ center.x + std::cos(angle) * 10.0f, center.y + std::sin(angle) * 10.0f };
-                    const ImVec2 rayEnd{ center.x + std::cos(angle) * 14.0f, center.y + std::sin(angle) * 14.0f };
-                    drawList->AddLine(rayStart, rayEnd, SunColor, 1.5f);
-                }
-            }
-
-            const glm::quat rotation = EulerDegreesToQuat(transform.Rotation);
-            const glm::vec3 rayDirection = rotation * glm::vec3(0.0f, 0.0f, -1.0f);
-            const glm::vec3 right = rotation * glm::vec3(1.0f, 0.0f, 0.0f);
-            const glm::vec3 up = rotation * glm::vec3(0.0f, 1.0f, 0.0f);
-            const float size = Gizmo3DWorldAxisLength(proj, transform.Translation);
-            const glm::vec2 offsets[3] = { { -0.55f, 0.38f }, { 0.0f, 0.0f }, { 0.55f, -0.38f } };
-            for (const glm::vec2& offset : offsets) {
-                const glm::vec3 start = transform.Translation + (right * offset.x + up * offset.y) * size;
-                const glm::vec3 end = start + rayDirection * (size * 1.7f);
-                ImVec2 screenStart, screenEnd;
-                if (!proj.Project(start, screenStart) || !proj.Project(end, screenEnd))
-                    continue;
-                drawList->AddLine(screenStart, screenEnd, RayColor, 1.75f);
-                const ImVec2 direction{ screenEnd.x - screenStart.x, screenEnd.y - screenStart.y };
-                const float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
-                if (length <= 0.01f)
-                    continue;
-                const ImVec2 unit{ direction.x / length, direction.y / length };
-                const ImVec2 perpendicular{ -unit.y, unit.x };
-                drawList->AddTriangleFilled(screenEnd,
-                    ImVec2(screenEnd.x - unit.x * 7.0f + perpendicular.x * 3.5f, screenEnd.y - unit.y * 7.0f + perpendicular.y * 3.5f),
-                    ImVec2(screenEnd.x - unit.x * 7.0f - perpendicular.x * 3.5f, screenEnd.y - unit.y * 7.0f - perpendicular.y * 3.5f), RayColor);
-            }
-        }
-
-        // Polyline through world points, skipping segments with an unprojectable endpoint.
-        void DrawWorldPolyline(const Projector3D& proj, const std::vector<glm::vec3>& points, ImU32 color, float thickness, bool closed) {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            const size_t count = points.size();
-            for (size_t i = 0; i + (closed ? 0 : 1) < count; ++i) {
-                ImVec2 a, b;
-                if (proj.Project(points[i], a) && proj.Project(points[(i + 1) % count], b))
-                    drawList->AddLine(a, b, color, thickness);
-            }
-        }
-
-        std::vector<glm::vec3> WorldCircle(const glm::vec3& center, const glm::vec3& axisA, const glm::vec3& axisB, float radius, int segments = 48) {
-            std::vector<glm::vec3> points;
-            points.reserve(static_cast<size_t>(segments));
-            for (int i = 0; i < segments; ++i) {
-                const float angle = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(segments);
-                points.push_back(center + (axisA * std::cos(angle) + axisB * std::sin(angle)) * radius);
-            }
-            return points;
-        }
-
-        // Bulb icon for every active Point Light; its Range sphere (3 great circles) when selected.
-        void DrawPointLightGizmo(const Projector3D& proj, const TransformComponent& transform, const PointLightComponent& light, bool selected) {
-            const ImU32 color = ImGui::ColorConvertFloat4ToU32(ImVec4(
-                0.55f + 0.45f * std::min(light.Color.r, 1.0f), 0.55f + 0.45f * std::min(light.Color.g, 1.0f), 0.55f + 0.45f * std::min(light.Color.b, 1.0f), 1.0f));
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            ImVec2 center;
-            if (proj.Project(transform.Translation, center)) {
-                drawList->AddCircleFilled(center, 5.5f, color, 16);
-                drawList->AddCircle(center, 9.0f, color, 16, 1.25f);
-                drawList->AddLine(ImVec2(center.x - 3.0f, center.y + 9.0f), ImVec2(center.x + 3.0f, center.y + 9.0f), color, 2.0f);
-            }
-            if (!selected)
-                return;
-            const ImU32 rangeColor = IM_COL32(255, 230, 120, 170);
-            DrawWorldPolyline(proj, WorldCircle(transform.Translation, { 1, 0, 0 }, { 0, 1, 0 }, light.Range), rangeColor, 1.25f, true);
-            DrawWorldPolyline(proj, WorldCircle(transform.Translation, { 1, 0, 0 }, { 0, 0, 1 }, light.Range), rangeColor, 1.25f, true);
-            DrawWorldPolyline(proj, WorldCircle(transform.Translation, { 0, 1, 0 }, { 0, 0, 1 }, light.Range), rangeColor, 1.25f, true);
-        }
-
-        // Spot icon + direction ray always; the full cone (outer and inner angle) when selected.
-        void DrawSpotLightGizmo(const Projector3D& proj, const TransformComponent& transform, const SpotLightComponent& light, bool selected) {
-            const glm::quat rotation = EulerDegreesToQuat(transform.Rotation);
-            const glm::vec3 forward = rotation * glm::vec3(0.0f, 0.0f, -1.0f);
-            const glm::vec3 right = rotation * glm::vec3(1.0f, 0.0f, 0.0f);
-            const glm::vec3 up = rotation * glm::vec3(0.0f, 1.0f, 0.0f);
-            const ImU32 color = IM_COL32(255, 220, 90, 255);
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            ImVec2 apex;
-            if (proj.Project(transform.Translation, apex)) {
-                drawList->AddCircleFilled(apex, 5.0f, color, 12);
-                drawList->AddCircle(apex, 8.0f, color, 12, 1.25f);
-            }
-            const float length = selected ? light.Range : std::min(light.Range, Gizmo3DWorldAxisLength(proj, transform.Translation) * 1.6f);
-            const auto drawCone = [&](float angleDegrees, ImU32 coneColor, int rays) {
-                const float radius = length * std::tan(glm::radians(std::clamp(angleDegrees, 1.0f, 179.0f) * 0.5f));
-                const glm::vec3 baseCenter = transform.Translation + forward * length;
-                const std::vector<glm::vec3> base = WorldCircle(baseCenter, right, up, radius, 40);
-                DrawWorldPolyline(proj, base, coneColor, 1.25f, true);
-                for (int i = 0; i < rays; ++i) {
-                    const glm::vec3& rim = base[static_cast<size_t>(i * static_cast<int>(base.size()) / rays)];
-                    DrawWorldPolyline(proj, { transform.Translation, rim }, coneColor, 1.25f, false);
-                }
-            };
-            drawCone(light.SpotAngle, selected ? IM_COL32(255, 230, 120, 200) : IM_COL32(255, 230, 120, 110), 4);
-            if (selected && light.InnerSpotAngle > 0.5f)
-                drawCone(light.InnerSpotAngle, IM_COL32(255, 190, 80, 120), 0);
-        }
-
-        constexpr float Collider3DHandleHalfSize = 5.0f;
-        // Same order-of-magnitude as the pan/scale-drag sensitivities above -- Distance-scaled
-        // so a resize drag feels proportionate regardless of how far the orbit camera is
-        // zoomed out.
-        constexpr float Collider3DResizeDragSensitivity = 0.002f;
-        const ImU32 Collider3DColor = IM_COL32(60, 230, 90, 255);
-
-        // Wireframe box collider (12 edges), oriented by `rotation` (the entity's own world
-        // rotation -- unlike the 2D pane's collider gizmos, a 3D BoxCollider's shape really
-        // does rotate with its body, see Scene.cpp's Bullet body creation) and sized by
-        // `halfExtents` (BoxCollider3DComponent::Size is already a half-extent). Same
-        // proj.Project-per-point technique DrawCameraFrustum already established. Also draws
-        // (and returns the screen position of) one resize handle per positive axis at that
-        // face's center -- dragging one lets Size be edited directly in the viewport instead
-        // of only through the Properties panel. A handle whose world position is behind the
-        // camera reports NaN so the caller skips hit-testing/dragging it that frame, same
-        // tolerance the translate/rotate gizmo already has for an off-screen handle.
-        void DrawBoxCollider3D(const Projector3D& proj, const glm::vec3& center, const glm::quat& rotation, const glm::vec3& halfExtents, ImVec2 outHandles[3]) {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            glm::vec3 axisX = rotation * glm::vec3(halfExtents.x, 0.0f, 0.0f);
-            glm::vec3 axisY = rotation * glm::vec3(0.0f, halfExtents.y, 0.0f);
-            glm::vec3 axisZ = rotation * glm::vec3(0.0f, 0.0f, halfExtents.z);
-
-            // Index = (sx?4:0) + (sy?2:0) + (sz?1:0), sx/sy/sz each -1 or +1.
-            glm::vec3 corners[8];
-            int index = 0;
-            for (float sx : { -1.0f, 1.0f })
-                for (float sy : { -1.0f, 1.0f })
-                    for (float sz : { -1.0f, 1.0f })
-                        corners[index++] = center + axisX * sx + axisY * sy + axisZ * sz;
-
-            auto drawEdge = [&](int a, int b) {
-                ImVec2 sa, sb;
-                if (proj.Project(corners[a], sa) && proj.Project(corners[b], sb))
-                    drawList->AddLine(sa, sb, Collider3DColor, 2.0f);
-            };
-            drawEdge(0, 1); drawEdge(2, 3); drawEdge(4, 5); drawEdge(6, 7); // edges along Z
-            drawEdge(0, 2); drawEdge(1, 3); drawEdge(4, 6); drawEdge(5, 7); // edges along Y
-            drawEdge(0, 4); drawEdge(1, 5); drawEdge(2, 6); drawEdge(3, 7); // edges along X
-
-            glm::vec3 faceHandles[3] = { center + axisX, center + axisY, center + axisZ };
-            for (int i = 0; i < 3; i++) {
-                ImVec2 screen;
-                if (proj.Project(faceHandles[i], screen)) {
-                    drawList->AddRectFilled(ImVec2(screen.x - Collider3DHandleHalfSize, screen.y - Collider3DHandleHalfSize),
-                        ImVec2(screen.x + Collider3DHandleHalfSize, screen.y + Collider3DHandleHalfSize), Collider3DColor);
-                    outHandles[i] = screen;
-                } else {
-                    outHandles[i] = ImVec2(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
-                }
-            }
-        }
-
-        // Wireframe sphere collider -- three orthogonal great circles (same per-point
-        // proj.Project technique as DrawAndHitTestGizmo3D's own rotation rings below), plus one
-        // resize handle on the +X equator point (dragging it edits Radius directly).
-        void DrawSphereCollider3D(const Projector3D& proj, const glm::vec3& center, float radius, ImVec2& outHandle) {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            constexpr int Segments = 32;
-            const glm::vec3 basisPairs[3][2] = {
-                { { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } }, // circle around X
-                { { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } }, // circle around Y
-                { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } }, // circle around Z
-            };
-            for (auto& pair : basisPairs) {
-                std::vector<ImVec2> points;
-                points.reserve(Segments + 1);
-                for (int i = 0; i <= Segments; i++) {
-                    float t = (static_cast<float>(i) / Segments) * 2.0f * 3.14159265f;
-                    glm::vec3 worldPt = center + (pair[0] * std::cos(t) + pair[1] * std::sin(t)) * radius;
-                    ImVec2 screenPt;
-                    if (proj.Project(worldPt, screenPt))
-                        points.push_back(screenPt);
-                }
-                if (points.size() >= 2)
-                    drawList->AddPolyline(points.data(), static_cast<int>(points.size()), Collider3DColor, ImDrawFlags_None, 2.0f);
-            }
-
-            ImVec2 screen;
-            if (proj.Project(center + glm::vec3(radius, 0.0f, 0.0f), screen)) {
-                drawList->AddCircleFilled(screen, Collider3DHandleHalfSize, Collider3DColor);
-                outHandle = screen;
-            } else {
-                outHandle = ImVec2(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
-            }
-        }
-
-        // Drives one resize-handle drag via ImGui's own per-widget active/dragging state
-        // (InvisibleButton), deliberately NOT threaded through EditorContext's
-        // DraggingGizmoAxis/-Screen the way the Translate/Rotate/Scale gizmo is -- that
-        // machinery exists specifically to keep a drag tracking correctly across BOTH
-        // Top/Bottom panes sharing one selection, which a collider handle (only ever drawn in
-        // the pane matching the collider's own effective screen, see ShouldRenderOnScreen)
-        // never needs. `centerScreen`/`handleScreen` are NaN-checked by the caller before this
-        // is invoked. Returns the new value for the dragged axis/radius, or the unchanged
-        // `current` if not being dragged this frame.
-        float DragCollider3DHandle(const char* id, ImVec2 centerScreen, ImVec2 handleScreen, float cameraDistance, float current) {
-            ImGui::SetCursorScreenPos(ImVec2(handleScreen.x - Collider3DHandleHalfSize, handleScreen.y - Collider3DHandleHalfSize));
-            ImGui::InvisibleButton(id, ImVec2(Collider3DHandleHalfSize * 2.0f, Collider3DHandleHalfSize * 2.0f));
-            if (!ImGui::IsItemActive() || !ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f))
-                return current;
-
-            // Screen-space direction the axis actually points in (not assumed to be purely
-            // horizontal/vertical -- the orbit camera can be at any angle) -- dragging the mouse
-            // further along that same screen direction increases the value, same "outward =
-            // bigger" convention the Scale gizmo's handles already use.
-            glm::vec2 screenDir{ handleScreen.x - centerScreen.x, handleScreen.y - centerScreen.y };
-            float screenDirLen = glm::length(screenDir);
-            if (screenDirLen < 1e-3f)
-                return current; // handle projected right on top of center -- no reliable direction this frame
-            screenDir /= screenDirLen;
-
-            ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
-            float dragAmount = (mouseDelta.x * screenDir.x + mouseDelta.y * screenDir.y) * cameraDistance * Collider3DResizeDragSensitivity;
-            return std::max(0.01f, current + dragAmount);
-        }
-
-        constexpr float Collider2DHandleHalfSize = 5.0f;
-
-        // 2D counterpart of DragCollider3DHandle above -- same InvisibleButton-driven drag,
-        // same outward-along-the-handle-direction projection, but no cameraDistance-scaled
-        // sensitivity constant needed: the 2D pane's own camera.Zoom already IS the exact
-        // pixels-per-world-unit conversion factor (see DrawScenePane2D's worldToPaneScreen),
-        // so dividing by it converts a screen-space mouse delta straight into world units.
-        float DragCollider2DHandle(const char* id, ImVec2 centerScreen, ImVec2 handleScreen, float zoom, float current) {
-            ImGui::SetCursorScreenPos(ImVec2(handleScreen.x - Collider2DHandleHalfSize, handleScreen.y - Collider2DHandleHalfSize));
-            ImGui::InvisibleButton(id, ImVec2(Collider2DHandleHalfSize * 2.0f, Collider2DHandleHalfSize * 2.0f));
-            if (!ImGui::IsItemActive() || !ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f))
-                return current;
-
-            glm::vec2 screenDir{ handleScreen.x - centerScreen.x, handleScreen.y - centerScreen.y };
-            float screenDirLen = glm::length(screenDir);
-            if (screenDirLen < 1e-3f)
-                return current; // handle sits right on top of center -- no reliable direction this frame
-            screenDir /= screenDirLen;
-
-            ImVec2 mouseDelta = ImGui::GetIO().MouseDelta;
-            float dragAmount = (mouseDelta.x * screenDir.x + mouseDelta.y * screenDir.y) / zoom;
-            return std::max(0.01f, current + dragAmount);
-        }
-
-        glm::vec2 GetPolygonVertex2DConst(const PolygonCollider2DComponent& poly, int index) {
-            switch (index) {
-                case 0: return poly.Vertex0;
-                case 1: return poly.Vertex1;
-                case 2: return poly.Vertex2;
-                case 3: return poly.Vertex3;
-                case 4: return poly.Vertex4;
-                case 5: return poly.Vertex5;
-                case 6: return poly.Vertex6;
-                default: return poly.Vertex7;
-            }
-        }
-
-        bool PointInPolygon2D(const glm::vec2& point, const PolygonCollider2DComponent& poly) {
-            bool inside = false;
-            int vertexCount = std::clamp(poly.VertexCount, 3, 8);
-            for (int i = 0, j = vertexCount - 1; i < vertexCount; j = i++) {
-                glm::vec2 vi = GetPolygonVertex2DConst(poly, i);
-                glm::vec2 vj = GetPolygonVertex2DConst(poly, j);
-                if (((vi.y > point.y) != (vj.y > point.y)) &&
-                    (point.x < (vj.x - vi.x) * (point.y - vi.y) / (vj.y - vi.y + 1e-8f) + vi.x))
-                    inside = !inside;
-            }
-            return inside;
-        }
-
-        bool PointInCapsule2D(const glm::vec2& point, const glm::vec2& center, float radius, float height) {
-            float halfBody = std::max(0.0f, (height - 2.0f * radius) * 0.5f);
-            glm::vec2 topCap = center + glm::vec2{ 0.0f, halfBody };
-            glm::vec2 bottomCap = center - glm::vec2{ 0.0f, halfBody };
-            if (glm::distance(point, topCap) <= radius || glm::distance(point, bottomCap) <= radius)
-                return true;
-            return std::abs(point.x - center.x) <= radius &&
-                   point.y >= bottomCap.y && point.y <= topCap.y;
-        }
-
-        void DrawCapsule2DOutline(ImDrawList* drawList, const ImVec2& topCapScreen, const ImVec2& bottomCapScreen,
-            float radiusPx, ImU32 color) {
-            drawList->AddLine(ImVec2(topCapScreen.x + radiusPx, topCapScreen.y),
-                ImVec2(bottomCapScreen.x + radiusPx, bottomCapScreen.y), color, 2.0f);
-            drawList->AddLine(ImVec2(topCapScreen.x - radiusPx, topCapScreen.y),
-                ImVec2(bottomCapScreen.x - radiusPx, bottomCapScreen.y), color, 2.0f);
-            constexpr int arcSegments = 16;
-            drawList->PathClear();
-            drawList->PathArcTo(topCapScreen, radiusPx, 0.0f, glm::pi<float>(), arcSegments);
-            drawList->PathStroke(color, 0, 2.0f);
-            drawList->PathClear();
-            drawList->PathArcTo(bottomCapScreen, radiusPx, glm::pi<float>(), glm::pi<float>() * 2.0f, arcSegments);
-            drawList->PathStroke(color, 0, 2.0f);
-        }
-
-        void DrawCapsuleCollider3D(const Projector3D& proj, const glm::vec3& center, const glm::quat& rotation,
-            float radius, float height, ImVec2& outRadiusHandle, ImVec2& outHeightHandle) {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            float halfBody = std::max(0.0f, (height - 2.0f * radius) * 0.5f);
-            glm::mat3 rotMat = glm::mat3(rotation);
-            auto toWorld = [&](const glm::vec3& local) { return center + rotMat * local; };
-
-            const int circleSegments = 24;
-            auto drawCircle = [&](const glm::vec3& circleCenter, const glm::vec3& axisA, const glm::vec3& axisB) {
-                std::vector<ImVec2> points;
-                points.reserve(circleSegments + 1);
-                for (int i = 0; i <= circleSegments; i++) {
-                    float angle = (static_cast<float>(i) / circleSegments) * glm::pi<float>() * 2.0f;
-                    glm::vec3 point = circleCenter + (axisA * std::cos(angle) + axisB * std::sin(angle)) * radius;
-                    ImVec2 screen;
-                    if (proj.Project(point, screen))
-                        points.push_back(screen);
-                }
-                if (points.size() >= 2)
-                    drawList->AddPolyline(points.data(), static_cast<int>(points.size()), Collider3DColor, ImDrawFlags_None, 2.0f);
-            };
-
-            glm::vec3 axisY = rotMat * glm::vec3(0.0f, 1.0f, 0.0f);
-            glm::vec3 axisX = rotMat * glm::vec3(1.0f, 0.0f, 0.0f);
-            glm::vec3 axisZ = rotMat * glm::vec3(0.0f, 0.0f, 1.0f);
-            glm::vec3 topCap = toWorld({ 0.0f, halfBody, 0.0f });
-            glm::vec3 bottomCap = toWorld({ 0.0f, -halfBody, 0.0f });
-            drawCircle(topCap, axisX, axisZ);
-            drawCircle(bottomCap, axisX, axisZ);
-            drawCircle(center, axisX, axisZ);
-
-            for (int i = 0; i < 4; i++) {
-                float angle = static_cast<float>(i) * glm::pi<float>() * 0.5f;
-                glm::vec3 offset = (axisX * std::cos(angle) + axisZ * std::sin(angle)) * radius;
-                ImVec2 topScreen, bottomScreen;
-                if (proj.Project(topCap + offset, topScreen) && proj.Project(bottomCap + offset, bottomScreen))
-                    drawList->AddLine(topScreen, bottomScreen, Collider3DColor, 2.0f);
-            }
-
-            auto radiusAtLocalY = [halfBody, radius](float yLocal) {
-                if (yLocal > halfBody) {
-                    float d = yLocal - halfBody;
-                    return std::sqrt(std::max(radius * radius - d * d, 0.0f));
-                }
-                if (yLocal < -halfBody) {
-                    float d = -halfBody - yLocal;
-                    return std::sqrt(std::max(radius * radius - d * d, 0.0f));
-                }
-                return radius;
-            };
-            auto drawMeridian = [&](const glm::vec3& sideAxis, float sideSign) {
-                std::vector<ImVec2> points;
-                points.reserve(17);
-                constexpr int segments = 16;
-                for (int i = 0; i <= segments; i++) {
-                    float t = static_cast<float>(i) / segments;
-                    float yLocal = (-halfBody - radius) + t * (2.0f * halfBody + 2.0f * radius);
-                    float rAtY = radiusAtLocalY(yLocal);
-                    glm::vec3 local = axisY * yLocal + sideAxis * (rAtY * sideSign);
-                    ImVec2 screen;
-                    if (proj.Project(toWorld(local), screen))
-                        points.push_back(screen);
-                }
-                if (points.size() >= 2)
-                    drawList->AddPolyline(points.data(), static_cast<int>(points.size()), Collider3DColor, ImDrawFlags_None, 2.0f);
-            };
-            drawMeridian(axisX, 1.0f);
-            drawMeridian(axisX, -1.0f);
-            drawMeridian(axisZ, 1.0f);
-            drawMeridian(axisZ, -1.0f);
-
-            glm::vec3 radiusPoint = toWorld({ radius, 0.0f, 0.0f });
-            glm::vec3 heightPoint = toWorld({ 0.0f, halfBody + radius, 0.0f });
-            ImVec2 radiusScreen, heightScreen;
-            if (proj.Project(radiusPoint, radiusScreen)) {
-                drawList->AddCircleFilled(radiusScreen, Collider3DHandleHalfSize, Collider3DColor);
-                outRadiusHandle = radiusScreen;
-            } else {
-                outRadiusHandle = ImVec2(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
-            }
-            if (proj.Project(heightPoint, heightScreen)) {
-                drawList->AddCircleFilled(heightScreen, Collider3DHandleHalfSize, Collider3DColor);
-                outHeightHandle = heightScreen;
-            } else {
-                outHeightHandle = ImVec2(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
-            }
-        }
-
-        // Clips the segment a-b against a plane `nearDistance` in front of the camera (NOT
-        // Projector3D::Project's own bare 0.01 "still technically in front" threshold -- see
-        // below for why) and returns the portion actually beyond it. Necessary because
-        // Projector3D::Project has no clipping of its own -- it either projects a point or
-        // reports failure -- so a LINE (as opposed to the single points every other gizmo in
-        // this pane projects) needs this extra step: without it, a grid line long enough for
-        // one endpoint to dip behind the camera would vanish ENTIRELY (both-endpoints-must-
-        // project) rather than just being clipped at the visible edge. Returns false if the
-        // whole segment is behind `nearDistance`.
-        //
-        // `nearDistance` is passed in by the caller (DrawGrid3D uses a chunk of a grid cell,
-        // not a bare epsilon) deliberately larger than strictly necessary: a point clipped
-        // right at Project's own 0.01 threshold can still have a viewZ small enough that
-        // Project's perspective divide blows its screen coordinates up to an enormous
-        // magnitude (a grid line running nearly parallel to the view direction, e.g. close to
-        // the horizon, is exactly the case that triggers this) -- ImGui/the GPU rasterizing
-        // near-infinite line endpoints is what actually produced the reported "grid lines
-        // flicker/vanish while zooming or panning," not the clipping itself being wrong.
-        bool ClipSegmentToCameraFront(const Projector3D& proj, const glm::vec3& a, const glm::vec3& b, float nearDistance, glm::vec3& outA, glm::vec3& outB) {
-            float za = glm::dot(a - proj.CameraPos, proj.Forward);
-            float zb = glm::dot(b - proj.CameraPos, proj.Forward);
-            bool aFront = za > nearDistance, bFront = zb > nearDistance;
-            if (!aFront && !bFront)
-                return false;
-            if (aFront && bFront) {
-                outA = a; outB = b;
-                return true;
-            }
-            float t = (nearDistance - za) / (zb - za); // za/zb straddle nearDistance here, denominator is safely non-zero
-            glm::vec3 clipPoint = a + (b - a) * t;
-            if (aFront) { outA = a; outB = clipPoint; }
-            else { outA = clipPoint; outB = b; }
-            return true;
-        }
-
-        // Projects a world-space grid line first, then clips the resulting 2D segment to the
-        // Scene image itself. At a shallow/diagonal view, valid grid lines often have endpoints
-        // far off-screen while still crossing the viewport. The old endpoint rejection dropped
-        // those lines wholesale, causing the grid to disappear in large pieces while orbiting.
-        bool ClipLineToViewport(const Projector3D& proj, ImVec2& a, ImVec2& b) {
-            const float left = proj.ImagePos.x;
-            const float right = left + proj.ViewportW;
-            const float top = proj.ImagePos.y;
-            const float bottom = top + proj.ViewportH;
-            const float dx = b.x - a.x;
-            const float dy = b.y - a.y;
-            float first = 0.0f, last = 1.0f;
-            const auto clip = [&first, &last](float p, float q) {
-                if (std::abs(p) < 1e-6f)
-                    return q >= 0.0f;
-                const float t = q / p;
-                if (p < 0.0f) {
-                    if (t > last) return false;
-                    if (t > first) first = t;
-                } else {
-                    if (t < first) return false;
-                    if (t < last) last = t;
-                }
-                return true;
-            };
-            if (!clip(-dx, a.x - left) || !clip(dx, right - a.x) ||
-                !clip(-dy, a.y - top) || !clip(dy, bottom - a.y))
-                return false;
-            const ImVec2 original = a;
-            a = ImVec2(original.x + first * dx, original.y + first * dy);
-            b = ImVec2(original.x + last * dx, original.y + last * dy);
-            return std::isfinite(a.x) && std::isfinite(a.y) && std::isfinite(b.x) && std::isfinite(b.y);
-        }
-
-        // Unity/Cocos-style ground-plane grid (XZ plane at Y=0) for the 3D Scene pane -- same
-        // proj.Project-per-line-segment overlay technique DrawCameraFrustum/DrawBoxCollider3D
-        // already use, so it shares their same known limitation (a flat screen-space overlay,
-        // not real depth-tested geometry -- a grid line "behind" a mesh from the camera's
-        // viewpoint still draws on top of it, same as every other gizmo in this pane). The
-        // patch of grid lines is re-centered near `cameraTarget` (snapped to the nearest cell)
-        // every frame so panning always shows a grid "under" wherever you're looking rather
-        // than a fixed world-origin-centered patch that scrolls out of view entirely -- but the
-        // X/Z axis lines themselves stay at their true world position (0 on the other axis)
-        // regardless of camera position, just extended far enough to stay visible while panned.
-        // `extent` (half-width of the patch) is scaled to the orbit camera's own Distance by
-        // the caller, rather than one fixed size -- a fixed large extent regardless of zoom
-        // meant most grid lines were far longer than the visible area at typical zoom, making
-        // them far more likely to need clipping (or, before ClipSegmentToCameraFront existed,
-        // to vanish outright) as the camera moved.
-        void DrawGrid3D(const Projector3D& proj, const glm::vec3& cameraTarget, float cellSize, float extent) {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            int halfLineCount = std::max(1, static_cast<int>(extent / cellSize));
-            // Focus at the ground hit of the Scene camera's centre ray, rather than blindly at
-            // orbit Target. Target can be well above/below Y=0 after perspective panning,
-            // leaving a finite grid patch beside the ground actually visible in the pane.
-            glm::vec3 focus = cameraTarget;
-            if (std::abs(proj.Forward.y) > 1e-4f) {
-                const float hitDistance = -proj.CameraPos.y / proj.Forward.y;
-                if (hitDistance > 0.0f)
-                    focus = proj.CameraPos + proj.Forward * hitDistance;
-            }
-            float centerX = std::round(focus.x / cellSize) * cellSize;
-            float centerZ = std::round(focus.z / cellSize) * cellSize;
-            // The 2D viewport clip below makes a small near-plane clip safe. A cell-sized
-            // clip removed nearby grid lines at diagonal angles.
-            constexpr float nearClipDistance = 0.05f;
-
-            auto line = [&](const glm::vec3& a, const glm::vec3& b, ImU32 color, float thickness) {
-                glm::vec3 clippedA, clippedB;
-                if (!ClipSegmentToCameraFront(proj, a, b, nearClipDistance, clippedA, clippedB))
-                    return;
-                ImVec2 sa, sb;
-                if (!proj.Project(clippedA, sa) || !proj.Project(clippedB, sb))
-                    return;
-                if (!ClipLineToViewport(proj, sa, sb))
-                    return;
-                drawList->AddLine(sa, sb, color, thickness);
-            };
-
-            drawList->PushClipRect(proj.ImagePos,
-                ImVec2(proj.ImagePos.x + proj.ViewportW, proj.ImagePos.y + proj.ViewportH), true);
-            const ImU32 gridColor = IM_COL32(120, 120, 130, 90);
-            for (int i = -halfLineCount; i <= halfLineCount; i++) {
-                float x = centerX + i * cellSize;
-                line({ x, 0.0f, centerZ - extent }, { x, 0.0f, centerZ + extent }, gridColor, 1.0f);
-            }
-            for (int i = -halfLineCount; i <= halfLineCount; i++) {
-                float z = centerZ + i * cellSize;
-                line({ centerX - extent, 0.0f, z }, { centerX + extent, 0.0f, z }, gridColor, 1.0f);
-            }
-
-            // World axis lines, Unity's own X=red/Z=blue convention (matches the 2D pane's grid
-            // and the orientation gizmo below) -- drawn last so they're on top of the plain grid.
-            line({ centerX - extent, 0.0f, 0.0f }, { centerX + extent, 0.0f, 0.0f }, IM_COL32(230, 70, 70, 255), 2.0f);
-            line({ 0.0f, 0.0f, centerZ - extent }, { 0.0f, 0.0f, centerZ + extent }, IM_COL32(80, 140, 230, 255), 2.0f);
-            drawList->PopClipRect();
-        }
-
-        constexpr float OrientationGizmoRadius = 40.0f;
-        constexpr float OrientationGizmoMargin = 55.0f;
-        constexpr float OrientationGizmoAxisLength = 30.0f;
-        constexpr float OrientationGizmoTipRadius = 8.0f;
-
-        // Blender/Unity-style ViewCube-equivalent, fixed in the pane's own top-right corner
-        // (screen-space, NOT tied to any world position) -- shows the world X/Y/Z axes relative
-        // to the CURRENT camera orientation, and doubles as a click target: clicking a filled
-        // tip snaps the orbit camera to look straight down that axis (keeping the same Target/
-        // Distance, only Rotation changes), the same "operate the view" convenience Unity's own
-        // ViewCube/axis gizmo provides. Returns true if this frame's click was consumed by the
-        // gizmo (hit-tested BEFORE the pane's own entity-pick-ray, so clicking it never also
-        // tries to select/deselect whatever's underneath).
-        bool DrawAndInteractOrientationGizmo3D(SceneViewCamera3D& camera3D, ImVec2 imagePos, int viewportW, bool imageHovered) {
-            ImDrawList* drawList = ImGui::GetWindowDrawList();
-            ImVec2 center(imagePos.x + viewportW - OrientationGizmoMargin, imagePos.y + OrientationGizmoMargin);
-            drawList->AddCircleFilled(center, OrientationGizmoRadius, IM_COL32(40, 40, 45, 160));
-
-            struct AxisInfo { glm::vec3 Dir; ImU32 Color; const char* Label; float PosPitch, PosYaw; };
-            // Pitch/Yaw here is the EulerDegreesToQuat pair that makes the camera look straight
-            // down the NEGATIVE of this axis (i.e. positioned on the positive side, looking back
-            // toward the origin) -- matches OrbitForward(pitch,yaw)'s own (-sin,sin,-cos) shape,
-            // derived once by hand for each of the 3 axes.
-            AxisInfo axes[3] = {
-                { { 1.0f, 0.0f, 0.0f }, IM_COL32(230, 70, 70, 255), "X", 0.0f, 90.0f },
-                { { 0.0f, 1.0f, 0.0f }, IM_COL32(80, 200, 100, 255), "Y", -90.0f, 0.0f },
-                { { 0.0f, 0.0f, 1.0f }, IM_COL32(80, 140, 230, 255), "Z", 0.0f, 0.0f },
-            };
-
-            glm::quat invRot = glm::inverse(camera3D.Rotation);
-            struct Drawn { ImVec2 tip; ImU32 color; const char* label; float depth; bool positive; float pitch, yaw; };
-            std::vector<Drawn> drawn;
-            drawn.reserve(6);
-            for (auto& info : axes) {
-                for (float sign : { 1.0f, -1.0f }) {
-                    // View-space direction of this (possibly negated) world axis -- x/y become
-                    // the 2D screen offset directly (view space is already camera-relative),
-                    // z is used only to depth-sort so a near tip draws over a far one.
-                    glm::vec3 viewDir = invRot * (info.Dir * sign);
-                    ImVec2 tip(center.x + viewDir.x * OrientationGizmoAxisLength, center.y - viewDir.y * OrientationGizmoAxisLength);
-                    bool positive = sign > 0.0f;
-                    // The negative-direction tip snaps to the SAME look-down-this-axis target as
-                    // its positive counterpart's OPPOSITE face -- i.e. clicking "-X" looks from
-                    // -X back toward the origin, the mirror of "+X"'s pitch/yaw.
-                    float pitch = positive ? info.PosPitch : -info.PosPitch;
-                    float yaw = positive ? info.PosYaw : (info.PosYaw + 180.0f);
-                    drawn.push_back({ tip, info.Color, info.Label, viewDir.z, positive, pitch, yaw });
-                }
-            }
-            std::sort(drawn.begin(), drawn.end(), [](const Drawn& a, const Drawn& b) { return a.depth < b.depth; });
-
-            ImVec2 mouse = ImGui::GetIO().MousePos;
-            int hoveredIndex = -1;
-            for (size_t i = 0; i < drawn.size(); i++) {
-                float dx = mouse.x - drawn[i].tip.x, dy = mouse.y - drawn[i].tip.y;
-                if (std::sqrt(dx * dx + dy * dy) <= OrientationGizmoTipRadius)
-                    hoveredIndex = static_cast<int>(i);
-            }
-
-            for (size_t i = 0; i < drawn.size(); i++) {
-                const Drawn& d = drawn[i];
-                bool isHovered = (static_cast<int>(i) == hoveredIndex);
-                drawList->AddLine(center, d.tip, d.color, 2.0f);
-                if (d.positive) {
-                    drawList->AddCircleFilled(d.tip, isHovered ? OrientationGizmoTipRadius + 2.0f : OrientationGizmoTipRadius, d.color);
-                    ImVec2 textSize = ImGui::CalcTextSize(d.label);
-                    drawList->AddText(ImVec2(d.tip.x - textSize.x * 0.5f, d.tip.y - textSize.y * 0.5f), IM_COL32(20, 20, 20, 255), d.label);
-                } else {
-                    drawList->AddCircleFilled(d.tip, isHovered ? OrientationGizmoTipRadius - 1.0f : OrientationGizmoTipRadius - 2.0f, IM_COL32(60, 60, 65, 255));
-                    drawList->AddCircle(d.tip, OrientationGizmoTipRadius - 2.0f, d.color, 12, 1.5f);
-                }
-            }
-
-            if (imageHovered && hoveredIndex >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                const Drawn& hit = drawn[hoveredIndex];
-                camera3D.Rotation = EulerDegreesToQuat({ hit.pitch, hit.yaw, 0.0f });
-                return true;
-            }
-            // Swallow a click anywhere within the gizmo's own circular backdrop even if it
-            // missed every tip -- otherwise a near-miss click would fall through to the pane's
-            // entity-pick-ray underneath the gizmo's backdrop.
-            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                float dx = mouse.x - center.x, dy = mouse.y - center.y;
-                if (std::sqrt(dx * dx + dy * dy) <= OrientationGizmoRadius)
-                    return true;
-            }
-            return false;
         }
 
         // 3D analog of DrawAndHitTestGizmo2D (SceneGizmo.cpp) -- lives here rather than there
@@ -1203,13 +203,18 @@ namespace Duality {
             ImVec2 ClickStart{};
             Entity ClickHit;
             bool Marquee = false;
-            bool Flying = false;      // RMB fly-through (3D) / RMB pan (2D)
-            bool AltOrbit = false;    // Alt+LMB orbit
-            bool AltZoom = false;     // Alt+RMB zoom
-            bool ViewPan = false;     // View tool LMB pan
+            // Camera navigation drag in progress (SceneViewNavigation), started by NavButton.
+            SceneViewNavigation::Drag3D Nav3D = SceneViewNavigation::Drag3D::None;
+            SceneViewNavigation::Drag2D Nav2D = SceneViewNavigation::Drag2D::None;
+            int NavButton = 0;
+            // Axis gizmo: pressed on it (click = snap / toggle, drag past 3 px = orbit).
+            bool AxisGizmoPressed = false;
+            bool AxisGizmoDragged = false;
+            ImVec2 AxisGizmoPressPos{};
         };
         PaneInteraction s_PaneInteraction[2];
         PaneInteraction& InteractionFor(Screen screen) { return s_PaneInteraction[screen == Screen::Top ? 0 : 1]; }
+        SceneViewPaneOptions& PaneOptionsFor(EditorContext& ctx, Screen screen) { return ctx.Session.ScenePaneOptions[screen == Screen::Top ? 0 : 1]; }
 
         float Snap(float value, float increment, bool enabled) {
             if (!enabled || increment <= 0.0f)
@@ -1402,7 +407,7 @@ namespace Duality {
                     const glm::vec2 size = glm::abs(entity.GetComponent<SpriteRendererComponent>().Size * glm::vec2(world.Scale.x, world.Scale.y)) * 0.5f;
                     extent = glm::vec3(size.x, size.y, 0.01f);
                 } else if (entity.HasComponent<MeshRendererComponent>()) {
-                    const float radius = MeshBoundingRadius(entity.GetComponent<MeshRendererComponent>()) *
+                    const float radius = MeshBoundingRadius(entity) *
                         std::max({ std::abs(world.Scale.x), std::abs(world.Scale.y), std::abs(world.Scale.z) });
                     extent = glm::vec3(radius);
                 }
@@ -1423,12 +428,30 @@ namespace Duality {
                 Entity primaryCamera = ctx.SceneRef.GetPrimaryCamera(screen);
                 if (primaryCamera && primaryCamera.GetComponent<CameraComponent>().Projection == ProjectionType::Perspective) {
                     TransformComponent transform = ctx.SceneRef.GetWorldTransform(primaryCamera);
-                    camera3D.Rotation = EulerDegreesToQuat({ transform.Rotation.x, transform.Rotation.y, 0.0f });
-                    camera3D.Distance = 300.0f;
+                    // Roll-free yaw/pitch looking the same way as the camera: a pitch beyond
+                    // +-90 deg (e.g. -186) is the same direction as 180-pitch with yaw + 180.
+                    float pitchDegrees = std::remainder(transform.Rotation.x, 360.0f);
+                    float yawDegrees = transform.Rotation.y;
+                    if (pitchDegrees > 90.0f || pitchDegrees < -90.0f) {
+                        pitchDegrees = (pitchDegrees > 0.0f ? 180.0f : -180.0f) - pitchDegrees;
+                        yawDegrees += 180.0f;
+                    }
+                    camera3D.Yaw = glm::radians(std::remainder(yawDegrees, 360.0f));
+                    camera3D.Pitch = glm::radians(pitchDegrees);
+                    camera3D.SyncRotation();
                     // Places this orbit camera at the exact same position/orientation as the
                     // real camera: Target is a point straight ahead of it, so
-                    // Target - forward*Distance recovers transform.Translation exactly.
+                    // Target - forward*Distance recovers transform.Translation exactly. The
+                    // pivot is where the view ray meets the ground (y = 0) when that is a
+                    // sensible distance, else 10 units ahead -- pan / fly / zoom speeds scale
+                    // with the pivot distance (PiaEngine), so a far pivot makes them unusable.
                     glm::vec3 seedForward = camera3D.Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+                    camera3D.Distance = 10.0f;
+                    if (seedForward.y < -1e-3f) {
+                        const float groundHit = -transform.Translation.y / seedForward.y;
+                        if (groundHit >= 1.0f && groundHit <= 100.0f)
+                            camera3D.Distance = groundHit;
+                    }
                     camera3D.Target = transform.Translation + seedForward * camera3D.Distance;
                 }
                 camera3D.Seeded = true;
@@ -1445,10 +468,15 @@ namespace Duality {
             glm::vec3 forward = camera3D.Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
             glm::vec3 right = camera3D.Rotation * glm::vec3(1.0f, 0.0f, 0.0f);
             glm::vec3 up = camera3D.Rotation * glm::vec3(0.0f, 1.0f, 0.0f);
-            glm::vec3 cameraPos = camera3D.Target - forward * camera3D.Distance;
+            // Orthographic (axis gizmo "Iso"): parallel projection showing what perspective shows
+            // at the pivot; the eye is pulled far back so nothing in front of the pivot clips.
+            const bool ortho = camera3D.Orthographic;
+            const float orthoHalfHeight = SceneViewNavigation::OrthoHalfHeight(camera3D);
+            glm::vec3 cameraPos = camera3D.Target - forward * (ortho ? camera3D.Distance + 1000.0f : camera3D.Distance);
             glm::vec3 cameraRotation = QuatToEulerDegrees(camera3D.Rotation);
             float aspect = static_cast<float>(viewportW) / static_cast<float>(viewportH);
-            constexpr float FovDegrees = 60.0f, NearPlane = 0.1f, FarPlane = 5000.0f;
+            constexpr float FovDegrees = SceneViewNavigation::FovDegrees, NearPlane = 0.1f;
+            const float FarPlane = ortho ? 7000.0f : 5000.0f;
 
             framebuffer.Bind();
             glm::vec4 clearColor = (screen == Screen::Top) ? glm::vec4{ 0.15f, 0.15f, 0.18f, 1.0f } : glm::vec4{ 0.18f, 0.15f, 0.15f, 1.0f };
@@ -1457,7 +485,8 @@ namespace Duality {
             // light policy to SceneRenderer's shared helper.
             RenderView previewView;
             previewView.TargetScreen = screen;
-            previewView.Projection = ProjectionType::Perspective;
+            previewView.Projection = ortho ? ProjectionType::Orthographic : ProjectionType::Perspective;
+            previewView.OrthoHalfHeight = orthoHalfHeight;
             previewView.CameraPosition = cameraPos;
             previewView.CameraRotationDegrees = cameraRotation;
             previewView.FovDegrees = FovDegrees;
@@ -1548,20 +577,21 @@ namespace Duality {
             ImVec2 imagePos = ImGui::GetCursorScreenPos();
             ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(framebuffer.GetColorAttachment())), avail, ImVec2(0, 1), ImVec2(1, 0));
             bool imageHovered = ImGui::IsItemHovered();
+            if (HandleToolsOverlay(ctx, screen, ImGui::GetItemRectMin(), ImGui::GetItemRectSize(), imageHovered))
+                imageHovered = false; // the tools overlay owns the mouse
             ImGuiIO& io = ImGui::GetIO();
 
             // The world drop point is the cursor ray intersecting the SpriteRenderer XY plane
             // at the current Scene-view focus depth. This keeps a dropped sprite in front of
             // the editor camera instead of arbitrarily placing it at the world origin.
-            const float ndcX = (2.0f * ((io.MousePos.x - imagePos.x) / viewportW)) - 1.0f;
-            const float ndcY = 1.0f - (2.0f * ((io.MousePos.y - imagePos.y) / viewportH));
-            const float tanHalfFov = std::tan(glm::radians(FovDegrees) * 0.5f);
-            const glm::vec3 dropRay = glm::normalize(forward + right * (ndcX * tanHalfFov * aspect) + up * (ndcY * tanHalfFov));
+            Projector3D proj{ cameraPos, forward, right, up, FovDegrees, aspect, imagePos, viewportW, viewportH, ortho, orthoHalfHeight };
+            glm::vec3 dropOrigin, dropRay;
+            proj.Ray(io.MousePos, dropOrigin, dropRay);
             glm::vec3 worldDrop = camera3D.Target;
             if (std::abs(dropRay.z) > 1e-4f) {
-                const float t = (camera3D.Target.z - cameraPos.z) / dropRay.z;
+                const float t = (camera3D.Target.z - dropOrigin.z) / dropRay.z;
                 if (t > 0.0f)
-                    worldDrop = cameraPos + dropRay * t;
+                    worldDrop = dropOrigin + dropRay * t;
             }
             const float nativeWidth = screen == Screen::Top ? static_cast<float>(TopScreenWidth) : static_cast<float>(BottomScreenWidth);
             const float nativeHeight = static_cast<float>(screen == Screen::Top ? TopScreenHeight : BottomScreenHeight);
@@ -1570,27 +600,20 @@ namespace Duality {
                 std::clamp((io.MousePos.y - imagePos.y) / static_cast<float>(viewportH) * nativeHeight, 0.0f, nativeHeight)
             };
             AcceptSceneAssetDrop(ctx, screen, imagePos, avail, worldDrop, canvasDrop);
-
-            Projector3D proj{ cameraPos, forward, right, up, FovDegrees, aspect, imagePos, viewportW, viewportH };
+            const SceneViewPaneOptions& paneOptions = PaneOptionsFor(ctx, screen);
 
             // Unity/Cocos-style ground grid, drawn first (before every other overlay below) so
             // it visually reads as "underneath" the camera frustums/colliders/gizmos, even
             // though (like all of them) it's really just a flat screen-space overlay with no
-            // true depth test against the rendered mesh scene.
-            {
-                float groundFocusDistance = camera3D.Distance;
-                if (std::abs(forward.y) > 1e-4f) {
-                    const float hitDistance = -cameraPos.y / forward.y;
-                    if (hitDistance > 0.0f)
-                        groundFocusDistance = hitDistance;
-                }
-                float gridCellSize = GridCellSize3D(groundFocusDistance);
-                // Covers the perspective frustum around the centre-ray ground intersection,
-                // including oblique angles. The 128-cell cap keeps overlay work bounded.
-                float gridExtent = std::clamp(groundFocusDistance * 4.0f, gridCellSize * 12.0f, gridCellSize * 128.0f);
-                DrawGrid3D(proj, camera3D.Target, gridCellSize, gridExtent);
+            // true depth test against the rendered mesh scene. Like PiaEngine's: it follows the
+            // camera (snapped to its spacing), switches 1 -> 10 unit cells when zoomed out, and
+            // hides in an orthographic view looking flat at it.
+            if (paneOptions.ShowGrid && SceneViewNavigation::GridVisible3D(camera3D)) {
+                const float gridCellSize = SceneViewNavigation::GridCellSize3D(camera3D);
+                DrawGrid3D(proj, SceneViewNavigation::GridOrigin3D(camera3D), gridCellSize, gridCellSize * 50.0f);
             }
 
+            if (paneOptions.ShowGizmos) { // pane toolbar Gizmos toggle
             // Camera body + frustum wireframe for every camera entity. The compact body remains
             // legible at a distance; the frustum shows the actual view volume and Fov/Zoom.
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, CameraComponent>()) {
@@ -1715,6 +738,11 @@ namespace Duality {
                 }
             }
 
+            // Character Controller, 3D joints, Mesh Collider, LOD Group (SceneView/ComponentGizmos.cpp).
+            DrawComponentGizmos3D(ctx, screen, ImGui::GetWindowDrawList(),
+                [&proj](const glm::vec3& worldPos, ImVec2& out) { return proj.Project(worldPos, out); });
+            } // ShowGizmos
+
             // Draw+hit-test the gizmo every frame (not just while hovered), matching the 2D
             // pane's own reasoning -- a drag already in progress keeps tracking even if the
             // mouse drifts outside the image mid-drag. Any entity with a Transform gets a
@@ -1724,7 +752,7 @@ namespace Duality {
             // picks where the handle sits, Local/Global its orientation (toolbar, Z / X keys).
             const std::vector<Entity> gizmoTargets = GizmoTargets(ctx);
             const bool toolHasHandle = ctx.ActiveGizmoMode != GizmoMode::View;
-            bool hasGizmoTarget = toolHasHandle && !gizmoTargets.empty() && ShouldRenderOnScreen(ctx.SceneRef, gizmoTargets.front().Handle(), screen);
+            bool hasGizmoTarget = paneOptions.ShowGizmos && toolHasHandle && !gizmoTargets.empty() && ShouldRenderOnScreen(ctx.SceneRef, gizmoTargets.front().Handle(), screen);
             GizmoAxis hoveredGizmoAxis = GizmoAxis::None;
             ImVec2 gizmoOriginScreen{};
             const GizmoMode handleMode = ctx.ActiveGizmoMode == GizmoMode::Rect ? GizmoMode::Translate : ctx.ActiveGizmoMode;
@@ -1778,74 +806,58 @@ namespace Duality {
             // Drawn last (on top of everything else in this pane -- a fixed screen-space
             // widget) and hit-tested BEFORE the entity pick below, so clicking it snaps the view
             // instead of also selecting whatever mesh is underneath it.
-            bool orientationGizmoConsumedClick = DrawAndInteractOrientationGizmo3D(camera3D, imagePos, viewportW, imageHovered);
+            PaneInteraction& axisPane = InteractionFor(screen);
+            bool orientationGizmoConsumedClick = DrawAndInteractOrientationGizmo3D(camera3D, imagePos, viewportW, imageHovered,
+                axisPane.AxisGizmoPressed, axisPane.AxisGizmoDragged, axisPane.AxisGizmoPressPos);
+            if (orientationGizmoConsumedClick)
+                ctx.Session.SceneViewStateDirty = true;
 
-            // Frame Selected (F / Hierarchy double-click): fit the whole selection.
+            // Frame Selected (F / Hierarchy double-click): animated fit of the selection bounds.
             if (ctx.Session.RequestFrameSelected && ctx.Session.FocusedPanel != EditorPanel::Game) {
                 glm::vec3 boundsMin, boundsMax;
-                if (SelectionBounds(ctx, boundsMin, boundsMax)) {
-                    camera3D.Target = (boundsMin + boundsMax) * 0.5f;
-                    const float radius = std::max(0.05f, glm::length(boundsMax - boundsMin) * 0.5f);
-                    const float tanHalfFov = std::tan(glm::radians(FovDegrees) * 0.5f);
-                    camera3D.Distance = std::clamp(radius / (0.65f * tanHalfFov) , MinSceneViewDistance3D, 5000.0f);
-                }
+                if (SelectionBounds(ctx, boundsMin, boundsMax))
+                    SceneViewNavigation::Frame3D(camera3D, (boundsMin + boundsMax) * 0.5f, glm::length(boundsMax - boundsMin) * 0.5f);
             }
 
-            // ---- Navigation (Unity): RMB look + WASD/QE fly (Shift faster, wheel = speed),
-            // Alt+LMB orbit, Alt+RMB / wheel zoom, MMB (or the View tool's LMB) pan.
+            // ---- Navigation (PiaEngine / Unity, SceneViewNavigation.h): MMB pan, RMB fly +
+            // WASD/QE (Shift x3, wheel = fly speed), Alt+LMB orbit, Alt+RMB dolly, wheel zoom,
+            // Hand tool LMB pan. A drag keeps going outside the pane until its button is released.
             PaneInteraction& pane = InteractionFor(screen);
-            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-                if (io.KeyAlt)
-                    pane.AltZoom = true;
-                else
-                    pane.Flying = true;
-            }
-            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && io.KeyAlt)
-                pane.AltOrbit = true;
-            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt && ctx.ActiveGizmoMode == GizmoMode::View)
-                pane.ViewPan = true;
-            if (!ImGui::IsMouseDown(ImGuiMouseButton_Right))
-                pane.Flying = pane.AltZoom = false;
-            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
-                pane.AltOrbit = pane.ViewPan = false;
-
-            const glm::vec3 eye = camera3D.Target - forward * camera3D.Distance;
-            if (pane.Flying) {
-                // Look around in place: rotate, then move Target so the eye stays put.
-                if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
-                    glm::quat yawRot = glm::angleAxis(glm::radians(-io.MouseDelta.x * 0.25f), glm::vec3(0.0f, 1.0f, 0.0f));
-                    glm::quat pitchRot = glm::angleAxis(glm::radians(-io.MouseDelta.y * 0.25f), glm::vec3(1.0f, 0.0f, 0.0f));
-                    camera3D.Rotation = glm::normalize(yawRot * camera3D.Rotation * pitchRot);
-                    const glm::vec3 newForward = camera3D.Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
-                    camera3D.Target = eye + newForward * camera3D.Distance;
+            if (imageHovered && !orientationGizmoConsumedClick && pane.Nav3D == SceneViewNavigation::Drag3D::None) {
+                for (int button = 0; button < 3; ++button) {
+                    if (!ImGui::IsMouseClicked(button))
+                        continue;
+                    const auto mode = SceneViewNavigation::PressMode3D(button, io.KeyAlt, ctx.ActiveGizmoMode == GizmoMode::View, false);
+                    if (mode != SceneViewNavigation::Drag3D::Select && mode != SceneViewNavigation::Drag3D::None) {
+                        pane.Nav3D = mode;
+                        pane.NavButton = button;
+                    }
+                    break;
                 }
-                if (io.MouseWheel != 0.0f)
-                    ctx.Session.FlySpeed = std::clamp(ctx.Session.FlySpeed * (1.0f + io.MouseWheel * 0.15f), 0.05f, 500.0f);
-                glm::vec3 move(0.0f);
-                if (ImGui::IsKeyDown(ImGuiKey_W)) move += forward;
-                if (ImGui::IsKeyDown(ImGuiKey_S)) move -= forward;
-                if (ImGui::IsKeyDown(ImGuiKey_D)) move += right;
-                if (ImGui::IsKeyDown(ImGuiKey_A)) move -= right;
-                if (ImGui::IsKeyDown(ImGuiKey_E)) move += glm::vec3(0.0f, 1.0f, 0.0f);
-                if (ImGui::IsKeyDown(ImGuiKey_Q)) move -= glm::vec3(0.0f, 1.0f, 0.0f);
-                if (move != glm::vec3(0.0f)) {
-                    const float speed = ctx.Session.FlySpeed * (io.KeyShift ? 3.0f : 1.0f);
-                    camera3D.Target += glm::normalize(move) * speed * io.DeltaTime;
-                }
-                ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-            } else if (pane.AltZoom) {
-                camera3D.Distance = std::clamp(camera3D.Distance * (1.0f + (io.MouseDelta.x - io.MouseDelta.y) * 0.01f), MinSceneViewDistance3D, 5000.0f);
-            } else if (pane.AltOrbit) {
-                glm::quat yawRot = glm::angleAxis(glm::radians(io.MouseDelta.x * 0.3f), glm::vec3(0.0f, 1.0f, 0.0f));
-                glm::quat pitchRot = glm::angleAxis(glm::radians(-io.MouseDelta.y * 0.3f), glm::vec3(1.0f, 0.0f, 0.0f));
-                camera3D.Rotation = glm::normalize(yawRot * camera3D.Rotation * pitchRot);
-            } else if (imageHovered && io.MouseWheel != 0.0f) {
-                camera3D.Distance = std::clamp(camera3D.Distance * (1.0f - io.MouseWheel * 0.1f), MinSceneViewDistance3D, 5000.0f);
             }
-            if ((imageHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) || pane.ViewPan) {
-                const float panScale = camera3D.Distance * 0.0015f;
-                camera3D.Target -= right * io.MouseDelta.x * panScale;
-                camera3D.Target += up * io.MouseDelta.y * panScale;
+            if (pane.Nav3D != SceneViewNavigation::Drag3D::None && !ImGui::IsMouseDown(pane.NavButton)) {
+                pane.Nav3D = SceneViewNavigation::Drag3D::None;
+                ctx.Session.SceneViewStateDirty = true; // saved per scene (SceneViewState.h)
+            }
+            {
+                SceneViewNavigation::PaneInput input;
+                input.MousePos = { io.MousePos.x - imagePos.x, io.MousePos.y - imagePos.y };
+                input.MouseDelta = { io.MouseDelta.x, io.MouseDelta.y };
+                input.ViewportSize = { static_cast<float>(viewportW), static_cast<float>(viewportH) };
+                input.Wheel = (imageHovered || pane.Nav3D != SceneViewNavigation::Drag3D::None) ? io.MouseWheel : 0.0f;
+                input.DeltaTime = io.DeltaTime;
+                input.Alt = io.KeyAlt;
+                input.Shift = io.KeyShift;
+                if (pane.Nav3D == SceneViewNavigation::Drag3D::Fly) {
+                    input.W = ImGui::IsKeyDown(ImGuiKey_W); input.A = ImGui::IsKeyDown(ImGuiKey_A);
+                    input.S = ImGui::IsKeyDown(ImGuiKey_S); input.D = ImGui::IsKeyDown(ImGuiKey_D);
+                    input.Q = ImGui::IsKeyDown(ImGuiKey_Q); input.E = ImGui::IsKeyDown(ImGuiKey_E);
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+                }
+                if (SceneViewNavigation::Navigate3D(camera3D, pane.Nav3D, input) && pane.Nav3D == SceneViewNavigation::Drag3D::None)
+                    ctx.Session.SceneViewStateDirty = true; // wheel zoom
+                if (SceneViewNavigation::Animate3D(camera3D, io.DeltaTime) && camera3D.Anim < 0.0f)
+                    ctx.Session.SceneViewStateDirty = true; // animation finished
             }
 
             if (imageHovered) {
@@ -1854,19 +866,17 @@ namespace Duality {
                         ctx.DraggingGizmoAxis = hoveredGizmoAxis;
                         ctx.DraggingGizmoScreen = screen;
                     } else {
-                        float ndcX = (2.0f * ((io.MousePos.x - imagePos.x) / viewportW)) - 1.0f;
-                        float ndcY = 1.0f - (2.0f * ((io.MousePos.y - imagePos.y) / viewportH));
-                        float tanHalfFov = std::tan(glm::radians(FovDegrees) * 0.5f);
-                        glm::vec3 rayDir = glm::normalize(forward + right * (ndcX * tanHalfFov * aspect) + up * (ndcY * tanHalfFov));
+                        glm::vec3 rayOrigin, rayDir; // perspective or orthographic (axis gizmo Iso)
+                        proj.Ray(io.MousePos, rayOrigin, rayDir);
 
                         Entity hit;
                         float closestT = std::numeric_limits<float>::max();
                         auto testSphere = [&](Entity candidate, const glm::vec3& center, float radius) {
-                            glm::vec3 toSphere = center - cameraPos;
+                            glm::vec3 toSphere = center - rayOrigin;
                             float tClosest = glm::dot(toSphere, rayDir);
                             if (tClosest < 0.0f)
                                 return; // behind the camera
-                            glm::vec3 closestPoint = cameraPos + rayDir * tClosest;
+                            glm::vec3 closestPoint = rayOrigin + rayDir * tClosest;
                             if (glm::distance(closestPoint, center) <= radius && tClosest < closestT) {
                                 closestT = tClosest;
                                 hit = candidate;
@@ -1881,10 +891,10 @@ namespace Duality {
                             Entity candidate(handle, &ctx.SceneRef);
                             TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
                             auto& mesh = candidate.GetComponent<MeshRendererComponent>();
-                            if (!mesh.Enabled)
-                                continue;
+                            if (!mesh.Enabled || !candidate.HasComponent<MeshFilterComponent>())
+                                continue; // draws nothing without a Mesh Filter
                             float maxScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
-                            testSphere(candidate, transform.Translation, MeshBoundingRadius(mesh) * maxScale);
+                            testSphere(candidate, transform.Translation, MeshBoundingRadius(candidate) * maxScale);
                         }
                         for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
                             if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
@@ -2106,14 +1116,18 @@ namespace Duality {
                 auto& mesh = ctx.SceneRef.Registry().get<MeshRendererComponent>(handle);
                 if (!mesh.Enabled)
                     continue;
+                const MeshFilterComponent* filter = ctx.SceneRef.Registry().try_get<MeshFilterComponent>(handle);
+                MeshPrimitive primitive;
+                uint32_t meshHandle = 0;
+                if (!filter || !ResolveMeshFilter(ctx.Renderer3D, filter->Mesh, primitive, meshHandle))
+                    continue;
                 TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
-                uint32_t meshHandle = ResolveMeshGeometry(ctx.Renderer3D, mesh.Mesh);
                 uint32_t subMeshCount = ctx.Renderer3D.GetSubMeshCount(meshHandle);
                 for (uint32_t i = 0; i < subMeshCount; i++) {
                     const AssetRef& materialRef = MaterialForSubMesh(mesh.Materials, i);
                     Material material = ResolveMeshMaterial(materialRef);
                     uint32_t textureId = ResolveMeshTexture(ctx.Renderer3D, material.Texture);
-                    ctx.Renderer3D.DrawMesh(mesh.Primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
+                    ctx.Renderer3D.DrawMesh(primitive, meshHandle, i, transform.Translation, transform.Rotation, transform.Scale, material.Color, textureId);
                 }
             }
             ctx.Renderer3D.EndScene();
@@ -2129,7 +1143,7 @@ namespace Duality {
             hierarchyOrder.reserve(hierarchy.size());
             for (std::size_t i = 0; i < hierarchy.size(); ++i)
                 hierarchyOrder[hierarchy[i].Handle()] = i;
-            struct EditorSpriteDrawItem { entt::entity Handle; int SortOrder; std::size_t HierarchyOrder; };
+            struct EditorSpriteDrawItem { entt::entity Handle; int SortOrder; std::size_t HierarchyOrder; bool IsTilemap; };
             std::vector<EditorSpriteDrawItem> sprites;
             for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, SpriteRendererComponent>()) {
                 if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
@@ -2138,30 +1152,45 @@ namespace Duality {
                 if (!sprite.Enabled)
                     continue;
                 const auto found = hierarchyOrder.find(handle);
-                sprites.push_back({ handle, sprite.SortOrder, found == hierarchyOrder.end() ? hierarchy.size() : found->second });
+                sprites.push_back({ handle, sprite.SortOrder, found == hierarchyOrder.end() ? hierarchy.size() : found->second, false });
+            }
+            // Tilemaps sort with sprites exactly like the Game view (SceneRenderer::RenderScreen).
+            for (auto handle : ctx.SceneRef.Registry().view<TransformComponent, TilemapComponent>()) {
+                if (!ShouldRenderOnScreen(ctx.SceneRef, handle, screen))
+                    continue;
+                const auto& tilemap = ctx.SceneRef.Registry().get<TilemapComponent>(handle);
+                if (!tilemap.Enabled)
+                    continue;
+                const auto found = hierarchyOrder.find(handle);
+                sprites.push_back({ handle, tilemap.SortOrder, found == hierarchyOrder.end() ? hierarchy.size() : found->second, true });
             }
             std::sort(sprites.begin(), sprites.end(), [](const EditorSpriteDrawItem& a, const EditorSpriteDrawItem& b) {
                 if (a.SortOrder != b.SortOrder)
                     return a.SortOrder < b.SortOrder;
-                return a.HierarchyOrder < b.HierarchyOrder;
+                if (a.HierarchyOrder != b.HierarchyOrder)
+                    return a.HierarchyOrder < b.HierarchyOrder;
+                return a.IsTilemap < b.IsTilemap;
             });
             for (const EditorSpriteDrawItem& item : sprites) {
                 const entt::entity handle = item.Handle;
-                auto& sprite = ctx.SceneRef.Registry().get<SpriteRendererComponent>(handle);
-                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
                 const bool isInactive = !ctx.SceneRef.IsEffectivelyActive(Entity(handle, &ctx.SceneRef));
-                glm::vec4 editorColor = sprite.Color;
+                if (item.IsTilemap) {
+                    // Draw space here is world units (BeginCustomView), so no camera offset.
+                    DrawTilemap2D(ctx.Renderer, ctx.SceneRef, handle, glm::vec2(0.0f), 1.0f, glm::vec2(0.0f),
+                        glm::vec4(1.0f, 1.0f, 1.0f, isInactive ? 0.35f : 1.0f));
+                    continue;
+                }
+                TransformComponent transform = ctx.SceneRef.GetWorldTransform(Entity(handle, &ctx.SceneRef));
+                // Same pivot / sub-sprite / 9-slice / flip rules as the Game view.
+                SpriteDrawData drawData;
+                if (!BuildSpriteRendererDrawData(ctx.Renderer, ctx.SceneRef, handle, { transform.Translation.x, transform.Translation.y }, 1.0f, drawData))
+                    continue;
                 if (isInactive)
-                    editorColor.a *= 0.35f; // Unity-style Scene-only inactive preview
-                glm::vec2 size = sprite.Size * glm::vec2(transform.Scale.x, transform.Scale.y);
-                glm::vec2 topLeft{ transform.Translation.x - size.x * sprite.Pivot.x, transform.Translation.y - size.y * sprite.Pivot.y };
-                uint32_t textureId = ResolveSpriteTexture(ctx.Renderer, GetActiveSpriteTexture(ctx.SceneRef, handle));
-                // Use the same flip-aware helper as the Game renderer. This
-                // keeps Scene and Game views visually identical, including
-                // the optional per-sprite Flip X / Flip Y controls.
-                DrawSpriteQuad(ctx.Renderer, topLeft, size, editorColor,
-                    transform.Rotation.z, textureId, sprite.FlipX, sprite.FlipY);
+                    drawData.Color.a *= 0.35f; // Unity-style Scene-only inactive preview
+                DrawSprite2D(ctx.Renderer, drawData);
             }
+            // Text Mesh (and Trail Renderer during Play) -- this projection is already world units.
+            RenderWorldExtras2D(ctx.Renderer, ctx.SceneRef, screen, nullptr, glm::vec2(0.0f), 1.0f, glm::vec2(0.0f));
             // Cameras have no sprite of their own -- draw a small gizmo marker at
             // each one's position (color-coded by target screen), sized in world
             // units scaled inversely by zoom so it reads as a constant screen size
@@ -2186,6 +1215,8 @@ namespace Duality {
             ImVec2 imagePos = ImGui::GetCursorScreenPos();
             ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(framebuffer.GetColorAttachment())), avail, ImVec2(0, 1), ImVec2(1, 0));
             bool imageHovered = ImGui::IsItemHovered();
+            if (HandleToolsOverlay(ctx, screen, ImGui::GetItemRectMin(), ImGui::GetItemRectSize(), imageHovered))
+                imageHovered = false; // the tools overlay owns the mouse
             ImGuiIO& io = ImGui::GetIO();
 
             const glm::vec2 worldDrop{
@@ -2210,6 +1241,7 @@ namespace Duality {
             // draggable while selected (no extra Edit toggle needed).
             ImDrawList* colliderDrawList = ImGui::GetWindowDrawList();
             const ImU32 colliderColor = IM_COL32(60, 230, 90, 255);
+            if (PaneOptionsFor(ctx, screen).ShowGizmos) { // pane toolbar Gizmos toggle
             // Offset is added in world space untransformed by the parent's rotation --
             // a tiny, purely-visual imprecision for rotated parents (colliders are never
             // simulated as children of a moving parent anyway, see Scene::OnRuntimeStart).
@@ -2311,6 +1343,10 @@ namespace Duality {
                     colliderDrawList->AddPolyline(polygonScreen.data(), static_cast<int>(polygonScreen.size()), colliderColor, ImDrawFlags_Closed, 2.0f);
             }
 
+            // Edge Collider 2D points, joint anchors, effectors (SceneView/ComponentGizmos.cpp).
+            DrawComponentGizmos2D(ctx, screen, colliderDrawList, worldToPaneScreen, worldToPixels);
+            } // ShowGizmos
+
             // Draw+hit-test the gizmo every frame (not just while hovered) so a
             // drag already in progress keeps tracking even if the mouse drifts
             // outside the image mid-drag. Drawn in both panes (the selected
@@ -2329,8 +1365,9 @@ namespace Duality {
                     const float c = std::cos(radians), s = std::sin(radians);
                     ImVec2 corners[4];
                     const glm::vec2 local[4] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+                    const glm::vec2 spritePivot = EffectiveSpritePivot(ctx.SceneRef, entity.Handle()); // sliced sprite's own pivot wins
                     for (int i = 0; i < 4; ++i) {
-                        const glm::vec2 offset = (local[i] - sprite.Pivot) * size;
+                        const glm::vec2 offset = (local[i] - spritePivot) * size;
                         corners[i] = worldToPaneScreen({ world.Translation.x + offset.x * c - offset.y * s, world.Translation.y + offset.x * s + offset.y * c });
                     }
                     outline->AddPolyline(corners, 4, orange, ImDrawFlags_Closed, 1.5f);
@@ -2340,7 +1377,7 @@ namespace Duality {
             // Handles for the whole selection (Pivot / Center, see the toolbar). The View tool
             // has none; the Rect tool moves with the free-move square and resizes with corners.
             const std::vector<Entity> gizmoTargets = GizmoTargets(ctx);
-            bool hasGizmoTarget = ctx.ActiveGizmoMode != GizmoMode::View && !gizmoTargets.empty() &&
+            bool hasGizmoTarget = PaneOptionsFor(ctx, screen).ShowGizmos && ctx.ActiveGizmoMode != GizmoMode::View && !gizmoTargets.empty() &&
                 ShouldRenderOnScreen(ctx.SceneRef, gizmoTargets.front().Handle(), screen);
             GizmoAxis hoveredGizmoAxis = GizmoAxis::None;
             ImVec2 gizmoOrigin{};
@@ -2363,7 +1400,8 @@ namespace Duality {
                     auto& transform = primary.GetComponent<TransformComponent>();
                     const TransformComponent world = ctx.SceneRef.GetWorldTransform(primary);
                     const glm::vec2 worldSize = sprite.Size * glm::vec2(world.Scale.x, world.Scale.y);
-                    const glm::vec2 topLeft{ world.Translation.x - worldSize.x * sprite.Pivot.x, world.Translation.y - worldSize.y * sprite.Pivot.y };
+                    const glm::vec2 spritePivot = EffectiveSpritePivot(ctx.SceneRef, primary.Handle());
+                    const glm::vec2 topLeft{ world.Translation.x - worldSize.x * spritePivot.x, world.Translation.y - worldSize.y * spritePivot.y };
                     ImDrawList* drawList = ImGui::GetWindowDrawList();
                     drawList->AddRect(worldToPaneScreen(topLeft), worldToPaneScreen(topLeft + worldSize), IM_COL32(90, 160, 255, 220), 0.0f, 0, 1.5f);
                     for (int corner = 0; corner < 4; ++corner) {
@@ -2382,8 +1420,8 @@ namespace Duality {
                             glm::vec2 move{ 0.0f, 0.0f };
                             newSize.x += maxX ? delta.x : -delta.x;
                             newSize.y += maxY ? delta.y : -delta.y;
-                            move.x = delta.x * (maxX ? sprite.Pivot.x : 1.0f - sprite.Pivot.x);
-                            move.y = delta.y * (maxY ? sprite.Pivot.y : 1.0f - sprite.Pivot.y);
+                            move.x = delta.x * (maxX ? spritePivot.x : 1.0f - spritePivot.x);
+                            move.y = delta.y * (maxY ? spritePivot.y : 1.0f - spritePivot.y);
                             auto safeDiv = [](float a, float b) { return std::abs(b) > 1e-6f ? a / b : a; };
                             sprite.Size = { std::max(0.01f, safeDiv(newSize.x, world.Scale.x)), std::max(0.01f, safeDiv(newSize.y, world.Scale.y)) };
                             const glm::vec2 localMove = WorldDeltaToLocal(ctx.SceneRef, primary, move);
@@ -2398,44 +1436,57 @@ namespace Duality {
             if (rectHandleActive)
                 hoveredGizmoAxis = GizmoAxis::None;
 
-            // Frame Selected (F / Hierarchy double-click): fit the whole selection.
+            // Frame Selected (F / Hierarchy double-click): animated fit of the selection bounds.
+            const glm::vec2 viewportSize{ static_cast<float>(viewportW), static_cast<float>(viewportH) };
             if (ctx.Session.RequestFrameSelected && ctx.Session.FocusedPanel != EditorPanel::Game) {
                 glm::vec3 boundsMin, boundsMax;
-                if (SelectionBounds(ctx, boundsMin, boundsMax)) {
-                    camera.Position = { (boundsMin.x + boundsMax.x) * 0.5f, (boundsMin.y + boundsMax.y) * 0.5f };
-                    const glm::vec2 bounds = glm::max(glm::vec2(boundsMax.x - boundsMin.x, boundsMax.y - boundsMin.y), glm::vec2(0.01f));
-                    constexpr float FitFraction = 0.65f;
-                    const float fitZoomX = (static_cast<float>(viewportW) * FitFraction) / (bounds.x * PhysicsUnits::PPU());
-                    const float fitZoomY = (static_cast<float>(viewportH) * FitFraction) / (bounds.y * PhysicsUnits::PPU());
-                    camera.Zoom = std::clamp(std::min(fitZoomX, fitZoomY), 0.1f, 5.0f);
+                if (SelectionBounds(ctx, boundsMin, boundsMax))
+                    SceneViewNavigation::Frame2D(camera, { boundsMin.x, boundsMin.y }, { boundsMax.x, boundsMax.y }, viewportSize, PhysicsUnits::PPU());
+            }
+
+            // ---- Navigation (PiaEngine 2D view, SceneViewNavigation.h): MMB / RMB / Alt+LMB /
+            // Hand tool LMB pan (the world point under the cursor follows the mouse), wheel zooms
+            // toward the cursor. A drag keeps going outside the pane until its button is released.
+            PaneInteraction& pane = InteractionFor(screen);
+            if (imageHovered && pane.Nav2D == SceneViewNavigation::Drag2D::None) {
+                for (int button = 0; button < 3; ++button) {
+                    if (!ImGui::IsMouseClicked(button))
+                        continue;
+                    if (SceneViewNavigation::PressMode2D(button, io.KeyAlt, ctx.ActiveGizmoMode == GizmoMode::View) == SceneViewNavigation::Drag2D::Pan) {
+                        pane.Nav2D = SceneViewNavigation::Drag2D::Pan;
+                        pane.NavButton = button;
+                    }
+                    break;
                 }
             }
-
-            // ---- Navigation (Unity 2D mode): wheel zooms toward the cursor, MMB / RMB drag (or
-            // the View tool's LMB drag) pans.
-            PaneInteraction& pane = InteractionFor(screen);
-            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-                pane.Flying = true;
-            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && (ctx.ActiveGizmoMode == GizmoMode::View || io.KeyAlt))
-                pane.ViewPan = true;
-            if (!ImGui::IsMouseDown(ImGuiMouseButton_Right))
-                pane.Flying = false;
-            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
-                pane.ViewPan = false;
-            if (pane.Flying || pane.ViewPan || (imageHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))) {
-                camera.Position.x -= io.MouseDelta.x / worldToPixels;
-                camera.Position.y -= io.MouseDelta.y / worldToPixels;
+            if (pane.Nav2D != SceneViewNavigation::Drag2D::None && !ImGui::IsMouseDown(pane.NavButton)) {
+                pane.Nav2D = SceneViewNavigation::Drag2D::None;
+                ctx.Session.SceneViewStateDirty = true;
             }
-            if (imageHovered && io.MouseWheel != 0.0f) {
-                // Keep the world point under the cursor fixed while zooming.
-                const glm::vec2 cursor{ io.MousePos.x - imagePos.x - viewportW * 0.5f, io.MousePos.y - imagePos.y - viewportH * 0.5f };
-                const glm::vec2 before = cursor / worldToPixels + camera.Position;
-                camera.Zoom = std::clamp(camera.Zoom * (1.0f + io.MouseWheel * 0.1f), 0.1f, 5.0f);
-                const float newWorldToPixels = camera.Zoom * PhysicsUnits::PPU();
-                camera.Position = before - cursor / newWorldToPixels;
+            {
+                SceneViewNavigation::PaneInput input;
+                input.MousePos = { io.MousePos.x - imagePos.x, io.MousePos.y - imagePos.y };
+                input.MouseDelta = { io.MouseDelta.x, io.MouseDelta.y };
+                input.ViewportSize = viewportSize;
+                input.Wheel = imageHovered ? io.MouseWheel : 0.0f;
+                if (SceneViewNavigation::Navigate2D(camera, pane.Nav2D, input, PhysicsUnits::PPU()) && pane.Nav2D == SceneViewNavigation::Drag2D::None)
+                    ctx.Session.SceneViewStateDirty = true; // wheel zoom
+                if (SceneViewNavigation::Animate2D(camera, io.DeltaTime) && camera.Anim < 0.0f)
+                    ctx.Session.SceneViewStateDirty = true;
             }
+            const bool panning2D = pane.Nav2D == SceneViewNavigation::Drag2D::Pan;
 
-            if (imageHovered && !rectHandleActive && !pane.ViewPan) {
+            // Tile Palette (Unity): while a brush tool is active, the left mouse paints the
+            // palette's target Tilemap instead of selecting / dragging gizmos.
+            TilePaletteWindow::SceneInput tileInput;
+            tileInput.Hovered = imageHovered && !panning2D && !io.KeyAlt;
+            tileInput.TargetScreen = screen;
+            tileInput.MouseWorld = { (io.MousePos.x - imagePos.x - viewportW * 0.5f) / worldToPixels + camera.Position.x,
+                                     (io.MousePos.y - imagePos.y - viewportH * 0.5f) / worldToPixels + camera.Position.y };
+            tileInput.WorldToScreen = [&](const glm::vec2& world) { const ImVec2 p = worldToPaneScreen(world); return glm::vec2(p.x, p.y); };
+            const bool tilePainting = TilePaletteWindow::HandleSceneInput(ctx, tileInput);
+
+            if (imageHovered && !rectHandleActive && !panning2D && !tilePainting) {
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt && ctx.ActiveGizmoMode != GizmoMode::View) {
                     if (hasGizmoTarget && hoveredGizmoAxis != GizmoAxis::None) {
                         ctx.DraggingGizmoAxis = hoveredGizmoAxis;
@@ -2461,8 +1512,9 @@ namespace Duality {
                             if (!sprite.Enabled)
                                 continue;
                             glm::vec2 size = sprite.Size * glm::vec2(transform.Scale.x, transform.Scale.y);
-                            glm::vec2 topLeft{ transform.Translation.x - size.x * sprite.Pivot.x,
-                                transform.Translation.y - size.y * sprite.Pivot.y };
+                            const glm::vec2 spritePivot = EffectiveSpritePivot(ctx.SceneRef, handle);
+                            glm::vec2 topLeft{ transform.Translation.x - size.x * spritePivot.x,
+                                transform.Translation.y - size.y * spritePivot.y };
                             glm::vec2 bottomRight = topLeft + size;
                             bool inside = worldPoint.x >= std::min(topLeft.x, bottomRight.x) &&
                                           worldPoint.x <= std::max(topLeft.x, bottomRight.x) &&
@@ -2593,15 +1645,55 @@ namespace Duality {
             ImGui::SameLine();
             renderModeButton("3D", RenderMode::Mode3D);
             ImGui::PopStyleVar();
-            if (renderMode == RenderMode::Mode3D && InteractionFor(screen).Flying) {
+            // PiaEngine-style pane toolbar: Grid / Gizmos toggles, the pipeline badge and a hint.
+            SceneViewPaneOptions& options = ctx.Session.ScenePaneOptions[screen == Screen::Top ? 0 : 1];
+            auto toggleButton = [&](const char* id, const char* icon, const char* text, bool& value, const char* tooltip) {
                 ImGui::SameLine();
-                ImGui::TextDisabled("Fly speed %.2f (wheel)", ctx.Session.FlySpeed);
-            }
+                ImGui::PushStyleColor(ImGuiCol_Button, value ? ImGui::ColorConvertU32ToFloat4(EditorColors::Selection()) : ImGui::GetStyleColorVec4(ImGuiCol_Button));
+                if (ImGui::SmallButton((std::string(icon) + " " + text + "##" + id).c_str()))
+                    value = !value;
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    ImGui::SetTooltip("%s", tooltip);
+            };
+            toggleButton("grid", EditorIcons::Grid, "Grid", options.ShowGrid, "Toggle grid");
+            toggleButton("gizmos", EditorIcons::Cubes, "Gizmos", options.ShowGizmos, "Toggle gizmos (component icons, colliders, transform handles)");
+            const char* controlsHint = renderMode == RenderMode::Mode3D
+                ? "RMB+WASD fly \xC2\xB7 Alt+LMB orbit \xC2\xB7 MMB pan \xC2\xB7 Wheel zoom \xC2\xB7 F frame"
+                : "MMB/RMB pan \xC2\xB7 Wheel zoom \xC2\xB7 F frame \xC2\xB7 Ctrl snap";
+            // Trailing toolbar text only when it fits on the header line (never clipped mid-word).
+            auto trailingText = [](const std::string& text, const std::string& shortText = {}) {
+                const float lineEnd = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+                const float start = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x;
+                const std::string* shown = &text;
+                if (start + ImGui::CalcTextSize(text.c_str()).x > lineEnd)
+                    shown = &shortText;
+                if (shown->empty() || start + ImGui::CalcTextSize(shown->c_str()).x > lineEnd)
+                    return;
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", shown->c_str());
+            };
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", renderMode == RenderMode::Mode3D ? "3D \xC2\xB7 citro3d" : "2D \xC2\xB7 citro2d");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                ImGui::SetTooltip("%s", controlsHint);
+            trailingText(controlsHint);
 
             if (renderMode == RenderMode::Mode2D)
                 DrawScenePane2D(ctx, screen, camera, framebuffer, paneSize);
             else
                 DrawScenePane3D(ctx, screen, camera3D, ctx.Renderer3D, framebuffer, paneSize);
+            DrawToolsOverlay(ctx, screen);
+            if (renderMode == RenderMode::Mode3D && InteractionFor(screen).Nav3D == SceneViewNavigation::Drag3D::Fly) {
+                // Fly speed readout in the image's bottom-left corner while flying (wheel changes it).
+                char flyText[48];
+                std::snprintf(flyText, sizeof(flyText), "Fly speed x%.2f (wheel)", camera3D.FlySpeed);
+                const ImVec2 textSize = ImGui::CalcTextSize(flyText);
+                const ImVec2 min(PaneImageOrigin(screen).x + 8.0f, PaneImageOrigin(screen).y + PaneImageSize(screen).y - textSize.y - 14.0f);
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                drawList->AddRectFilled(min, ImVec2(min.x + textSize.x + 12.0f, min.y + textSize.y + 6.0f), IM_COL32(20, 20, 24, 190), 4.0f);
+                drawList->AddText(ImVec2(min.x + 6.0f, min.y + 3.0f), IM_COL32(220, 220, 220, 255), flyText);
+            }
         }
     }
 
@@ -2620,6 +1712,11 @@ namespace Duality {
         }
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
             ctx.Session.FocusedPanel = EditorPanel::Scene;
+        // Per-scene camera persistence (PiaEngine / Unity): restore once per opened scene.
+        if (m_ViewStateScene != ctx.ScenePath) {
+            m_ViewStateScene = ctx.ScenePath;
+            SceneViewState::Load(ctx);
+        }
         // A right/middle click into the Scene view focuses it too (so Delete / Ctrl+D / F act
         // on the selection right after clicking there, like Unity).
         if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
@@ -2653,7 +1750,41 @@ namespace Duality {
         ImGui::EndChild();
 
         ctx.Session.RequestFrameSelected = false;
+        if (ctx.Session.SceneViewStateDirty) {
+            ctx.Session.SceneViewStateDirty = false;
+            SceneViewState::Save(ctx);
+        }
         ImGui::End();
+    }
+
+}
+
+namespace Duality {
+
+    std::string DescribeSceneView(EditorContext& ctx, Screen screen) {
+        const int index = screen == Screen::Top ? 0 : 1;
+        const SceneViewCamera& camera = screen == Screen::Top ? ctx.TopSceneView : ctx.BottomSceneView;
+        const SceneViewCamera3D& camera3D = screen == Screen::Top ? ctx.TopSceneView3D : ctx.BottomSceneView3D;
+        const RenderMode mode = screen == Screen::Top ? ctx.TopRenderMode : ctx.BottomRenderMode;
+        const ImVec2 imagePos = PaneImageOrigin(screen);
+        const ImVec2 imageSize = PaneImageSize(screen);
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const glm::vec2 local{ mouse.x - imagePos.x, mouse.y - imagePos.y };
+        const glm::vec2 world2D = SceneViewNavigation::ScreenToWorld2D(camera, local, { imageSize.x, imageSize.y }, PhysicsUnits::PPU());
+        const glm::vec3 eye = camera3D.Position();
+        char text[1024];
+        std::snprintf(text, sizeof(text),
+            "{\"mode\":\"%s\",\"image\":[%.1f,%.1f,%.1f,%.1f],\"mouse\":[%.1f,%.1f],"
+            "\"center2D\":[%.5f,%.5f],\"zoom2D\":%.5f,\"orthoSize2D\":%.5f,\"worldUnderMouse2D\":[%.5f,%.5f],"
+            "\"pivot\":[%.4f,%.4f,%.4f],\"distance\":%.4f,\"yaw\":%.4f,\"pitch\":%.4f,\"eye\":[%.4f,%.4f,%.4f],"
+            "\"orthographic\":%s,\"flySpeed\":%.4f,\"animating\":%s,\"tool\":%d,\"grid\":%s,\"gizmos\":%s}",
+            mode == RenderMode::Mode3D ? "3D" : "2D", imagePos.x, imagePos.y, imageSize.x, imageSize.y, mouse.x, mouse.y,
+            camera.Position.x, camera.Position.y, camera.Zoom, SceneViewNavigation::OrthoSize2D(camera, imageSize.y, PhysicsUnits::PPU()), world2D.x, world2D.y,
+            camera3D.Target.x, camera3D.Target.y, camera3D.Target.z, camera3D.Distance, camera3D.Yaw, camera3D.Pitch, eye.x, eye.y, eye.z,
+            camera3D.Orthographic ? "true" : "false", camera3D.FlySpeed, (camera3D.Anim >= 0.0f || camera.Anim >= 0.0f) ? "true" : "false",
+            static_cast<int>(ctx.ActiveGizmoMode), ctx.Session.ScenePaneOptions[index].ShowGrid ? "true" : "false",
+            ctx.Session.ScenePaneOptions[index].ShowGizmos ? "true" : "false");
+        return text;
     }
 
 }

@@ -141,18 +141,19 @@ namespace Duality {
         // their aspect ratio. The temporary BMP lives beside the cooked .t3x and is removed
         // immediately after tex3ds runs; Assets/ is never modified.
         bool MakeTex3dsInput(const std::filesystem::path& sourcePath, const std::filesystem::path& cookedPath,
-            std::filesystem::path& inputPath, bool& wasResized) {
+            std::filesystem::path& inputPath, bool& wasResized, int maxDimension = N3DSTextureMaxDimension) {
             int sourceWidth = 0, sourceHeight = 0, channels = 0;
             if (!stbi_info(sourcePath.string().c_str(), &sourceWidth, &sourceHeight, &channels) || sourceWidth <= 0 || sourceHeight <= 0)
                 return false;
-            if (sourceWidth <= N3DSTextureMaxDimension && sourceHeight <= N3DSTextureMaxDimension) {
+            maxDimension = std::clamp(maxDimension <= 0 ? N3DSTextureMaxDimension : maxDimension, 8, N3DSTextureMaxDimension);
+            if (sourceWidth <= maxDimension && sourceHeight <= maxDimension) {
                 inputPath = sourcePath;
                 wasResized = false;
                 return true;
             }
 
-            const float scale = std::min(static_cast<float>(N3DSTextureMaxDimension) / sourceWidth,
-                static_cast<float>(N3DSTextureMaxDimension) / sourceHeight);
+            const float scale = std::min(static_cast<float>(maxDimension) / sourceWidth,
+                static_cast<float>(maxDimension) / sourceHeight);
             const int targetWidth = std::max(1, static_cast<int>(std::lround(sourceWidth * scale)));
             const int targetHeight = std::max(1, static_cast<int>(std::lround(sourceHeight * scale)));
             stbi_uc* decoded = stbi_load(sourcePath.string().c_str(), &sourceWidth, &sourceHeight, &channels, 4);
@@ -206,6 +207,10 @@ namespace Duality {
                 const std::string& candidate = value.get_ref<const std::string&>();
                 if (IsAssetGuid(candidate))
                     found.insert(candidate);
+                // A sprite reference "<textureGuid>#<spriteId>" ships its texture (whose cooked
+                // .meta carries every sprite rect, see the texture branch of CookAssets).
+                else if (candidate.size() > 33 && candidate[32] == '#' && IsAssetGuid(candidate.substr(0, 32)))
+                    found.insert(candidate.substr(0, 32));
             } else if (value.is_array()) {
                 for (const json& item : value)
                     CollectAssetGuids(item, found);
@@ -355,10 +360,13 @@ namespace Duality {
         // Ensure source-model children exist before resolving scene AssetRefs for the
         // dependency cook. This also covers a project built before its Content Browser has
         // ever shown the FBX/glTF file.
+        // (Runs on the build thread: EnsureImported hands the work to the editor's importer and
+        // waits, so a model dropped a moment ago is cooked with its current import settings.)
         for (const auto& entry : fs::recursive_directory_iterator(assetsDir, fs::directory_options::skip_permission_denied)) {
             std::error_code importError;
-            if (entry.is_regular_file(importError) && !importError && ModelImporter::IsSupported(entry.path()))
-                ModelImporter::Inspect(entry.path());
+            if (entry.is_regular_file(importError) && !importError && ModelImporter::IsSupported(entry.path()) &&
+                entry.path().parent_path().filename() != ".duality-import")
+                ModelImporter::EnsureImported(entry.path());
         }
 
         bool dependencyDiscoverySucceeded = false;
@@ -453,11 +461,19 @@ namespace Duality {
                 // this only changes behavior for a texture that actually asked for mipmaps).
                 TextureImportSettings settings = TextureImportSettings::Load(srcPath.string());
                 std::string mipmapFlag = settings.GenerateMipmaps ? " -m box" : "";
+                // Per-texture 3DS format (Texture / Model import settings); "Auto" keeps
+                // tex3ds's default RGBA8 exactly as before.
+                if (!settings.N3DSFormat.empty() && settings.N3DSFormat != "Auto") {
+                    std::string format = settings.N3DSFormat;
+                    std::transform(format.begin(), format.end(), format.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    if (format.find_first_not_of("abcdeghilrt0123456789") == std::string::npos)
+                        mipmapFlag += " -f " + format;
+                }
                 Log::Info("BuildPipeline: cooking texture [" + std::to_string(cookedTextures) + "/" +
                     std::to_string(totalTextures) + "] " + relPath.generic_string());
                 fs::path tex3dsInput;
                 bool textureWasResized = false;
-                if (!MakeTex3dsInput(srcPath, destPath, tex3dsInput, textureWasResized)) {
+                if (!MakeTex3dsInput(srcPath, destPath, tex3dsInput, textureWasResized, settings.MaxSize)) {
                     Log::Warn("BuildPipeline: could not decode texture '" + srcPath.string() + "', skipping");
                     continue;
                 }
@@ -490,6 +506,13 @@ namespace Duality {
 
                 romfsPath = "romfs:/Assets/" + relT3x.generic_string();
             } else {
+                // FBX / glTF sources never ship: the player only loads what the model importer
+                // cooked from them (.dmesh/.mat/.png/.anim under .duality-import). A scene's
+                // model-prefab link still names the model GUID, which is all it needs.
+                std::string sourceExtension = srcPath.extension().string();
+                std::transform(sourceExtension.begin(), sourceExtension.end(), sourceExtension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (sourceExtension == ".fbx" || sourceExtension == ".gltf" || sourceExtension == ".glb")
+                    continue;
                 fs::path destPath = romfsAssetsDir / relPath;
                 fs::create_directories(destPath.parent_path(), ec);
                 if (!CopyFileA(srcPath.string().c_str(), destPath.string().c_str(), FALSE)) {

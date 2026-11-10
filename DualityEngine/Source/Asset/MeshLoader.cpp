@@ -62,6 +62,63 @@ namespace Duality {
             int TexCoordIndex = 0;
             int NormalIndex = 0;
         };
+
+        // Bounds-checked little-endian cursor over an in-memory .dmesh.
+        struct ByteReader {
+            const uint8_t* Data = nullptr;
+            size_t Size = 0;
+            size_t Offset = 0;
+            size_t Remaining() const { return Size - Offset; }
+            bool Bytes(void* target, size_t count) {
+                if (count > Remaining())
+                    return false;
+                if (count)
+                    std::memcpy(target, Data + Offset, count);
+                Offset += count;
+                return true;
+            }
+            template<typename T> bool Scalar(T& value) { return Bytes(&value, sizeof(T)); }
+            bool Floats(float* values, size_t count) { return Bytes(values, count * sizeof(float)); }
+        };
+
+        bool ReadBones(ByteReader& reader, uint32_t boneCount, MeshData& data) {
+            for (uint32_t i = 0; i < boneCount; ++i) {
+                uint32_t length = 0;
+                if (!reader.Scalar(length) || length > 4096)
+                    return false;
+                MeshData::Bone bone;
+                bone.Name.resize(length);
+                if (length && !reader.Bytes(bone.Name.data(), length))
+                    return false;
+                if (!reader.Floats(&bone.Offset[0][0], 16))
+                    return false;
+                data.Bones.push_back(std::move(bone));
+            }
+            return true;
+        }
+
+        bool ReadFloatVertex(ByteReader& reader, MeshVertex& vertex) {
+            float values[12]{};
+            if (!reader.Floats(values, 12))
+                return false;
+            vertex.Position = { values[0], values[1], values[2] };
+            vertex.TexCoord = { values[3], values[4] };
+            vertex.Normal = { values[5], values[6], values[7] };
+            vertex.Color = { values[8], values[9], values[10], values[11] };
+            return true;
+        }
+
+        void ComputeBounds(MeshData& data) {
+            if (data.Vertices.empty()) {
+                data.BoundsMin = data.BoundsMax = glm::vec3(0.0f);
+                return;
+            }
+            data.BoundsMin = data.BoundsMax = data.Vertices.front().Position;
+            for (const MeshVertex& vertex : data.Vertices) {
+                data.BoundsMin = glm::min(data.BoundsMin, vertex.Position);
+                data.BoundsMax = glm::max(data.BoundsMax, vertex.Position);
+            }
+        }
     }
 
     const MeshData& MeshLoader::Load(const std::string& path) {
@@ -79,82 +136,21 @@ namespace Duality {
                 return static_cast<char>(std::tolower(c));
             });
             if (extension == ".dmesh") {
-                // Fixed little-endian layout written by ModelImporter: magic/version/counts,
-                // then explicit float fields (never raw glm structs, whose padding differs by ABI).
-                char magic[4]{};
-                uint32_t version = 0, vertexCount = 0, subMeshCount = 0, boneCount = 0;
-                float radius = 0.0f;
-                const bool validHeader = std::fread(magic, 1, sizeof(magic), file) == sizeof(magic) &&
-                    std::fread(&version, sizeof(version), 1, file) == 1 &&
-                    std::fread(&vertexCount, sizeof(vertexCount), 1, file) == 1 &&
-                    std::fread(&subMeshCount, sizeof(subMeshCount), 1, file) == 1 &&
-                    std::fread(&radius, sizeof(radius), 1, file) == 1 &&
-                    std::memcmp(magic, "DMSH", 4) == 0 && (version >= 1 && version <= 3) &&
-                    (version == 1 || std::fread(&boneCount, sizeof(boneCount), 1, file) == 1);
-                if (!validHeader) {
-                    Log::Warn("MeshLoader: invalid .dmesh '" + path + "'");
-                } else {
-                    bool valid = true;
-                    for (uint32_t i = 0; i < boneCount && valid; ++i) {
-                        uint32_t length = 0;
-                        if (std::fread(&length, sizeof(length), 1, file) != 1 || length > 4096) { valid = false; break; }
-                        MeshData::Bone bone;
-                        bone.Name.resize(length);
-                        if (length && std::fread(bone.Name.data(), 1, length, file) != length) { valid = false; break; }
-                        if (std::fread(&bone.Offset[0][0], sizeof(float), 16, file) != 16) { valid = false; break; }
-                        data.Bones.push_back(std::move(bone));
-                    }
-                    data.Vertices.resize(vertexCount);
-                    for (MeshVertex& vertex : data.Vertices) {
-                        float values[12]{};
-                        if (std::fread(values, sizeof(float), 12, file) != 12) { valid = false; break; }
-                        vertex.Position = { values[0], values[1], values[2] };
-                        vertex.TexCoord = { values[3], values[4] };
-                        vertex.Normal = { values[5], values[6], values[7] };
-                        vertex.Color = { values[8], values[9], values[10], values[11] };
-                        if (version == 2) {
-                            // Version 2 stored global u32 bone ids. Keep it loadable as a
-                            // CPU-skin fallback, while all newly cooked V3 assets use local
-                            // byte palette ids.
-                            uint32_t legacyIndices[4]{};
-                            if (std::fread(legacyIndices, sizeof(uint32_t), 4, file) != 4 ||
-                                std::fread(&vertex.BoneWeights, sizeof(float), 4, file) != 4) { valid = false; break; }
-                            for (int influence = 0; influence < 4; ++influence)
-                                vertex.BoneIndices[influence] = static_cast<uint8_t>(std::min<uint32_t>(legacyIndices[influence], 255));
-                            data.LegacyBoneIndices.push_back({ legacyIndices[0], legacyIndices[1], legacyIndices[2], legacyIndices[3] });
-                        } else if (version == 3 &&
-                            (std::fread(&vertex.BoneIndices, sizeof(uint8_t), 4, file) != 4 ||
-                             std::fread(&vertex.BoneWeights, sizeof(float), 4, file) != 4)) { valid = false; break; }
-                    }
-                    for (uint32_t i = 0; valid && i < subMeshCount; ++i) {
-                        MeshData::SubMesh subMesh;
-                        if (std::fread(&subMesh.FirstVertex, sizeof(uint32_t), 1, file) != 1 ||
-                            std::fread(&subMesh.VertexCount, sizeof(uint32_t), 1, file) != 1 ||
-                            subMesh.FirstVertex + subMesh.VertexCount > vertexCount) { valid = false; break; }
-                        if (version == 3) {
-                            uint32_t paletteCount = 0;
-                            if (std::fread(&paletteCount, sizeof(paletteCount), 1, file) != 1 || paletteCount > 24) {
-                                valid = false; break;
-                            }
-                            subMesh.BonePalette.resize(paletteCount);
-                            if (paletteCount && std::fread(subMesh.BonePalette.data(), sizeof(uint16_t), paletteCount, file) != paletteCount) {
-                                valid = false; break;
-                            }
-                            for (uint16_t bone : subMesh.BonePalette)
-                                if (bone >= boneCount) { valid = false; break; }
-                        }
-                        data.SubMeshes.push_back(subMesh);
-                    }
-                    if (!valid) {
-                        data = {};
-                        Log::Warn("MeshLoader: truncated .dmesh '" + path + "'");
-                    } else {
-                        data.BoundingRadius = radius;
-                        // Tangents aren't part of the cooked format; derive them for Lit normal maps.
-                        GenerateTangents(data.Vertices);
+                // Fixed little-endian layout written by ModelImporter (see MeshLoader.h).
+                std::vector<uint8_t> bytes;
+                if (std::fseek(file, 0, SEEK_END) == 0) {
+                    const long size = std::ftell(file);
+                    std::fseek(file, 0, SEEK_SET);
+                    if (size > 0) {
+                        bytes.resize(static_cast<size_t>(size));
+                        if (std::fread(bytes.data(), 1, bytes.size(), file) != bytes.size())
+                            bytes.clear();
                     }
                 }
                 std::fclose(file);
+                std::string error;
+                if (!ParseDMesh(bytes.data(), bytes.size(), data, &error))
+                    Log::Warn("MeshLoader: " + error + " .dmesh '" + path + "'");
                 return s_Cache.emplace(path, std::move(data)).first->second;
             }
             std::vector<glm::vec3> positions;
@@ -270,9 +266,164 @@ namespace Duality {
             for (const MeshVertex& vertex : data.Vertices)
                 maxDistanceSq = std::max(maxDistanceSq, glm::dot(vertex.Position, vertex.Position));
             data.BoundingRadius = std::sqrt(maxDistanceSq);
+            ComputeBounds(data);
         }
 
         return s_Cache.emplace(path, std::move(data)).first->second;
+    }
+
+    void MeshLoader::Invalidate(const std::string& path) {
+        if (path.empty())
+            s_Cache.clear();
+        else
+            s_Cache.erase(path);
+    }
+
+    bool MeshLoader::ParseDMesh(const uint8_t* bytes, size_t size, MeshData& out, std::string* error) {
+        out = {};
+        ByteReader reader{ bytes, size };
+        auto fail = [&](const char* message) {
+            out = {};
+            if (error) *error = message;
+            return false;
+        };
+        char magic[4]{};
+        uint32_t version = 0;
+        if (!reader.Bytes(magic, 4) || std::memcmp(magic, "DMSH", 4) != 0 || !reader.Scalar(version) ||
+            version < 1 || version > DMeshCurrentVersion)
+            return fail("invalid");
+
+        if (version == 4) {
+            uint32_t flags = 0, vertexCount = 0, indexCount = 0, subMeshCount = 0, boneCount = 0;
+            float radius = 0.0f, boundsMin[3]{}, boundsMax[3]{}, uvMin[2]{}, uvMax[2]{};
+            if (!reader.Scalar(flags) || !reader.Scalar(vertexCount) || !reader.Scalar(indexCount) ||
+                !reader.Scalar(subMeshCount) || !reader.Scalar(radius) || !reader.Floats(boundsMin, 3) ||
+                !reader.Floats(boundsMax, 3) || !reader.Floats(uvMin, 2) || !reader.Floats(uvMax, 2) ||
+                !reader.Scalar(boneCount) || boneCount > 65535)
+                return fail("invalid");
+            if (!ReadBones(reader, boneCount, out))
+                return fail("truncated");
+            const bool quantized = (flags & DMeshFlag_Quantized) != 0;
+            const size_t vertexBytes = quantized ? 26u : 68u;
+            if (vertexCount > reader.Remaining() / vertexBytes)
+                return fail("truncated");
+            std::vector<MeshVertex> unique(vertexCount);
+            const glm::vec3 lo(boundsMin[0], boundsMin[1], boundsMin[2]), hi(boundsMax[0], boundsMax[1], boundsMax[2]);
+            const glm::vec2 uvLo(uvMin[0], uvMin[1]), uvHi(uvMax[0], uvMax[1]);
+            for (MeshVertex& vertex : unique) {
+                bool ok = true;
+                if (quantized) {
+                    uint16_t position[3]{}, uv[2]{};
+                    int8_t normal[4]{};
+                    uint8_t color[4]{}, weights[4]{};
+                    ok = reader.Bytes(position, sizeof(position)) && reader.Bytes(uv, sizeof(uv)) &&
+                        reader.Bytes(normal, sizeof(normal)) && reader.Bytes(color, sizeof(color)) &&
+                        reader.Bytes(&vertex.BoneIndices, 4) && reader.Bytes(weights, sizeof(weights));
+                    for (int axis = 0; axis < 3; ++axis)
+                        vertex.Position[axis] = lo[axis] + (hi[axis] - lo[axis]) * (position[axis] / 65535.0f);
+                    for (int axis = 0; axis < 2; ++axis)
+                        vertex.TexCoord[axis] = uvLo[axis] + (uvHi[axis] - uvLo[axis]) * (uv[axis] / 65535.0f);
+                    vertex.Normal = glm::vec3(normal[0], normal[1], normal[2]) / 127.0f;
+                    const float length = glm::length(vertex.Normal);
+                    vertex.Normal = length > 0.0001f ? vertex.Normal / length : glm::vec3(0.0f, 1.0f, 0.0f);
+                    vertex.Color = glm::vec4(color[0], color[1], color[2], color[3]) / 255.0f;
+                    float sum = 0.0f;
+                    for (int influence = 0; influence < 4; ++influence) {
+                        vertex.BoneWeights[influence] = weights[influence] / 255.0f;
+                        sum += vertex.BoneWeights[influence];
+                    }
+                    if (sum > 0.0f)
+                        vertex.BoneWeights /= sum;
+                } else {
+                    ok = ReadFloatVertex(reader, vertex) && reader.Bytes(&vertex.BoneIndices, 4) &&
+                        reader.Floats(&vertex.BoneWeights[0], 4);
+                }
+                if (!ok)
+                    return fail("truncated");
+            }
+            if (indexCount > reader.Remaining() / 2)
+                return fail("truncated");
+            std::vector<uint16_t> indices(indexCount);
+            if (indexCount && !reader.Bytes(indices.data(), indexCount * sizeof(uint16_t)))
+                return fail("truncated");
+            for (uint32_t i = 0; i < subMeshCount; ++i) {
+                uint32_t firstVertex = 0, count = 0, firstIndex = 0, subIndexCount = 0, materialSlot = 0, paletteCount = 0;
+                if (!reader.Scalar(firstVertex) || !reader.Scalar(count) || !reader.Scalar(firstIndex) ||
+                    !reader.Scalar(subIndexCount) || !reader.Scalar(materialSlot) || !reader.Scalar(paletteCount) ||
+                    static_cast<uint64_t>(firstVertex) + count > vertexCount ||
+                    static_cast<uint64_t>(firstIndex) + subIndexCount > indexCount || paletteCount > DMeshMaxPaletteBones)
+                    return fail("invalid submesh in");
+                MeshData::SubMesh subMesh;
+                subMesh.FirstVertex = static_cast<uint32_t>(out.Vertices.size());
+                subMesh.VertexCount = subIndexCount;
+                subMesh.BonePalette.resize(paletteCount);
+                if (paletteCount && !reader.Bytes(subMesh.BonePalette.data(), paletteCount * sizeof(uint16_t)))
+                    return fail("truncated");
+                for (uint16_t bone : subMesh.BonePalette)
+                    if (bone >= boneCount) return fail("invalid palette in");
+                out.Vertices.reserve(out.Vertices.size() + subIndexCount);
+                for (uint32_t index = 0; index < subIndexCount; ++index) {
+                    const uint32_t local = indices[firstIndex + index];
+                    if (local >= count)
+                        return fail("invalid index in");
+                    out.Vertices.push_back(unique[firstVertex + local]);
+                }
+                out.SubMeshes.push_back(std::move(subMesh));
+            }
+            out.BoundingRadius = radius;
+            out.ReadWriteEnabled = (flags & DMeshFlag_ReadWrite) != 0;
+        } else {
+            uint32_t vertexCount = 0, subMeshCount = 0, boneCount = 0;
+            float radius = 0.0f;
+            if (!reader.Scalar(vertexCount) || !reader.Scalar(subMeshCount) || !reader.Scalar(radius) ||
+                (version >= 2 && !reader.Scalar(boneCount)) || boneCount > 65535)
+                return fail("invalid");
+            if (!ReadBones(reader, boneCount, out))
+                return fail("truncated");
+            const size_t vertexBytes = version == 1 ? 48u : (version == 2 ? 80u : 68u);
+            if (vertexCount > reader.Remaining() / vertexBytes)
+                return fail("truncated");
+            out.Vertices.resize(vertexCount);
+            for (MeshVertex& vertex : out.Vertices) {
+                if (!ReadFloatVertex(reader, vertex))
+                    return fail("truncated");
+                if (version == 2) {
+                    // Version 2 stored global u32 bone ids. Keep it loadable as a CPU-skin
+                    // fallback, while newer cooked assets use local byte palette ids.
+                    uint32_t legacyIndices[4]{};
+                    if (!reader.Bytes(legacyIndices, sizeof(legacyIndices)) || !reader.Floats(&vertex.BoneWeights[0], 4))
+                        return fail("truncated");
+                    for (int influence = 0; influence < 4; ++influence)
+                        vertex.BoneIndices[influence] = static_cast<uint8_t>(std::min<uint32_t>(legacyIndices[influence], 255));
+                    out.LegacyBoneIndices.push_back({ legacyIndices[0], legacyIndices[1], legacyIndices[2], legacyIndices[3] });
+                } else if (version == 3 && (!reader.Bytes(&vertex.BoneIndices, 4) || !reader.Floats(&vertex.BoneWeights[0], 4))) {
+                    return fail("truncated");
+                }
+            }
+            for (uint32_t i = 0; i < subMeshCount; ++i) {
+                MeshData::SubMesh subMesh;
+                if (!reader.Scalar(subMesh.FirstVertex) || !reader.Scalar(subMesh.VertexCount) ||
+                    static_cast<uint64_t>(subMesh.FirstVertex) + subMesh.VertexCount > vertexCount)
+                    return fail("truncated");
+                if (version == 3) {
+                    uint32_t paletteCount = 0;
+                    if (!reader.Scalar(paletteCount) || paletteCount > DMeshMaxPaletteBones)
+                        return fail("truncated");
+                    subMesh.BonePalette.resize(paletteCount);
+                    if (paletteCount && !reader.Bytes(subMesh.BonePalette.data(), paletteCount * sizeof(uint16_t)))
+                        return fail("truncated");
+                    for (uint16_t bone : subMesh.BonePalette)
+                        if (bone >= boneCount) return fail("truncated");
+                }
+                out.SubMeshes.push_back(std::move(subMesh));
+            }
+            out.BoundingRadius = radius;
+        }
+        out.SourceVersion = version;
+        // Tangents aren't part of the cooked format; derive them for Lit normal maps.
+        GenerateTangents(out.Vertices);
+        ComputeBounds(out);
+        return true;
     }
 
 }

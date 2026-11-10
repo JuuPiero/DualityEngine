@@ -348,6 +348,49 @@ TypeRegistry::Register&lt;SpriteRendererComponent&gt;(<span class="tok-str">"Spr
                     ("Ungrouped") vẫn hiện theo vị trí tương đối camera.
                 </p>
 
+                <h2 id="code-layout">Bố cục mã nguồn theo domain</h2>
+                <pre><code>DualityEngine/Include/DualityEngine/
+  Scene/Components.h            <span class="tok-com">// umbrella: include mọi header component bên dưới</span>
+  Scene/Components/             <span class="tok-com">// struct component theo domain: Core, Rendering2D, Rendering3D,</span>
+                                <span class="tok-com">// Animation, Physics2D, Physics3D, UI, Audio, Scripting, Constraints</span>
+  Scene/SceneRuntimeSystems.h   <span class="tok-com">// system chạy mỗi frame (UI layout/tương tác, constraint, billboard, trail)</span>
+  Scene/PhysicsSystems.h        <span class="tok-com">// hook joint / effector / Character Controller</span>
+  Reflection/TypeRegistry.h     <span class="tok-com">// ComponentTypeInfo: tên hiển thị, field, Category, HeaderComponent</span>
+  Renderer/BuiltinMeshes.h      <span class="tok-com">// tham chiếu "builtin:Cube"... (header-only)</span>
+  Scripting/Scripting.h         <span class="tok-com">// một include cho script C++ (Behaviour + mọi wrapper)</span>
+DualityEngine/Source/
+  Scene/Components/*Components.cpp  <span class="tok-com">// MỘT file đăng ký cho mỗi domain</span>
+  Scene/Systems/                <span class="tok-com">// Physics2DSystem / Physics3DSystem (world Box2D / Bullet, dựng collider dùng chung),</span>
+                                <span class="tok-com">// Physics2DJoints / Physics3DJoints, ConstraintSystem, UISystem</span>
+  Scene/Scene.cpp               <span class="tok-com">// vòng đời entity, transform, thứ tự update</span>
+  Renderer/                     <span class="tok-com">// SceneRenderer (pass chung Game / Scene view / 3DS), TrailTextLODRendering,</span>
+                                <span class="tok-com">// UIWidgetRenderer, backend OpenGL / citro2d / citro3d</span>
+DualityEditor/Source/
+  Panels/ScenePanel.cpp         <span class="tok-com">// cửa sổ Scene: pane, picking, handle transform</span>
+  SceneView/                    <span class="tok-com">// SceneViewNavigation (quy tắc camera, có unit test), SceneViewState (camera theo scene),</span>
+                                <span class="tok-com">// SceneViewOverlays (axis gizmo, cột công cụ), SceneGizmoDrawing (camera / light / collider / lưới),</span>
+                                <span class="tok-com">// ComponentGizmos (joint, effector, controller, LOD), SceneAssetDrop (thả asset vào Scene)</span>
+  EditorCommands.cpp            <span class="tok-com">// tầng command duy nhất (menu, phím tắt, automation)</span></code></pre>
+
+                <h2 id="add-component">Thêm một component</h2>
+                <ol>
+                    <li>Khai báo struct trong <code>Scene/Components/&lt;Domain&gt;.h</code> phù hợp (dữ liệu thuần, tên field
+                        theo Unity). Member không đăng ký ở bước 2 chỉ tồn tại lúc chạy, không bao giờ được lưu.</li>
+                    <li>Đăng ký <strong>một lần</strong> trong <code>Source/Scene/Components/&lt;Domain&gt;Components.cpp</code>:
+                        <code>Component&lt;T&gt;("Tên Hiển Thị", ComponentCategory::Physics, { MakeField("Field", &amp;T::Field), ... })</code>
+                        (helper trong <code>ComponentRegistration.h</code>: <code>Ranged</code>, <code>Tip</code>, <code>Header</code>,
+                        <code>MeshAsset</code>, <code>Mandatory</code>, <code>Hidden</code>). Tên hiển thị và tên field chính là
+                        thứ được ghi vào JSON scene / prefab — đừng đổi tên khi chưa có migration. Chỉ một lời gọi này là có
+                        serialize, copy/paste, Undo, Inspector, multi-edit và mục trong Add Component (theo <code>Category</code>).</li>
+                    <li>Hành vi lúc chạy đặt trong system của domain (<code>Source/Scene/Systems/...</code>), phần vẽ trong
+                        <code>SceneRenderer</code> / pass 2D, gizmo Scene view trong
+                        <code>DualityEditor/Source/SceneView/ComponentGizmos.cpp</code>.</li>
+                    <li>Truy cập từ script: wrapper header-only trong <code>Scripting/</code> (thêm vào
+                        <code>Scripting/Scripting.h</code>) và class TypeScript trong <code>Tools/TypeScript/duality/duality.ts</code>
+                        với <code>static readonly typeNames = ['Tên Hiển Thị']</code>. <code>Tests/RegistrationTests.cpp</code> báo lỗi
+                        nếu component thiếu category hoặc <code>duality.ts</code> dùng tên component / field không có trong registry.</li>
+                </ol>
+
                 <div class="page-nav">
                     <a class="prev" href="first-game-tutorial.html"><span class="dir">← Trước</span>Làm game đầu tiên</a>
                     <a class="next" href="scripting-api.html"><span class="dir">Tiếp →</span>Scripting API</a>

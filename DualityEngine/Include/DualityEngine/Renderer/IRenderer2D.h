@@ -109,6 +109,20 @@ namespace Duality {
         // implements it for interface symmetry, matching e.g. LoadTexture always
         // returning 0 on Citro2DRenderer.
         virtual uint32_t GetDrawCallCount() const = 0;
+
+        // Source-image pixel size of a LoadTexture handle ({0,0} = unknown) -- 9-slice UVs
+        // need it when a texture's .meta does not record its size. On 3DS this is the original
+        // image size (the .t3x subtexture), not the power-of-two padded GPU texture.
+        virtual glm::vec2 GetTextureSize(uint32_t textureId) const { (void)textureId; return glm::vec2(0.0f); }
+
+        // Bytes of texture memory held by LoadTexture's cache (0 = unknown) -- Profiler.
+        virtual uint64_t GetTextureMemoryBytes() const { return 0; }
+
+        // Rectangular clip for the following draws (UI Mask / Rect Mask 2D): `rect` is x, y, w, h
+        // in the target screen's pixel space (top-left origin), `enabled` false removes it. A GPU
+        // scissor on both backends (glScissor / C3D_SetScissor), so it costs nothing per pixel.
+        // EndScene/BeginScene always reset it. Default: ignored.
+        virtual void SetClipRect(bool enabled, const glm::vec4& rect) { (void)enabled; (void)rect; }
     };
 
 }

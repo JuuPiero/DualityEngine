@@ -52,6 +52,8 @@
                     <tr><td><code>.scene</code></td><td>Scene</td><td>Chỉ tóm tắt read-only + nút "Open Scene"</td></tr>
                     <tr><td><code>.png</code>/<code>.jpg</code>/... </td><td>Texture</td><td>Import Settings (Filter/Wrap/Mipmap)</td></tr>
                     <tr><td><code>.wav</code></td><td>Audio Clip</td><td>Import Settings (Volume)</td></tr>
+                    <tr><td><code>.fbx</code>/<code>.gltf</code>/<code>.glb</code>/<code>.obj</code></td><td>Model (prefab nguồn)</td><td>Model Import Settings (Model/Rig/Animation/Materials, Apply/Revert) + 3DS Budget</td></tr>
+                    <tr><td><code>.dmesh</code></td><td>Mesh đã cook</td><td>Chỉ thông tin (version, draw, palette, bounds)</td></tr>
                 </table>
                 <p>
                     Dispatch theo extension qua <code>AssetInspectorRegistry</code> (chỉ ở phía
@@ -75,11 +77,64 @@
                     <tr><th>Asset kéo vào Scene</th><th>Entity tự tạo</th></tr>
                     <tr><td>PNG/JPG/BMP/TGA…</td><td><code>SpriteRendererComponent</code>; nếu Canvas phù hợp đang được chọn thì tạo <code>UIRectComponent</code> + <code>UIImageComponent</code>.</td></tr>
                     <tr><td><code>.prefab</code></td><td>Linked prefab instance tại vị trí thả.</td></tr>
-                    <tr><td><code>.obj</code>/<code>.mesh</code></td><td><code>MeshRendererComponent.Mesh</code> được gán asset.</td></tr>
-                    <tr><td><code>.mat</code></td><td><code>MeshRendererComponent</code> (Cube mặc định) với material ở slot đầu.</td></tr>
+                    <tr><td><code>.fbx</code>/<code>.gltf</code>/<code>.glb</code>/<code>.obj</code> (đã import)</td><td>Prefab instance của model (link tới GUID của model): mỗi node một entity, Mesh Filter + Mesh Renderer / Skinned Mesh Renderer (Bones gắn sẵn), Animation ở root.</td></tr>
+                    <tr><td><code>.obj</code>/<code>.mesh</code></td><td>Mesh Filter (<code>Mesh</code> = asset) + Mesh Renderer.</td></tr>
+                    <tr><td><code>.mat</code></td><td>Mesh Filter <code>builtin:Cube</code> + Mesh Renderer với material ở slot đầu.</td></tr>
                     <tr><td><code>.wav</code>/<code>.ogg</code>/<code>.mp3</code></td><td><code>AudioSourceComponent.Clip</code> được gán asset; bật Play On Awake nếu muốn phát ngay.</td></tr>
                 </table>
                 <p>ScriptableObject, script source và file dữ liệu không tự biến thành Entity vì không có component đích duy nhất; kéo chúng vào field <code>AssetRef</code> hoặc script property phù hợp trong Inspector.</p>
+
+                <h2 id="model-importer">Model Importer (FBX / glTF / GLB / OBJ)</h2>
+                <p>
+                    Giống Unity: thả một model vào Editor (kéo từ Explorer, copy vào <code>Assets/</code>,
+                    hoặc file bị sửa trên đĩa — Editor quét lại mỗi ~2 giây) là model được import
+                    <strong>ngay, trên thread nền</strong> (tile hiện <em>Importing</em> + tiến độ, góc
+                    dưới phải có cửa sổ nhỏ) và <strong>bake sẵn mọi thứ 3DS dùng được</strong>. Assimp
+                    chỉ có ở Editor; player desktop và 3DS chỉ đọc dữ liệu đã cook.
+                </p>
+                <table>
+                    <tr><th>Sub-asset</th><th>File sinh ra</th><th>Quy tắc 3DS</th></tr>
+                    <tr><td>Mesh</td><td><code>mesh_N.dmesh</code> (v4)</td><td>Draw tách khi palette &gt; 24 xương (ngân sách uniform PICA200) hoặc &gt; 65535 vertex (index u16); tối đa 4 weight/vertex (Max Bones/Vertex), weight &lt; 0.001 bỏ, chuẩn hóa tổng = 1; vertex skinned không có weight được gán xương lân cận; nén 16/8-bit tùy chọn.</td></tr>
+                    <tr><td>Material</td><td><code>material_N.mat</code> (Material v2, chỉ đọc)</td><td>Lit/Diffuse mặc định; Lit/Specular khi file có specular thật; Unlit/* cho material unlit; MASK → Cutout, BLEND/opacity &lt; 1 → Transparent; double-sided → Cull Off; emission clamp 0..1.</td></tr>
+                    <tr><td>Texture</td><td><code>texture_N.png</code></td><td>Texture nhúng hoặc file cạnh model; resize về lũy thừa 2 gần nhất ≤ Max Texture Size; Repeat + mipmap; format 3DS (<code>N3DSFormat</code>) cho tex3ds.</td></tr>
+                    <tr><td>Animation</td><td><code>animation_N.anim</code></td><td>Lấy mẫu theo Sample Rate (2 đầu), keyframe reduction theo sai số, cắt theo clip list (Start/End/Loop), Remove Root Motion khóa XZ của root.</td></tr>
+                    <tr><td>Avatar</td><td>(chỉ inventory)</td><td>Số xương của rig Generic.</td></tr>
+                    <tr><td>Prefab</td><td><code>model.prefab</code></td><td>Instance trong scene link tới <em>GUID model</em>; Revert dựng lại từ prefab sinh ra, Apply bị chặn (model prefab chỉ đọc).</td></tr>
+                </table>
+                <p>
+                    Tất cả nằm trong <code>&lt;thư mục model&gt;/.duality-import/&lt;guid model&gt;/</code> (ẩn khỏi
+                    Project). <strong>GUID sub-asset ổn định</strong>: lấy lại GUID cũ theo <em>key</em>
+                    (<code>mesh:&lt;đường dẫn node&gt;/&lt;mesh&gt;#&lt;slot&gt;</code>, <code>material:&lt;tên&gt;</code>,
+                    <code>texture:&lt;nguồn&gt;</code>, <code>clip:&lt;tên&gt;</code>); nếu chưa có thì băm từ GUID model + key
+                    (<code>ModelCooker::StableGuid</code>) — nên import lại, đổi setting, xóa cả thư mục
+                    <code>.duality-import</code> đều cho đúng GUID cũ. Inventory của importer đầu tiên (<code>.meta</code>
+                    "ModelImporter" Version 1) được nâng cấp giữ nguyên GUID mesh/animation theo index.
+                </p>
+                <p>
+                    <code>&lt;model&gt;.meta</code> có hai block: <code>"ModelImporterSettings"</code> (setting — tab
+                    Model: ScaleFactor, ConvertUnits, Normals/SmoothingAngle, Tangents, OptimizeMesh, MeshCompression,
+                    ReadWrite, ImportVertexColors, MaxTextureSize, TextureFormat; Rig: Rig, MaxBonesPerVertex;
+                    Animation: ImportAnimation, SampleRate, KeyframeReduction, Position/Rotation/ScaleError,
+                    RemoveRootMotion, Clips[{Name, Take, Start, End, Loop}]; Materials: MaterialCreation,
+                    MaterialRemaps, TextureRemaps) và <code>"ModelImporter"</code> (kết quả: Version 2,
+                    ImporterVersion, SettingsHash, Source {Size, Modified, Hash}, Children[{Type, Name, Key,
+                    AssetGuid, File}], Prefab, Budget...). Model chỉ được import lại khi nội dung file
+                    (hash), setting hoặc <code>ModelImporter::ImporterVersion</code> đổi, hoặc thiếu output.
+                </p>
+                <p>
+                    <strong>Extract Materials… / Extract Textures…</strong> (tab Materials) chuyển material/texture
+                    sinh ra thành asset sửa được ở <code>Materials/</code>, <code>Textures/</code> cạnh model,
+                    <em>giữ nguyên GUID</em> (mọi tham chiếu tự đi theo) và ghi remap. <strong>3DS Budget</strong>:
+                    tam giác, draw call, xương/draw, bộ nhớ vertex runtime (danh sách tam giác phẳng × 72 byte),
+                    VRAM texture theo format (kể cả mipmap), cảnh báo khi &gt; 10k tam giác, &gt; 4 MB vertex,
+                    &gt; 2 MB texture, texture &gt; 512 px, &gt; 32 draw.
+                </p>
+                <div class="callout note">
+                    Định dạng <code>.dmesh</code> v4 (<code>Asset/MeshLoader.h</code>): indexed (u16) + tùy chọn nén
+                    (vị trí/UV 16-bit trong bounds, normal s8, màu/weight u8). <code>MeshLoader</code> luôn mở ra
+                    danh sách tam giác phẳng như V1-V3, nên mọi renderer/consumer không đổi; file V1/V2/V3 cũ vẫn
+                    load. Nén chỉ giảm dung lượng file/romfs, bộ nhớ runtime giữ nguyên (giống Mesh Compression của Unity).
+                </div>
 
                 <h2>ScriptableObject</h2>
                 <p>Data asset tái dùng, không gắn Entity nào — giống Unity's <code>ScriptableObject</code>.</p>
@@ -128,7 +183,24 @@ REGISTER_SCRIPTABLE_OBJECT(GameSettingsData) <span class="tok-com">// thay vì R
                             dụng FilterMode/WrapMode ngay lúc chỉnh (reload texture cache); 3DS chỉ
                             nhận thay đổi sau khi bấm lại <strong>Build for 3DS</strong>. Mipmap được
                             "bake" lúc build (cờ <code>-m box</code> của <code>tex3ds</code>), không
-                            phải runtime.
+                            phải runtime. Tuỳ chọn cook 3DS: <code>N3DSFormat</code> (<code>Auto</code> = RGBA8 mặc định
+                            của tex3ds, <code>RGB565</code>, <code>RGBA4</code>, <code>ETC1</code>, <code>ETC1A4</code>... →
+                            cờ <code>-f</code>) và <code>MaxSize</code> (0 = 1024) — texture của model import thừa hưởng từ
+                            setting của model; key chỉ được ghi khi khác mặc định.
+                        </p>
+                        <p>
+                            Phần sprite (Sprite Editor, đều tuỳ chọn — <code>.meta</code> cũ không đổi):
+                            <code>SpriteMode</code> (<code>Single</code>/<code>Multiple</code>),
+                            <code>PixelsPerUnit</code> (0 = PPU của project), <code>TextureSize</code>
+                            [w, h] ảnh gốc lúc cắt, <code>SpritePivot</code>/<code>SpriteBorder</code> (Single) và
+                            <code>Sprites</code>: <code>{ Id, Name, Rect [x, y, w, h] (px, gốc trên-trái),
+                            Pivot [x, y], Border [trái, phải, trên, dưới] }</code>. Tham chiếu một sprite:
+                            <code>"&lt;guid&gt;#&lt;Id&gt;"</code> (<code>Asset/SpriteDatabase.h</code>);
+                            <code>AssetDatabase::ResolvePath</code> bỏ phần <code>#...</code>. Rect được đổi sang UV
+                            chuẩn hoá theo <code>TextureSize</code>, nên bản build 3DS (ảnh &gt; 1024 px bị thu nhỏ,
+                            ảnh không phải luỹ thừa 2 được đệm trong <code>.t3x</code>) vẫn đúng; <code>.meta</code>
+                            cook kèm <code>.t3x</code> mang toàn bộ dữ liệu sprite và build chỉ cần tham chiếu
+                            <code>guid#id</code> để ship texture.
                         </p>
                     </div>
                 </div>

@@ -13,8 +13,15 @@
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
 #include "DualityEngine/Asset/MeshLoader.h"
+#include "DualityEngine/Asset/MeshReference.h"
+#include "DualityEngine/Asset/SpriteDatabase.h"
+#include "DualityEngine/Asset/TilemapAsset.h"
+#include "DualityEngine/Core/Profiler.h"
 #include "DualityEngine/Physics/PhysicsUnits.h"
+#include "DualityEngine/Renderer/BuiltinMeshes.h"
 #include "DualityEngine/Renderer/DrawHelpers2D.h"
+#include "DualityEngine/Renderer/TrailTextLODRendering.h"
+#include "DualityEngine/Renderer/UIWidgetRenderer.h"
 #include "DualityEngine/Renderer/LightingMath.h"
 #include "DualityEngine/Renderer/RenderSettings.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
@@ -29,6 +36,7 @@ namespace Duality {
             entt::entity Handle;
             int SortOrder = 0;
             std::size_t HierarchyOrder = 0;
+            bool IsTilemap = false;
         };
 
         glm::vec4 FrameUV(int frame, int columns, int rows) {
@@ -41,17 +49,37 @@ namespace Duality {
             return { col * uw, row * vh, (col + 1) * uw, (row + 1) * vh };
         }
 
-        void ResolveSpriteVisual(Scene& scene, entt::entity handle, AssetRef& outTexture, glm::vec4& outUV) {
-            outUV = { 0.0f, 0.0f, 1.0f, 1.0f };
+        // Which sprite an entity shows this frame: a Sprite Sheet Animator frame (grid cell, or
+        // the N-th sliced sprite when its texture is a Multiple-mode sheet), else the flipbook
+        // frame / SpriteRenderer texture (whole texture or one "guid#id" sprite).
+        bool ResolveSpriteVisual(Scene& scene, entt::entity handle, ResolvedSprite& out) {
             if (scene.Registry().all_of<SpriteSheetAnimatorComponent>(handle)) {
                 auto& anim = scene.Registry().get<SpriteSheetAnimatorComponent>(handle);
                 if (anim.Enabled && !anim.Texture.Guid.empty()) {
-                    outTexture = anim.Texture;
-                    outUV = FrameUV(anim.CurrentFrame, anim.Columns, anim.Rows);
-                    return;
+                    const int sliced = SpriteRef::IsSubSprite(anim.Texture.Guid) ? 0 : SpriteDatabase::SpriteCount(anim.Texture.Guid);
+                    if (sliced > 0)
+                        return SpriteDatabase::ResolveIndex(anim.Texture.Guid, std::max(0, anim.CurrentFrame) % sliced, out);
+                    if (!SpriteDatabase::Resolve(anim.Texture.Guid, out))
+                        return false;
+                    out.UV = ComposeUV(out.UV, FrameUV(anim.CurrentFrame, anim.Columns, anim.Rows));
+                    if (anim.Columns > 0 && anim.Rows > 0)
+                        out.SizePixels /= glm::vec2(static_cast<float>(anim.Columns), static_cast<float>(anim.Rows));
+                    out.HasPivot = false;
+                    out.BorderPixels = glm::vec4(0.0f);
+                    return true;
                 }
             }
-            outTexture = GetActiveSpriteTexture(scene, handle);
+            return SpriteDatabase::Resolve(GetActiveSpriteTexture(scene, handle).Guid, out);
+        }
+
+        glm::vec4 BorderUVFor(IRenderer2D& renderer, uint32_t textureId, const ResolvedSprite& sprite, const glm::vec4& borderPixels) {
+            glm::vec2 textureSize = sprite.TextureSizePixels;
+            if ((textureSize.x <= 0.0f || textureSize.y <= 0.0f) && textureId != 0)
+                textureSize = renderer.GetTextureSize(textureId);
+            if (textureSize.x > 0.0f && textureSize.y > 0.0f)
+                return { borderPixels.x / textureSize.x, borderPixels.y / textureSize.x, borderPixels.z / textureSize.y, borderPixels.w / textureSize.y };
+            const float w = sprite.UV.z - sprite.UV.x, h = sprite.UV.w - sprite.UV.y;
+            return { 0.25f * w, 0.25f * w, 0.25f * h, 0.25f * h };
         }
 
         RenderView BuildRenderViewInternal(Scene& scene, Entity camera, Screen screen) {
@@ -83,25 +111,30 @@ namespace Duality {
             return rotation;
         }
 
-        float PrimitiveShadowRadius(MeshPrimitive primitive) {
-            switch (primitive) {
-                case MeshPrimitive::Sphere:
-                case MeshPrimitive::Capsule: return 0.5f;
-                case MeshPrimitive::Cube:    return 0.5f * std::sqrt(3.0f);
-                default:                      return 0.5f;
-            }
+        // The mesh a MeshRenderer entity draws this frame (its MeshFilter's), or false when it
+        // draws nothing (no MeshFilter / empty or missing mesh -- Unity draws nothing too).
+        bool ResolveRendererMesh(IRenderer3D& renderer, Scene& scene, entt::entity handle, MeshPrimitive& primitive, uint32_t& meshHandle, const AssetRef** meshRef = nullptr) {
+            const MeshFilterComponent* filter = scene.Registry().try_get<MeshFilterComponent>(handle);
+            if (!filter || !ResolveMeshFilter(renderer, filter->Mesh, primitive, meshHandle))
+                return false;
+            if (meshRef)
+                *meshRef = &filter->Mesh;
+            return true;
         }
 
-        float MeshBoundingRadius(const MeshRendererComponent& mesh) {
-            if (!mesh.Mesh.Guid.empty()) {
-                const std::string path = AssetDatabase::ResolvePath(mesh.Mesh.Guid);
-                if (!path.empty()) {
-                    const float importedRadius = MeshLoader::Load(path).BoundingRadius;
-                    if (importedRadius > 0.0001f)
-                        return importedRadius;
-                }
+        // Radius of the projected blob shadow of a mesh, before Transform scale. An upright
+        // capsule/cylinder (radius 0.25) gets its footprint rather than its bounding sphere;
+        // imported meshes keep the unit-cube footprint they had before MeshFilter existed.
+        float BlobShadowFootprintRadius(const AssetRef& mesh, const glm::vec3& scale) {
+            const float maxScale = std::max({ std::abs(scale.x), std::abs(scale.y), std::abs(scale.z) });
+            MeshPrimitive primitive = MeshPrimitive::Cube;
+            BuiltinMeshes::TryGetPrimitive(mesh, primitive);
+            switch (primitive) {
+                case MeshPrimitive::Capsule:
+                case MeshPrimitive::Cylinder: return 0.25f * std::max(std::abs(scale.x), std::abs(scale.z));
+                case MeshPrimitive::Cube:     return 0.5f * std::sqrt(3.0f) * maxScale;
+                default:                      return 0.5f * maxScale;
             }
-            return PrimitiveShadowRadius(mesh.Primitive);
         }
 
         glm::mat4 TransformMatrix(const TransformComponent& transform) {
@@ -327,6 +360,101 @@ namespace Duality {
         return renderer.LoadTexture(path);
     }
 
+    bool BuildSpriteRendererDrawData(IRenderer2D& renderer, Scene& scene, entt::entity handle,
+        const glm::vec2& pivotDrawPosition, float drawUnitsPerWorldUnit, SpriteDrawData& out) {
+        if (!scene.Registry().all_of<SpriteRendererComponent, TransformComponent>(handle))
+            return false;
+        const SpriteRendererComponent& sprite = scene.Registry().get<SpriteRendererComponent>(handle);
+        const TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
+
+        ResolvedSprite resolved;
+        const bool hasTexture = ResolveSpriteVisual(scene, handle, resolved);
+        out = SpriteDrawData{};
+        out.TextureId = hasTexture ? renderer.LoadTexture(resolved.TexturePath) : 0;
+        out.UV = hasTexture ? resolved.UV : glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
+        out.Color = sprite.Color;
+        out.PivotPosition = pivotDrawPosition;
+        out.RotationDegrees = transform.Rotation.z;
+        const glm::vec2 scale{ transform.Scale.x, transform.Scale.y };
+        // SpriteRenderer::Size is the unscaled quad size; Transform.Scale is applied here (and
+        // a negative scale mirrors, like Unity) so the Scale gizmo matches Game and Scene.
+        out.Size = glm::abs(sprite.Size * scale) * drawUnitsPerWorldUnit;
+        out.FlipX = sprite.FlipX != (scale.x * sprite.Size.x < 0.0f);
+        out.FlipY = sprite.FlipY != (scale.y * sprite.Size.y < 0.0f);
+        out.Pivot = hasTexture && resolved.HasPivot ? resolved.Pivot : sprite.Pivot;
+
+        const bool legacyBorder = sprite.SliceBorder != glm::vec4(0.0f);
+        const glm::vec4 borderPixels = legacyBorder ? sprite.SliceBorder : resolved.BorderPixels;
+        out.Sliced = hasTexture && (legacyBorder || sprite.DrawMode == SpriteDrawMode::Sliced) && borderPixels != glm::vec4(0.0f);
+        if (out.Sliced) {
+            // A border keeps its source-pixel size in the world (Unity's sliced sprite): px ->
+            // world units via the texture's PPU, then -> draw units, times the object's scale.
+            const float ppu = resolved.PixelsPerUnit > 0.0f ? resolved.PixelsPerUnit : PhysicsUnits::PPU();
+            const float fx = drawUnitsPerWorldUnit / ppu * std::fabs(scale.x);
+            const float fy = drawUnitsPerWorldUnit / ppu * std::fabs(scale.y);
+            out.BorderDraw = { borderPixels.x * fx, borderPixels.y * fx, borderPixels.z * fy, borderPixels.w * fy };
+            out.BorderUV = BorderUVFor(renderer, out.TextureId, resolved, borderPixels);
+        }
+        return true;
+    }
+
+    glm::vec2 EffectiveSpritePivot(Scene& scene, entt::entity handle) {
+        if (!scene.Registry().all_of<SpriteRendererComponent>(handle))
+            return glm::vec2(0.5f);
+        ResolvedSprite resolved;
+        if (ResolveSpriteVisual(scene, handle, resolved) && resolved.HasPivot)
+            return resolved.Pivot;
+        return scene.Registry().get<SpriteRendererComponent>(handle).Pivot;
+    }
+
+    int DrawTilemap2D(IRenderer2D& renderer, Scene& scene, entt::entity handle, const glm::vec2& cameraPosition,
+        float drawUnitsPerWorldUnit, const glm::vec2& drawOffset, const glm::vec4& tint) {
+        if (!scene.Registry().all_of<TilemapComponent, TransformComponent>(handle))
+            return 0;
+        const TilemapComponent& tilemap = scene.Registry().get<TilemapComponent>(handle);
+        const TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
+        static const TilemapData s_Empty;
+        const TilemapData& data = tilemap.TileData.Guid.empty() ? s_Empty : TilemapAsset::Get(AssetDatabase::ResolvePath(tilemap.TileData.Guid));
+        ResolvedSprite whole;
+        const bool hasTileset = SpriteDatabase::Resolve(tilemap.Tileset.Guid, whole);
+        const uint32_t tileTexture = hasTileset ? renderer.LoadTexture(whole.TexturePath) : 0;
+        const int spriteCount = hasTileset ? SpriteDatabase::SpriteCount(tilemap.Tileset.Guid) : 0;
+        const int w = data.Width > 0 ? data.Width : tilemap.GridWidth;
+        const int h = data.Height > 0 ? data.Height : tilemap.GridHeight;
+        const glm::vec2 size = tilemap.CellSize * drawUnitsPerWorldUnit;
+        // Tile index = index into the tileset's sliced sprites (Tile Palette). UVs resolved once
+        // per draw, not per tile -- a big map on 3DS stays one array lookup per tile.
+        std::vector<glm::vec4> tileUVs;
+        if (spriteCount > 0) {
+            const TextureImportSettings& settings = SpriteDatabase::Settings(whole.TexturePath);
+            tileUVs.resize(static_cast<size_t>(spriteCount));
+            ResolvedSprite tileSprite;
+            for (int i = 0; i < spriteCount; ++i) {
+                SpriteDatabase::Describe(whole.TexturePath, settings, i, tileSprite);
+                tileUVs[static_cast<size_t>(i)] = tileSprite.UV;
+            }
+        }
+        int drawn = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                const int idx = y * w + x;
+                if (idx >= static_cast<int>(data.Tiles.size()) || data.Tiles[idx] < 0)
+                    continue;
+                glm::vec4 uv = whole.UV;
+                if (spriteCount > 0) {
+                    if (data.Tiles[idx] >= spriteCount)
+                        continue;
+                    uv = tileUVs[static_cast<size_t>(data.Tiles[idx])];
+                }
+                const glm::vec2 worldPos{ transform.Translation.x + x * tilemap.CellSize.x, transform.Translation.y + y * tilemap.CellSize.y };
+                const glm::vec2 center = (worldPos - cameraPosition) * drawUnitsPerWorldUnit + drawOffset;
+                renderer.DrawQuad(center - size * 0.5f, size, tint, 0.0f, tileTexture, uv);
+                ++drawn;
+            }
+        }
+        return drawn;
+    }
+
     uint32_t ResolveMeshTexture(IRenderer3D& renderer, const AssetRef& textureRef) {
         if (textureRef.Guid.empty())
             return 0;
@@ -352,6 +480,15 @@ namespace Duality {
         if (path.empty())
             return 0;
         return renderer.LoadMesh(path);
+    }
+
+    bool ResolveMeshFilter(IRenderer3D& renderer, const AssetRef& mesh, MeshPrimitive& primitive, uint32_t& meshHandle) {
+        meshHandle = 0;
+        primitive = MeshPrimitive::Cube;
+        if (BuiltinMeshes::TryGetPrimitive(mesh, primitive))
+            return true;
+        meshHandle = ResolveMeshGeometry(renderer, mesh);
+        return meshHandle != 0;
     }
 
     bool ShouldRenderOnScreen(Scene& scene, entt::entity handle, Screen screen, const CameraComponent* camera) {
@@ -435,13 +572,16 @@ namespace Duality {
                 continue;
             Entity entity(handle, &scene);
             const auto& mesh = entity.GetComponent<MeshRendererComponent>();
-            if (!mesh.Enabled || !scene.IsEffectivelyActive(entity))
+            if (!mesh.Enabled || !scene.IsEffectivelyActive(entity) || scene.Registry().all_of<LODHiddenTag>(handle))
+                continue;
+            MeshPrimitive primitive;
+            uint32_t meshHandle = 0;
+            if (!ResolveRendererMesh(renderer, scene, handle, primitive, meshHandle))
                 continue;
             const TransformComponent transform = scene.GetWorldTransform(entity);
-            const uint32_t meshHandle = ResolveMeshGeometry(renderer, mesh.Mesh);
             const uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
             for (uint32_t i = 0; i < subMeshCount; ++i) {
-                renderer.DrawDirectionalShadowCaster(MeshDrawCommand{ mesh.Primitive, meshHandle, i,
+                renderer.DrawDirectionalShadowCaster(MeshDrawCommand{ primitive, meshHandle, i,
                     transform.Translation, transform.Rotation, transform.Scale });
                 submitted++;
             }
@@ -490,9 +630,12 @@ namespace Duality {
 
         glm::vec4 effectiveClearColor = camera ? camera.GetComponent<CameraComponent>().Background : clearColor;
 
-        if (camera)
+        if (camera) {
+            DUALITY_PROFILE_SCOPE("Render.3D");
             stats += RenderScreen3D(renderer3D, scene, screen, effectiveClearColor, clear);
+        }
 
+        DUALITY_PROFILE_SCOPE("Render.2D");
         // A camera's 3D pass already clears the base scene. With no camera, the 2D pass owns
         // that clear. Neither pass clears while an additive scene is compositing on top.
         renderer2D.BeginScene(screen, effectiveClearColor, clear && !camera);
@@ -528,74 +671,47 @@ namespace Duality {
                 const std::size_t drawOrder = found == hierarchyOrder.end() ? hierarchy.size() : found->second;
                 sprites.push_back({ handle, view.get<SpriteRendererComponent>(handle).SortOrder, drawOrder });
             }
-            std::sort(sprites.begin(), sprites.end(), [](const SpriteDrawItem& a, const SpriteDrawItem& b) {
-                if (a.SortOrder != b.SortOrder)
-                    return a.SortOrder < b.SortOrder;
-                return a.HierarchyOrder < b.HierarchyOrder;
-            });
-
-            for (auto& item : sprites) {
-                TransformComponent transform = scene.GetWorldTransform(Entity(item.Handle, &scene));
-                auto& sprite = scene.Registry().get<SpriteRendererComponent>(item.Handle);
-
-                // SpriteRenderer::Size is the unscaled quad size. Transform.Scale
-                // is deliberately applied here (and in both editor Scene panes),
-                // so using the Scale gizmo changes the same object in Game and
-                // Scene just like Unity.
-                glm::vec2 size = sprite.Size * glm::vec2(transform.Scale.x, transform.Scale.y) * worldToPixels;
-                glm::vec2 pivotOffset{ size.x * sprite.Pivot.x, size.y * sprite.Pivot.y };
-                glm::vec2 screenCenter{
-                    (transform.Translation.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f,
-                    (transform.Translation.y - cameraTransform.Translation.y) * worldToPixels + screenHeight * 0.5f
-                };
-                glm::vec2 topLeft = screenCenter - pivotOffset;
-
-                AssetRef texRef;
-                glm::vec4 uv;
-                ResolveSpriteVisual(scene, item.Handle, texRef, uv);
-                uint32_t textureId = ResolveSpriteTexture(renderer2D, texRef);
-
-                if (sprite.SliceBorder.x > 0.0f || sprite.SliceBorder.y > 0.0f || sprite.SliceBorder.z > 0.0f || sprite.SliceBorder.w > 0.0f)
-                    DrawNineSlice(renderer2D, topLeft, size, sprite.Color, textureId, sprite.SliceBorder);
-                else
-                    DrawSpriteQuad(renderer2D, topLeft, size, sprite.Color, transform.Rotation.z, textureId, sprite.FlipX, sprite.FlipY, uv);
-                stats.VisibleSprites++;
-            }
-
+            // Tilemaps sort together with sprites by Sort Order (Unity's TilemapRenderer
+            // "Order in Layer"), so a background tilemap can sit behind characters.
             auto tileView = scene.Registry().view<TransformComponent, TilemapComponent>();
             for (auto handle : tileView) {
                 if (!ShouldRenderOnScreen(scene, handle, screen, &cameraComponent))
                     continue;
                 if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                     continue;
-                auto& tilemap = tileView.get<TilemapComponent>(handle);
+                const TilemapComponent& tilemap = tileView.get<TilemapComponent>(handle);
                 if (!tilemap.Enabled)
                     continue;
-                TransformComponent transform = scene.GetWorldTransform(Entity(handle, &scene));
-                TilemapData data;
-                if (!tilemap.TileData.Guid.empty())
-                    data = TilemapLoader::Load(AssetDatabase::ResolvePath(tilemap.TileData.Guid));
-                uint32_t tileTex = ResolveSpriteTexture(renderer2D, tilemap.Tileset);
-                int w = data.Width > 0 ? data.Width : tilemap.GridWidth;
-                int h = data.Height > 0 ? data.Height : tilemap.GridHeight;
-                for (int y = 0; y < h; y++) {
-                    for (int x = 0; x < w; x++) {
-                        int idx = y * w + x;
-                        if (idx >= static_cast<int>(data.Tiles.size()) || data.Tiles[idx] < 0)
-                            continue;
-                        glm::vec2 worldPos = {
-                            transform.Translation.x + x * tilemap.CellSize.x,
-                            transform.Translation.y + y * tilemap.CellSize.y
-                        };
-                        glm::vec2 screenCenter{
-                            (worldPos.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f,
-                            (worldPos.y - cameraTransform.Translation.y) * worldToPixels + screenHeight * 0.5f
-                        };
-                        glm::vec2 size = tilemap.CellSize * worldToPixels;
-                        glm::vec2 topLeft = screenCenter - size * 0.5f;
-                        renderer2D.DrawQuad(topLeft, size, { 1, 1, 1, 1 }, 0.0f, tileTex);
-                    }
+                const auto found = hierarchyOrder.find(handle);
+                const std::size_t drawOrder = found == hierarchyOrder.end() ? hierarchy.size() : found->second;
+                sprites.push_back({ handle, tilemap.SortOrder, drawOrder, true });
+            }
+            std::sort(sprites.begin(), sprites.end(), [](const SpriteDrawItem& a, const SpriteDrawItem& b) {
+                if (a.SortOrder != b.SortOrder)
+                    return a.SortOrder < b.SortOrder;
+                if (a.HierarchyOrder != b.HierarchyOrder)
+                    return a.HierarchyOrder < b.HierarchyOrder;
+                return a.IsTilemap < b.IsTilemap;
+            });
+
+            for (auto& item : sprites) {
+                if (item.IsTilemap) {
+                    DUALITY_PROFILE_SCOPE("Render2D.Tilemap");
+                    DrawTilemap2D(renderer2D, scene, item.Handle, { cameraTransform.Translation.x, cameraTransform.Translation.y },
+                        worldToPixels, { screenWidth * 0.5f, screenHeight * 0.5f });
+                    continue;
                 }
+                TransformComponent transform = scene.GetWorldTransform(Entity(item.Handle, &scene));
+                const glm::vec2 screenPivot{
+                    (transform.Translation.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f,
+                    (transform.Translation.y - cameraTransform.Translation.y) * worldToPixels + screenHeight * 0.5f
+                };
+                // Shared with the editor Scene view (same pivot / sub-sprite / 9-slice / flip
+                // rules), see BuildSpriteRendererDrawData.
+                SpriteDrawData drawData;
+                if (BuildSpriteRendererDrawData(renderer2D, scene, item.Handle, screenPivot, worldToPixels, drawData))
+                    DrawSprite2D(renderer2D, drawData);
+                stats.VisibleSprites++;
             }
 
             auto lineView = scene.Registry().view<TransformComponent, LineRendererComponent>();
@@ -641,17 +757,27 @@ namespace Duality {
                 if (!sys.Enabled)
                     continue;
                 uint32_t tex = ResolveSpriteTexture(renderer2D, sys.Texture);
+                ResolvedSprite particleSprite; // a "guid#id" sprite texture draws its sub-rect
+                const glm::vec4 particleUV = SpriteDatabase::Resolve(sys.Texture.Guid, particleSprite) ? particleSprite.UV : glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
                 for (const Particle& p : GetParticlePool(handle)) {
                     glm::vec2 topLeft{
                         (p.Position.x - cameraTransform.Translation.x) * worldToPixels + screenWidth * 0.5f - p.Size * worldToPixels * 0.5f,
                         (p.Position.y - cameraTransform.Translation.y) * worldToPixels + screenHeight * 0.5f - p.Size * worldToPixels * 0.5f
                     };
-                    renderer2D.DrawQuad(topLeft, { p.Size * worldToPixels, p.Size * worldToPixels }, p.Color, 0.0f, tex);
+                    renderer2D.DrawQuad(topLeft, { p.Size * worldToPixels, p.Size * worldToPixels }, p.Color, 0.0f, tex, particleUV);
                 }
             }
+
+            // Trail Renderer + Text Mesh (ExtendedRendering.cpp).
+            RenderWorldExtras2D(renderer2D, scene, screen, &cameraComponent,
+                { cameraTransform.Translation.x, cameraTransform.Translation.y }, worldToPixels,
+                { screenWidth * 0.5f, screenHeight * 0.5f });
         }
 
-        RenderScreenUI(renderer2D, scene, screen);
+        {
+            DUALITY_PROFILE_SCOPE("Render.UI");
+            RenderScreenUI(renderer2D, scene, screen);
+        }
 
         renderer2D.EndScene();
         return stats;
@@ -678,7 +804,10 @@ namespace Duality {
                 continue;
             Entity entity(handle, &scene);
             const auto& mesh = entity.GetComponent<MeshRendererComponent>();
-            if (!mesh.Enabled || mesh.Primitive != MeshPrimitive::Plane || !scene.IsEffectivelyActive(entity))
+            const MeshFilterComponent* filter = scene.Registry().try_get<MeshFilterComponent>(handle);
+            MeshPrimitive primitive;
+            const bool isPlane = filter && BuiltinMeshes::TryGetPrimitive(filter->Mesh, primitive) && primitive == MeshPrimitive::Plane;
+            if (!mesh.Enabled || !isPlane || !scene.IsEffectivelyActive(entity))
                 continue;
             TransformComponent transform = scene.GetWorldTransform(entity);
             const glm::vec3 normal = glm::normalize(glm::vec3(RotationMatrix(transform.Rotation) * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)));
@@ -699,15 +828,17 @@ namespace Duality {
                 continue;
             Entity caster(handle, &scene);
             const auto& mesh = caster.GetComponent<MeshRendererComponent>();
-            if (!mesh.Enabled || mesh.Primitive == MeshPrimitive::Plane || !scene.IsEffectivelyActive(caster))
+            if (!mesh.Enabled || !scene.IsEffectivelyActive(caster) || scene.Registry().all_of<LODHiddenTag>(handle))
                 continue;
+            MeshPrimitive casterPrimitive;
+            uint32_t casterMeshHandle = 0;
+            const AssetRef* casterMesh = nullptr;
+            if (!ResolveRendererMesh(renderer, scene, handle, casterPrimitive, casterMeshHandle, &casterMesh))
+                continue;
+            if (casterMeshHandle == 0 && casterPrimitive == MeshPrimitive::Plane)
+                continue; // ground planes receive, they don't cast
             const TransformComponent casterTransform = scene.GetWorldTransform(caster);
-            const float maxScale = std::max({ std::abs(casterTransform.Scale.x), std::abs(casterTransform.Scale.y), std::abs(casterTransform.Scale.z) });
-            // The capsule (height 1, radius 0.25) is bounded by 0.5 but only 0.25 wide: its blob
-            // follows the footprint of an upright capsule rather than its bounding sphere.
-            const float footprintRadius = mesh.Primitive == MeshPrimitive::Capsule
-                ? 0.25f * std::max(std::abs(casterTransform.Scale.x), std::abs(casterTransform.Scale.z))
-                : PrimitiveShadowRadius(mesh.Primitive) * maxScale;
+            const float footprintRadius = BlobShadowFootprintRadius(*casterMesh, casterTransform.Scale);
             const float shadowDiameter = std::max(0.02f, footprintRadius * 2.0f);
 
             for (const Receiver& receiver : receivers) {
@@ -789,6 +920,8 @@ namespace Duality {
     SceneRenderStats RenderMeshPass(IRenderer3D& renderer, Scene& scene, Screen screen, const RenderView& view, const MeshPassOptions& options) {
         SceneRenderStats stats;
         stats.ActiveLights = static_cast<uint32_t>(view.Lights.size());
+        // LOD Groups pick their level for this view's camera (tags the hidden renderers).
+        ApplyLODGroups(scene, view.CameraPosition);
 
         const glm::vec3 cameraForward = glm::normalize(glm::vec3(RotationMatrix(view.CameraRotationDegrees) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
         std::vector<MeshDrawItem> items;
@@ -811,17 +944,21 @@ namespace Duality {
             if (!scene.IsEffectivelyActive(entity))
                 continue;
             auto& mesh = view3D.get<MeshRendererComponent>(handle);
-            if (!mesh.Enabled)
+            if (!mesh.Enabled || scene.Registry().all_of<LODHiddenTag>(handle))
                 continue;
+            MeshPrimitive primitive;
+            uint32_t meshHandle = 0;
+            const AssetRef* meshRef = nullptr;
+            if (!ResolveRendererMesh(renderer, scene, handle, primitive, meshHandle, &meshRef))
+                continue; // Mesh Renderer without a (valid) Mesh Filter draws nothing
             const TransformComponent transform = scene.GetWorldTransform(entity);
             const float largestScale = std::max({ std::abs(transform.Scale.x), std::abs(transform.Scale.y), std::abs(transform.Scale.z) });
-            const float radius = MeshBoundingRadius(mesh) * largestScale;
+            const float radius = MeshReference::BoundingRadius(*meshRef) * largestScale;
             if (options.FrustumCull && !IsSphereVisibleInView(view, transform.Translation, radius)) {
                 stats.CulledMeshes++;
                 continue;
             }
             stats.VisibleMeshes++;
-            const uint32_t meshHandle = ResolveMeshGeometry(renderer, mesh.Mesh);
             const uint32_t subMeshCount = renderer.GetSubMeshCount(meshHandle);
             for (uint32_t i = 0; i < subMeshCount; i++) {
                 Material material = ResolveMeshMaterial(MaterialForSubMesh(mesh.Materials, i));
@@ -832,7 +969,7 @@ namespace Duality {
                     material.Color = mesh.RuntimeMaterialColor;
                 MeshDrawItem item;
                 MeshDrawCommand& command = item.Command;
-                command.Primitive = mesh.Primitive;
+                command.Primitive = primitive;
                 command.MeshHandle = meshHandle;
                 command.SubMeshIndex = i;
                 command.Translation = transform.Translation;
@@ -853,7 +990,7 @@ namespace Duality {
             Entity entity(handle, &scene);
             if (!ShouldRenderOnScreen(scene, handle, screen, options.CameraFilter) || !scene.IsEffectivelyActive(entity)) continue;
             auto& skin = skinnedView.get<SkinnedMeshRendererComponent>(handle);
-            if (!skin.Enabled || skin.Mesh.Guid.empty()) continue;
+            if (!skin.Enabled || skin.Mesh.Guid.empty() || scene.Registry().all_of<LODHiddenTag>(handle)) continue;
             const std::string path = AssetDatabase::ResolvePath(skin.Mesh.Guid);
             if (path.empty()) continue;
             const MeshData& source = MeshLoader::Load(path);

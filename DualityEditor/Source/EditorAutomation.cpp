@@ -13,7 +13,9 @@
 
 #include "DualityEditor/EditorCommands.h"
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/Panels/ScenePanel.h"
 #include "DualityEditor/SceneOps.h"
+#include "DualityEditor/ScriptEngine.h"
 #include "DualityEditor/Window.h"
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Reflection/FieldSerialization.h"
@@ -23,6 +25,11 @@
 namespace Duality {
 
     namespace {
+        std::vector<AutomationExtension>& Extensions() {
+            static std::vector<AutomationExtension> extensions;
+            return extensions;
+        }
+
         std::string Trim(const std::string& text) {
             size_t begin = text.find_first_not_of(" \t\r\n");
             if (begin == std::string::npos)
@@ -189,6 +196,10 @@ namespace Duality {
         }
     }
 
+    void EditorAutomation::RegisterExtension(AutomationExtension extension) {
+        Extensions().push_back(std::move(extension));
+    }
+
     bool EditorAutomation::Load(const std::string& scriptPath) {
         std::ifstream file(scriptPath);
         if (!file.is_open()) {
@@ -283,11 +294,33 @@ namespace Duality {
 
         if (command == "wait") {
             m_WaitFrames = std::max(1, std::atoi(arg(1).c_str()));
+        } else if (command == "wait-scripts") {
+            // Waits until the background GameScripts build/reload is done (a reload finishing
+            // mid-script swaps modules and can eat clicks).
+            if (ScriptEngine::GetStatus() == ReloadStatus::Running) {
+                m_Lines.push_front("wait-scripts");
+                m_WaitFrames = 5;
+            }
         } else if (command == "log") {
             Log::Info("[editor-test] " + RestAfter(line, 1));
         } else if (command == "screenshot") {
             window.RequestScreenshot(arg(1));
             m_WaitFrames = 1;
+        } else if (command == "drop-file") {
+            // drop-file <path> [...]: same callback as dragging files from Explorer onto the
+            // editor window (imports into the Project window's current folder). Relative paths
+            // resolve against the script's folder.
+            std::vector<std::string> files;
+            for (size_t i = 1; i < args.size(); ++i) {
+                std::filesystem::path file(args[i]);
+                if (file.is_relative() && !m_ScriptDirectory.empty())
+                    file = std::filesystem::path(m_ScriptDirectory) / file;
+                std::error_code error;
+                Expect(std::filesystem::exists(file, error), "drop-file source exists: " + file.string());
+                files.push_back(file.string());
+            }
+            window.SimulateFileDrop(files);
+            m_WaitFrames = 2;
         } else if (command == "quit") {
             std::printf("[editor-test] script finished: %d passed, %d failed\n", m_Passes, m_Failures);
             std::fflush(stdout);
@@ -337,6 +370,7 @@ namespace Duality {
             else if (name == "paste") Paste(ctx, false);
             else if (name == "paste-child") Paste(ctx, true);
             else if (name == "create-empty") CreateEmpty(ctx);
+            else if (name == "create-3d") Create3DObject(ctx, arg(2));
             else if (name == "create-empty-child") CreateEmpty(ctx, ctx.Selected);
             else if (name == "create-parent") CreateEmptyParent(ctx);
             else if (name == "toggle-active") ToggleActiveSelection(ctx);
@@ -352,6 +386,15 @@ namespace Duality {
             else if (name == "rename") ctx.Session.RequestRename = true;
             else if (name == "reset-layout") ctx.Session.RequestResetLayout = true;
             else Expect(false, "unknown cmd '" + name + "'");
+            m_WaitFrames = 1;
+        } else if (command == "print-sceneview") {
+            // print-sceneview top|bottom -- camera state of a Scene pane (SceneViewNavigation).
+            const Screen pane = Lower(arg(1)) == "bottom" ? Screen::Bottom : Screen::Top;
+            std::printf("[editor-test] sceneview %s %s\n", pane == Screen::Top ? "top" : "bottom", DescribeSceneView(ctx, pane).c_str());
+        } else if (command == "sceneview-mode") {
+            // sceneview-mode top|bottom 2d|3d
+            RenderMode& mode = Lower(arg(1)) == "bottom" ? ctx.BottomRenderMode : ctx.TopRenderMode;
+            mode = Lower(arg(2)) == "3d" ? RenderMode::Mode3D : RenderMode::Mode2D;
             m_WaitFrames = 1;
         } else if (command == "open-scene") {
             OpenScene(ctx, arg(1));
@@ -537,7 +580,20 @@ namespace Duality {
             m_Dragging = true;
         } else if (command == "wheel") {
             io.AddMouseWheelEvent(0.0f, argf(1));
+        } else if (command == "mousedown" || command == "mouseup") {
+            // mousedown [button] / mouseup [button] -- hold a button across commands (fly look).
+            io.AddMouseButtonEvent(MouseButtonFromName(arg(1)), command == "mousedown");
         } else {
+            std::vector<std::string> lowered = args;
+            lowered[0] = command;
+            AutomationApi api;
+            api.Expect = [this](bool condition, const std::string& what) { Expect(condition, what); };
+            api.RunNext = [this](const std::string& next) { m_Lines.push_front(next); };
+            api.Wait = [this](int frames) { m_WaitFrames = std::max(m_WaitFrames, frames); };
+            api.ScriptDirectory = m_ScriptDirectory;
+            for (const AutomationExtension& extension : Extensions())
+                if (extension(ctx, lowered, api))
+                    return;
             Expect(false, "unknown command '" + command + "'");
         }
     }

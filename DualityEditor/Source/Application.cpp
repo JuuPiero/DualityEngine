@@ -12,6 +12,8 @@
 #include <imgui_internal.h> // DockBuilder* -- for the initial Unity/Cocos-Creator-style dock layout
 
 #include "DualityEditor/AssetInspectors.h"
+#include "DualityEditor/Import/ModelImportUI.h"
+#include "DualityEditor/BuiltinMeshPreviews.h"
 #include "DualityEditor/EditorCommands.h"
 #include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorTheme.h"
@@ -29,7 +31,9 @@
 #include "DualityEngine/Asset/PhysicsMaterialLoader.h"
 #include "DualityEngine/Audio/AudioEngine.h"
 #include "DualityEngine/Core/Log.h"
+#include "DualityEngine/Core/Profiler.h"
 #include "DualityEngine/Reflection/Reflection.h"
+#include "DualityEngine/Renderer/BuiltinMeshes.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
 #include "DualityEngine/Renderer/RenderSettings.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
@@ -160,6 +164,9 @@ namespace Duality {
             m_SelectedAssetPath.clear();
             m_SelectedAssetPaths.clear();
             m_Session.RequestRevealSelection = true;
+        };
+        hooks.BuiltinMeshThumbnail = [this](MeshPrimitive primitive) {
+            return BuiltinMeshPreviews::Get(m_Renderer3D, primitive);
         };
         SetFieldEditorHooks(std::move(hooks));
         if (!options.TestScript.empty())
@@ -299,8 +306,8 @@ namespace Duality {
         Entity testCube = m_Scene.CreateEntity("TestCube3D");
         testCube.GetComponent<TransformComponent>().Rotation = { 20.0f, 35.0f, 0.0f };
         testCube.GetComponent<TransformComponent>().Scale = { 60.0f, 60.0f, 60.0f };
+        testCube.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Cube);
         auto& testCubeMesh = testCube.AddComponent<MeshRendererComponent>();
-        testCubeMesh.Primitive = MeshPrimitive::Cube;
         testCubeMesh.Materials.push_back(AssetRef{ materialGuid });
         // Same script class as the ApiShowcase entity below -- demonstrates it adapting to a 3D
         // mesh entity instead of a sprite (ground-plane movement, yaw spin) via
@@ -392,8 +399,8 @@ namespace Duality {
         Entity physicsGround3D = m_Scene.CreateEntity("PhysicsGround3D");
         physicsGround3D.GetComponent<TransformComponent>().Translation = { 0.0f, 150.0f, 0.0f };
         physicsGround3D.GetComponent<TransformComponent>().Scale = { 200.0f, 20.0f, 200.0f };
+        physicsGround3D.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Cube);
         auto& groundMesh3D = physicsGround3D.AddComponent<MeshRendererComponent>();
-        groundMesh3D.Primitive = MeshPrimitive::Cube;
         groundMesh3D.Materials.push_back(AssetRef{ materialGuid }); // reuses TestOrange, just for a visible surface
         physicsGround3D.AddComponent<Rigidbody3DComponent>().Type = BodyType::Static;
         physicsGround3D.AddComponent<BoxCollider3DComponent>().Size = { 100.0f, 10.0f, 100.0f };
@@ -402,7 +409,8 @@ namespace Duality {
         Entity physicsBall3D = m_Scene.CreateEntity("PhysicsBall3D");
         physicsBall3D.GetComponent<TransformComponent>().Translation = { 80.0f, -40.0f, 0.0f };
         physicsBall3D.GetComponent<TransformComponent>().Scale = { 40.0f, 40.0f, 40.0f };
-        physicsBall3D.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Sphere;
+        physicsBall3D.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Sphere);
+        physicsBall3D.AddComponent<MeshRendererComponent>();
         physicsBall3D.AddComponent<Rigidbody3DComponent>();
         auto& ballCollider3D = physicsBall3D.AddComponent<SphereCollider3DComponent>();
         ballCollider3D.Radius = 20.0f;
@@ -414,7 +422,8 @@ namespace Duality {
         Entity physicsCapsule3D = m_Scene.CreateEntity("PhysicsCapsule3D");
         physicsCapsule3D.GetComponent<TransformComponent>().Translation = { -80.0f, -40.0f, 0.0f };
         physicsCapsule3D.GetComponent<TransformComponent>().Scale = { 40.0f, 40.0f, 40.0f }; // uniform: the capsule mesh is 1 tall, 0.5 wide
-        physicsCapsule3D.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Capsule;
+        physicsCapsule3D.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Capsule);
+        physicsCapsule3D.AddComponent<MeshRendererComponent>();
         physicsCapsule3D.AddComponent<Rigidbody3DComponent>();
         physicsCapsule3D.AddComponent<CapsuleCollider3DComponent>();
         m_Scene.SetParent(physicsCapsule3D, physics3DGroup);
@@ -954,6 +963,7 @@ namespace Duality {
             double now = m_Window.GetTime();
             float deltaTime = static_cast<float>(now - lastFrameTime);
             lastFrameTime = now;
+            Profiler::BeginFrame(); // Window > Analysis > Profiler (no-op unless recording)
 
             // Exponential smoothing (light -- 0.1 blend) so the stats overlay
             // reads as a steady number instead of jittering with raw 1/deltaTime.
@@ -978,15 +988,18 @@ namespace Duality {
             const float gameDeltaTime = m_Session.StepRequested ? (1.0f / 60.0f) : deltaTime;
             m_Session.StepRequested = false;
             if (advanceGame) {
+                DUALITY_PROFILE_SCOPE("PlayerLoop");
                 // Before OnRuntimeUpdate, not after -- a script polling UIButtonComponent::
                 // WasClicked this frame needs this frame's value already computed. Gated on
                 // Play like OnRuntimeUpdate itself.
+                Profiler::BeginSample("UI.Events");
                 UpdateUIInteractions(m_Scene);
                 UpdatePhysicsRaycasterInteractions(m_Scene);
                 for (auto& loaded : m_AdditiveRuntimeScenes) {
                     UpdateUIInteractions(*loaded.Value);
                     UpdatePhysicsRaycasterInteractions(*loaded.Value);
                 }
+                Profiler::EndSample();
                 m_Scene.OnRuntimeUpdate(gameDeltaTime);
                 for (auto& loaded : m_AdditiveRuntimeScenes)
                     loaded.Value->OnRuntimeUpdate(gameDeltaTime);
@@ -1042,6 +1055,7 @@ namespace Duality {
                 m_Session.ErrorCountAtLastCheck = errors;
             }
 
+            Profiler::BeginSample("Render.Game");
             m_Renderer.BeginFrame();
             m_GameRenderStats = {};
             m_TopFramebuffer.Bind();
@@ -1063,6 +1077,18 @@ namespace Duality {
             // real dual-screen render pass actually costs.
             m_GameDrawCallCount = m_Renderer.GetDrawCallCount() + m_GameRenderStats.MeshDrawCalls;
             m_Renderer.EndFrame();
+            Profiler::EndSample();
+            if (Profiler::IsRecording()) {
+                // Rendering / Memory modules (Unity's Profiler counters).
+                Profiler::SetCounter("Draw Calls", m_GameDrawCallCount);
+                Profiler::SetCounter("Sprites", m_GameRenderStats.VisibleSprites);
+                Profiler::SetCounter("Mesh Draw Calls", m_GameRenderStats.MeshDrawCalls);
+                Profiler::SetCounter("Visible Meshes", m_GameRenderStats.VisibleMeshes);
+                Profiler::SetCounter("Texture Memory (KB)", static_cast<double>(m_Renderer.GetTextureMemoryBytes()) / 1024.0);
+                Profiler::SetCounter("JS Heap (KB)", static_cast<double>(JsScripting::GetMemoryStats().MallocSize) / 1024.0);
+                Profiler::SetCounter("Entities", static_cast<double>(m_Scene.Registry().storage<entt::entity>().size()));
+                Profiler::SetCounter("Playing", m_IsPlaying ? 1.0 : 0.0);
+            }
 
             m_Window.BeginFrame();
 
@@ -1088,6 +1114,8 @@ namespace Duality {
             m_Automation.Update(ctx, m_Window);
             if (m_Automation.WantsQuit())
                 m_Running = false;
+            // Model importer: finish background imports, watch Assets for new/changed models.
+            ModelImportUI::Update(ctx);
 
             // Unity's play-mode tint: the whole editor darkens/reddens while the game runs, so
             // it is obvious that edits made now will be reverted on Stop.
@@ -1206,6 +1234,7 @@ namespace Duality {
                 }
             }
 
+            Profiler::BeginSample("Editor.Panels");
             m_ScenePanel.OnImGuiRender(ctx);
             m_GamePanel.OnImGuiRender(ctx);
             m_HierarchyPanel.OnImGuiRender(ctx);
@@ -1217,6 +1246,11 @@ namespace Duality {
             m_PackageManagerPanel.OnImGuiRender(ctx);
             m_PreferencesPanel.OnImGuiRender(ctx);
             m_LightingPanel.OnImGuiRender(ctx);
+            m_SpriteEditorWindow.OnImGuiRender(ctx);
+            m_AnimationWindow.OnImGuiRender(ctx);
+            m_TilePaletteWindow.OnImGuiRender(ctx);
+            m_ProfilerWindow.OnImGuiRender(ctx);
+            Profiler::EndSample();
 
             DrawSaveChangesPrompt(ctx);
 
@@ -1225,10 +1259,17 @@ namespace Duality {
 
             // MarkSceneDirty is called by every Scene mutation path (Inspector, gizmo,
             // hierarchy, creation/deletion, drag-drop). One finished interaction becomes one
-            // atomic history entry.
+            // atomic history entry. An Animation-window preview is suspended around it so the
+            // history never captures previewed (unsaved, sampled) values.
+            const bool suspendPreview = m_Session.ScenePreviewHook && m_CapturedSceneChangeSerial != m_SceneChangeSerial;
+            if (suspendPreview)
+                m_Session.ScenePreviewHook(true);
             CommitPendingChange(ctx);
+            if (suspendPreview && m_Session.ScenePreviewHook)
+                m_Session.ScenePreviewHook(false);
             UpdateWindowTitle();
 
+            Profiler::EndFrame(); // before the buffer swap (vsync wait is not frame work)
             m_Window.EndFrame();
         }
 

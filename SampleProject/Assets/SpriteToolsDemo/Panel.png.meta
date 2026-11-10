@@ -1,0 +1,19 @@
+{
+    "Importer": {
+        "FilterMode": "Point",
+        "GenerateMipmaps": false,
+        "PixelsPerUnit": 16.0,
+        "SpriteBorder": [
+            6.0,
+            6.0,
+            6.0,
+            6.0
+        ],
+        "TextureSize": [
+            24,
+            24
+        ],
+        "WrapMode": "Clamp"
+    },
+    "guid": "481ec79aaeb2cd1b4f8c237bac4bca47"
+}

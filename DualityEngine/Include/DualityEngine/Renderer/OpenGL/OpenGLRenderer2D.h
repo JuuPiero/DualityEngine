@@ -39,6 +39,9 @@ namespace Duality {
         void UnloadAllTextures() override;
         void UnloadAllFonts() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
+        glm::vec2 GetTextureSize(uint32_t textureId) const override;
+        uint64_t GetTextureMemoryBytes() const override;
+        void SetClipRect(bool enabled, const glm::vec4& rect) override;
 
         // Desktop-editor-only extra (not part of IRenderer2D -- there is no
         // device equivalent): an orthographic view centered on an arbitrary
@@ -67,7 +70,12 @@ namespace Duality {
         std::unordered_map<std::string, uint32_t> m_FontCache;
 
         std::unordered_map<std::string, uint32_t> m_TextureCache;
+        std::unordered_map<uint32_t, glm::vec2> m_TextureSizes; // GL texture id -> pixel size
         uint32_t m_DrawCallCount = 0;
+
+        // Current orthographic bounds (left, top, right, bottom) set by BeginScene /
+        // BeginCustomView -- SetClipRect maps its rect through them onto the GL viewport.
+        glm::vec4 m_ViewBounds{ 0.0f, 0.0f, 400.0f, 240.0f };
     };
 
 }

@@ -8,6 +8,7 @@
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Reflection/FieldSerialization.h"
 #include "DualityEngine/Reflection/TypeRegistry.h"
+#include "DualityEngine/Renderer/BuiltinMeshes.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scripting/ScriptRegistry.h"
 
@@ -77,7 +78,41 @@ namespace Duality {
         }
     }
 
-    void DeserializeEntityComponents(Entity entity, const json& entityJson) {
+    bool MigrateLegacyMeshRenderer(json& entityJson) {
+        auto renderer = entityJson.find("Mesh Renderer");
+        if (renderer == entityJson.end() || !renderer->is_object() ||
+            (!renderer->contains("Primitive") && !renderer->contains("Mesh")))
+            return false;
+        // Before the MeshFilter split a Mesh Renderer drew its imported "Mesh" when one was
+        // assigned, else its procedural "Primitive" (Cube when absent). That choice becomes the
+        // Mesh Filter's mesh; the Mesh Renderer keeps Enabled/Materials/Sort Order.
+        std::string mesh;
+        if (renderer->contains("Mesh") && (*renderer)["Mesh"].is_string())
+            mesh = (*renderer)["Mesh"].get<std::string>();
+        if (mesh.empty()) {
+            MeshPrimitive primitive = MeshPrimitive::Cube;
+            if (renderer->contains("Primitive") && (*renderer)["Primitive"].is_string())
+                BuiltinMeshes::FromName((*renderer)["Primitive"].get<std::string>(), primitive);
+            mesh = BuiltinMeshes::ReferenceFor(primitive);
+        }
+        renderer->erase("Primitive");
+        renderer->erase("Mesh");
+        if (!entityJson.contains("Mesh Filter"))
+            entityJson["Mesh Filter"] = json{ { "Mesh", mesh } };
+        return true;
+    }
+
+    void DeserializeEntityComponents(Entity entity, const json& sourceJson) {
+        // Format migrations that move data between components work on a copy of the entity.
+        json migratedJson;
+        const json* effectiveJson = &sourceJson;
+        if (sourceJson.contains("Mesh Renderer")) {
+            migratedJson = sourceJson;
+            if (MigrateLegacyMeshRenderer(migratedJson))
+                effectiveJson = &migratedJson;
+        }
+        const json& entityJson = *effectiveJson;
+
         for (auto& [typeName, valueJson] : entityJson.items()) {
             if (typeName == "Parent")
                 continue; // bespoke hierarchy field, handled by the caller

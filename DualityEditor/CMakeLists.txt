@@ -18,6 +18,12 @@ add_executable(DualityEditor
     Source/AssetInspectorRegistry.cpp
     Source/AssetInspectors.cpp
     Source/MaterialInspector.cpp
+    Source/BuiltinMeshPreviews.cpp
+    Source/SceneView/SceneViewNavigation.cpp
+    Source/SceneView/SceneViewState.cpp
+    Source/SceneView/SceneAssetDrop.cpp
+    Source/SceneView/SceneGizmoDrawing.cpp
+    Source/SceneView/SceneViewOverlays.cpp
     Source/SceneOps.cpp
     Source/EditorSettings.cpp
     Source/EditorTheme.cpp
@@ -34,6 +40,11 @@ add_executable(DualityEditor
     Source/Panels/PackageManagerPanel.cpp
     Source/Panels/PreferencesPanel.cpp
     Source/Panels/LightingPanel.cpp
+    Source/Windows/SpriteEditorWindow.cpp
+    Source/Windows/SpriteAssetUI.cpp
+    Source/Windows/AnimationWindow.cpp
+    Source/Windows/TilePaletteWindow.cpp
+    Source/Windows/ProfilerWindow.cpp
 )
 
 # find_package's imported targets are only guaranteed visible within the
@@ -42,6 +53,21 @@ add_executable(DualityEditor
 # this sibling directory.
 find_package(glfw3 CONFIG REQUIRED)
 find_package(GLEW REQUIRED)
+
+# Scene-view gizmos of the Unity-style components added later (joints, effectors, Edge
+# Collider 2D, Character Controller...).
+target_sources(DualityEditor PRIVATE Source/SceneView/ComponentGizmos.cpp)
+
+# Model import pipeline (FBX/glTF/OBJ -> 3DS-ready .dmesh/.mat/.png/.anim + model prefab) and
+# its Inspector / Project-window UI. The cooker files have no editor UI dependency (Tests/
+# compiles them too).
+target_sources(DualityEditor PRIVATE
+    Source/Import/ModelImportSettings.cpp
+    Source/Import/ModelCooker.cpp
+    Source/Import/TextureBaker.cpp
+    Source/Import/ModelPrefabBuilder.cpp
+    Source/Import/ModelImportUI.cpp
+)
 
 target_include_directories(DualityEditor PRIVATE Include)
 target_link_libraries(DualityEditor PRIVATE DualityEngine glfw GLEW::GLEW opengl32 comdlg32 ImGui stb assimp::assimp)

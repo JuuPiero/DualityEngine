@@ -1,8 +1,14 @@
 #include "DualityEditor/SceneHistory.h"
 
+#include <algorithm>
+#include <fstream>
+#include <iterator>
+
 #include <nlohmann/json.hpp>
 
 #include "DualityEditor/EntityIdRegistry.h"
+#include "DualityEngine/Asset/AnimationClipLoader.h"
+#include "DualityEngine/Asset/TilemapAsset.h"
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -18,6 +24,45 @@ namespace Duality {
             static const std::string empty;
             return empty;
         }
+
+        std::string ReadFile(const std::string& path) {
+            std::ifstream file(path, std::ios::binary);
+            if (!file)
+                return {};
+            return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        }
+
+        uint64_t s_RestoredFileSerial = 0;
+        std::vector<std::string> s_LastRestoredFiles;
+    }
+
+    std::vector<std::string> SceneHistory::SnapshotFiles() const {
+        std::vector<std::string> files;
+        files.reserve(m_TrackedFiles.size());
+        for (const std::string& path : m_TrackedFiles)
+            files.push_back(ReadFile(path));
+        return files;
+    }
+
+    void SceneHistory::TrackFile(const std::string& path) {
+        if (path.empty() || IsTrackingFile(path))
+            return;
+        m_TrackedFiles.push_back(path);
+        const std::string content = ReadFile(path);
+        for (State& state : m_States)
+            state.Files.push_back(content);
+    }
+
+    bool SceneHistory::IsTrackingFile(const std::string& path) const {
+        return std::find(m_TrackedFiles.begin(), m_TrackedFiles.end(), path) != m_TrackedFiles.end();
+    }
+
+    uint64_t SceneHistory::RestoredFileSerial() {
+        return s_RestoredFileSerial;
+    }
+
+    const std::vector<std::string>& SceneHistory::LastRestoredFiles() {
+        return s_LastRestoredFiles;
     }
 
     void SceneHistory::Reset(Scene& scene, EntityIdRegistry& ids, const HistorySelection& selection) {
@@ -26,6 +71,7 @@ namespace Duality {
         state.Ids = ids.CaptureOrder(scene);
         state.SelectionBefore = selection;
         state.SelectionAfter = selection;
+        state.Files = SnapshotFiles();
         m_States.clear();
         m_States.push_back(std::move(state));
         m_Current = 0;
@@ -35,7 +81,8 @@ namespace Duality {
     bool SceneHistory::Capture(Scene& scene, EntityIdRegistry& ids, const std::string& label,
         const HistorySelection& selectionBefore, const HistorySelection& selectionAfter) {
         std::string snapshot = Snapshot(scene);
-        if (!m_States.empty() && m_States[m_Current].SceneJson == snapshot) {
+        std::vector<std::string> files = SnapshotFiles();
+        if (!m_States.empty() && m_States[m_Current].SceneJson == snapshot && m_States[m_Current].Files == files) {
             m_States[m_Current].SelectionAfter = selectionAfter;
             return false;
         }
@@ -47,6 +94,7 @@ namespace Duality {
         state.Label = label.empty() ? std::string("Change") : label;
         state.SelectionBefore = selectionBefore;
         state.SelectionAfter = selectionAfter;
+        state.Files = std::move(files);
         m_States.push_back(std::move(state));
         m_Current = m_States.size() - 1;
         if (m_States.size() > MaxStates) {
@@ -65,6 +113,27 @@ namespace Duality {
     }
 
     bool SceneHistory::Restore(Scene& scene, EntityIdRegistry& ids, const State& state) const {
+        // Tracked asset files first (they do not depend on the scene restoring successfully).
+        s_LastRestoredFiles.clear();
+        for (size_t i = 0; i < m_TrackedFiles.size() && i < state.Files.size(); ++i) {
+            const std::string& path = m_TrackedFiles[i];
+            if (ReadFile(path) == state.Files[i])
+                continue;
+            std::ofstream file(path, std::ios::binary | std::ios::trunc);
+            if (!file) {
+                Log::Error("SceneHistory: could not restore '" + path + "'");
+                continue;
+            }
+            file << state.Files[i];
+            file.close();
+            // Runtime caches of the asset kinds tools edit this way.
+            AnimationClipLoader::Invalidate(path);
+            TilemapAsset::Invalidate(path);
+            s_LastRestoredFiles.push_back(path);
+        }
+        if (!s_LastRestoredFiles.empty())
+            ++s_RestoredFileSerial;
+
         try {
             scene.Clear();
             if (!SceneSerializer(scene).DeserializeFromJson(nlohmann::json::parse(state.SceneJson))) {

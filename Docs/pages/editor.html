@@ -46,7 +46,7 @@
                     <tr><td>Edit</td><td>Undo &lt;tên thao tác&gt; / Redo &lt;tên thao tác&gt;, Select All, Deselect All, Cut/Copy/Paste/Paste As Child, Rename, Duplicate, Delete, Frame Selected, Play/Pause/Step, Project Settings..., Preferences...</td></tr>
                     <tr><td>GameObject</td><td>Create Empty, Create Empty Parent, 3D Object (Cube/Sphere/Capsule/Plane), 2D Object (Sprite/Tilemap), Effects (Particle System/Line), Light (Directional/Point/Spot), Audio (Audio Source/Listener), UI (Canvas + Panel/Image/Text/Button/Slider/Toggle/Input Field cho từng màn), Camera (2D/3D cho Top/Bottom), 3DS Screen Roots, Toggle Active State. Cùng menu này có ở nút <strong>+</strong> và chuột phải trong Hierarchy.</td></tr>
                     <tr><td>Component</td><td>Thêm component theo nhóm (Rendering, Effects, Animation, Physics 2D, Physics, Audio, UI, Camera, Miscellaneous) vào mọi object đang chọn.</td></tr>
-                    <tr><td>Window</td><td>General (Scene, Game, Inspector, Hierarchy, Project, Console), Rendering → Lighting, Package Manager, Layouts → Reset.</td></tr>
+                    <tr><td>Window</td><td>General (Scene, Game, Inspector, Hierarchy, Project, Console), Rendering → Lighting, Animation → Animation (Ctrl+6), 2D → Sprite Editor / Tile Palette, Analysis → Profiler (Ctrl+7), Package Manager, Layouts → Reset.</td></tr>
                 </table>
 
                 <h2>Phím tắt (giống Unity)</h2>
@@ -69,9 +69,17 @@
                     <tr><td>F (double-click trong Hierarchy)</td><td>Frame Selected</td><td>Hierarchy / Scene</td></tr>
                     <tr><td>↑ ↓ ← → (Alt = cả nhánh)</td><td>Di chuyển selection, mở/đóng node</td><td>Hierarchy</td></tr>
                     <tr><td>Ctrl khi kéo handle</td><td>Increment snapping (Move 0.25, Rotate 15°, Scale 0.1 — chỉnh ở nút nam châm trên toolbar)</td><td>Scene</td></tr>
-                    <tr><td>Chuột phải + W A S D Q E (Shift = nhanh, lăn chuột = tốc độ)</td><td>Bay (fly-through)</td><td>Scene 3D</td></tr>
-                    <tr><td>Alt + chuột trái / Alt + chuột phải / chuột giữa / lăn</td><td>Orbit / Zoom / Pan / Zoom</td><td>Scene 3D (2D: chuột giữa hoặc phải để pan, lăn zoom theo vị trí con trỏ)</td></tr>
+                    <tr><td>Chuột phải + W A S D Q E (Shift ×3, lăn chuột = tốc độ bay)</td><td>Bay (fly-through), nhìn quanh 0.004 rad/px</td><td>Scene 3D</td></tr>
+                    <tr><td>Alt + chuột trái</td><td>Orbit quanh pivot (0.006 rad/px, pitch ±90°)</td><td>Scene 3D (2D: pan)</td></tr>
+                    <tr><td>Alt + chuột phải</td><td>Dolly (khoảng cách × e<sup>(dx−dy)·0.005</sup>)</td><td>Scene 3D (2D: pan)</td></tr>
+                    <tr><td>Chuột giữa (hoặc tool Hand + chuột trái)</td><td>Pan — điểm dưới con trỏ đi theo con trỏ</td><td>Scene 2D/3D (2D: cả chuột phải)</td></tr>
+                    <tr><td>Lăn chuột</td><td>3D: zoom về pivot (×1.12 mỗi nấc); 2D: zoom về phía con trỏ (×1.15)</td><td>Scene</td></tr>
+                    <tr><td>Click axis gizmo (góc phải trên)</td><td>Nón trục: xoay về view trục đó (orthographic, có animation); ô giữa / nhãn "Persp": đổi Perspective ↔ Iso; kéo: orbit</td><td>Scene 3D</td></tr>
                     <tr><td>Ctrl + lăn chuột</td><td>Đổi cỡ icon</td><td>Project</td></tr>
+                    <tr><td>Ctrl+6 / Ctrl+7</td><td>Mở cửa sổ Animation / Profiler</td><td>Toàn editor</td></tr>
+                    <tr><td>Ctrl+Z / Ctrl+Y, Delete, F</td><td>Undo/Redo riêng, xoá sprite, vừa khung</td><td>Sprite Editor (khi focus)</td></tr>
+                    <tr><td>B / U / I / D / G, Esc</td><td>Paint / Box Fill / Picker / Erase / Fill, tắt công cụ</td><td>Tile Palette hoặc Scene (khi Tile Palette mở)</td></tr>
+                    <tr><td>Delete, double-click</td><td>Xoá key đang chọn, thêm key</td><td>Animation (dopesheet)</td></tr>
                 </table>
 
                 <h2>Undo / Redo &amp; scene dirty</h2>
@@ -222,7 +230,14 @@
                 <h2>Scene</h2>
                 <p>
                     Hai pane Top/Bottom (kéo thanh chia ở giữa để đổi tỉ lệ, double-click để về
-                    50/50), mỗi pane một camera editor riêng với nút <strong>2D | 3D</strong>.
+                    50/50), mỗi pane một camera editor riêng. Điều khiển camera giống PiaEngine / Unity
+                    (quy tắc nằm trong <code>DualityEditor/Source/SceneView/SceneViewNavigation.cpp</code>,
+                    có unit test). Thanh công cụ của mỗi pane: <strong>2D | 3D</strong>, <strong>Grid</strong>,
+                    <strong>Gizmos</strong> (ẩn/hiện icon component, collider, handle), nhãn pipeline
+                    (<code>3D · citro3d</code> / <code>2D · citro2d</code>, rê chuột để xem phím điều khiển). Góc trái
+                    trên mỗi pane có cột công cụ nổi (Hand / Move / Rotate / Scale / Rect, công cụ hiện tại
+                    được tô sáng); góc phải trên pane 3D có axis gizmo. Camera Scene view của từng scene được
+                    nhớ trong <code>&lt;Project&gt;/Library/SceneViewState.json</code> (không ghi vào file scene).
                 </p>
                 <table>
                     <tr><th>Thao tác</th><th>Hành vi</th></tr>
@@ -230,9 +245,11 @@
                     <tr><td>Kéo chuột trái (không trúng handle)</td><td>Khung chọn (marquee) — chọn mọi renderer/camera/light/collider có pivot nằm trong khung (Ctrl/Shift = cộng thêm).</td></tr>
                     <tr><td>Handle Move/Rotate/Scale</td><td>Tác động lên cả selection (object cha-con chỉ tính cha). Pivot: handle ở object chính; Center: ở tâm selection (Rotate/Scale quanh tâm). Global/Local: trục thế giới hay theo góc quay object chính (3D). Giữ Ctrl để snap. Một lần kéo = một bước Undo.</td></tr>
                     <tr><td>Rect tool (T)</td><td>2D: viền + 4 góc để đổi <code>Size</code> của Sprite (góc đối diện đứng yên), ô vuông giữa để di chuyển.</td></tr>
-                    <tr><td>View tool (Q)</td><td>Kéo trái để pan, không chọn/không sửa gì.</td></tr>
-                    <tr><td>3D</td><td>Chuột phải: nhìn quanh + WASD/QE bay (Shift nhanh, lăn chuột đổi tốc độ, hiện ở header pane); Alt+trái orbit; Alt+phải hoặc lăn: zoom; chuột giữa: pan; F: frame selection.</td></tr>
-                    <tr><td>2D</td><td>Chuột giữa / phải: pan; lăn: zoom về phía con trỏ; F: frame selection.</td></tr>
+                    <tr><td>Hand tool (Q)</td><td>Kéo trái để pan, không chọn/không sửa gì.</td></tr>
+                    <tr><td>3D</td><td>Chuột phải: nhìn quanh + WASD/QE bay (tốc độ = max(2, khoảng cách pivot) × tốc độ bay, Shift ×3; lăn chuột khi đang bay đổi tốc độ bay ×1.2 trong 0.05–20, hiện ở góc trái dưới); Alt+trái: orbit; Alt+phải: dolly; lăn: zoom (×1.12, tối thiểu 0.05); chuột giữa: pan (tốc độ theo khoảng cách để điểm dưới con trỏ đi theo con trỏ); F: frame selection có animation 0.25 s (khoảng cách = bán kính / sin(fov/2) × 1.05).</td></tr>
+                    <tr><td>Axis gizmo</td><td>Click nón X/Y/Z (hoặc nón xám = hướng ngược): xoay mượt về view trục đó, chuyển orthographic; click ô giữa hoặc nhãn <em>Persp / Iso</em>: đổi phép chiếu; kéo (quá 3 px): orbit.</td></tr>
+                    <tr><td>2D</td><td>Chuột giữa / phải / Alt+trái / Hand: pan; lăn: zoom về phía con trỏ (orthographic size ×1.15, 0.05–5000); F: frame selection có animation (size = max(h/2, w/2/aspect, 0.5) × 1.4).</td></tr>
+                    <tr><td>Lưới</td><td>Lưới đi theo camera (bám theo ô), mật độ theo mức zoom; ẩn khi đang nhìn ngang ở chế độ orthographic.</td></tr>
                 </table>
                 <p>
                     Object đang chọn có viền cam kiểu Unity (hình chữ nhật xoay của sprite ở 2D, hộp
@@ -275,6 +292,130 @@
                     Hierarchy thả vào lưới để tạo prefab ở thư mục đang xem. Field asset trong
                     Inspector "ping" asset ở đây (mở đúng thư mục, viền vàng nhấp nháy). Chi tiết
                     pipeline asset: <a href="assets.html">Asset Pipeline</a>.
+                    Texture ở Sprite Mode <strong>Multiple</strong> có mũi tên mở ra các sprite con (như
+                    Unity): mỗi sprite là một ô có thumbnail đúng vùng cắt, kéo được vào field sprite,
+                    vào Scene (tạo SpriteRenderer với kích thước gốc) hoặc vào Hierarchy. Ping một
+                    texture đã cắt sẽ tự mở danh sách sprite của nó.
+                </p>
+
+                <h2>Sprite Editor</h2>
+                <p>
+                    Mở qua <strong>Window → 2D → Sprite Editor</strong> hoặc nút <strong>Sprite Editor</strong>
+                    trong Inspector của texture (Inspector có thêm <strong>Sprite Mode</strong>
+                    Single/Multiple và <strong>Pixels Per Unit</strong>; 0 = PPU của project). Cửa sổ đi theo
+                    texture đang chọn trong Project. Vùng giữa là texture trên nền ô bàn cờ: lăn chuột zoom
+                    quanh con trỏ, chuột giữa (hoặc Alt + kéo trái) để pan, <strong>F</strong> để vừa khung.
+                </p>
+                <table>
+                    <tr><th>Thao tác</th><th>Hành vi</th></tr>
+                    <tr><td>Kéo trên vùng trống (Multiple)</td><td>Vẽ một sprite mới (tên <code>&lt;texture&gt;_N</code>).</td></tr>
+                    <tr><td>Click / kéo trong một sprite</td><td>Chọn / di chuyển (bám theo pixel, không ra ngoài ảnh).</td></tr>
+                    <tr><td>8 ô trắng ở cạnh và góc</td><td>Đổi kích thước (Multiple).</td></tr>
+                    <tr><td>Vòng tròn xanh</td><td>Pivot (giữ Ctrl để bám theo pixel). Hoặc chọn preset ở hộp Sprite.</td></tr>
+                    <tr><td>Đường + ô xanh lá</td><td>Border 9-slice (Ctrl + kéo cạnh để tạo border khi đang là 0; Single mode kéo cạnh trực tiếp).</td></tr>
+                    <tr><td>Delete / Backspace, Esc</td><td>Xoá sprite đang chọn, bỏ chọn.</td></tr>
+                    <tr><td>Ctrl+Z / Ctrl+Y</td><td>Undo/Redo riêng của Sprite Editor khi cửa sổ đang focus (thay đổi chưa Apply không vào lịch sử scene).</td></tr>
+                </table>
+                <p>
+                    Thanh công cụ: tên + kích thước ảnh, Sprite Mode, menu <strong>Slice ▾</strong> (Type:
+                    Automatic theo các vùng alpha liền nhau / Grid By Cell Size / Grid By Cell Count; Pixel Size
+                    hoặc Column &amp; Row, Offset, Padding, Keep Empty Rects, Pivot, Method: Delete Existing hoặc
+                    Safe), <strong>Trim</strong> (thu sprite về vùng pixel có alpha), thanh zoom, <strong>Revert</strong>
+                    và <strong>Apply</strong>. Cắt lại theo lưới giữ nguyên id của sprite trùng tên nên các tham chiếu
+                    cũ không bị gãy. Hộp <strong>Sprite</strong> góc dưới phải: Name, Position, Size, Border (L T R
+                    B), Pivot (preset + Custom). Đóng cửa sổ / đổi texture khi còn thay đổi chưa Apply sẽ hỏi
+                    Apply / Revert. Single mode chỉnh pivot + border của cả texture.
+                </p>
+                <p>
+                    Dữ liệu nằm trong <code>.meta</code> của texture (khối <code>Importer</code>:
+                    <code>SpriteMode</code>, <code>PixelsPerUnit</code>, <code>TextureSize</code>,
+                    <code>SpritePivot</code>/<code>SpriteBorder</code>, <code>Sprites[]</code> với
+                    <code>Id</code>, <code>Name</code>, <code>Rect</code> (px, gốc trên-trái),
+                    <code>Pivot</code>, <code>Border</code>); texture chưa từng dùng sprite giữ nguyên
+                    <code>.meta</code> cũ. Field asset tham chiếu một sprite bằng
+                    <code>"&lt;guid texture&gt;#&lt;id sprite&gt;"</code>; GUID trơn vẫn là cả texture. Dùng được ở
+                    SpriteRenderer (thêm <strong>Draw Mode</strong> Simple/Sliced; pivot của sprite thay cho
+                    Pivot của renderer), UI Image (border của sprite tự cắt 9-slice khi Slice Border = 0),
+                    Sprite Flipbook, Sprite Sheet Animator (texture Multiple chạy lần lượt các sprite thay cho
+                    lưới Columns × Rows), Particle System và tileset của Tilemap.
+                </p>
+
+                <h2>Animation</h2>
+                <p>
+                    <strong>Window → Animation → Animation</strong> (<strong>Ctrl+6</strong>). Làm việc với clip
+                    của Animation component trên object đang chọn (hoặc cha gần nhất có Animation; nút khoá
+                    để giữ object). Object chưa có clip: nút <strong>Create</strong> tạo
+                    <code>Assets/Animations/&lt;Tên&gt;.anim</code> và gắn Animation component.
+                </p>
+                <table>
+                    <tr><th>Phần</th><th>Hành vi</th></tr>
+                    <tr><td>Thanh công cụ</td><td>● Record, Preview, về đầu / lùi frame / Play / tiến frame / về cuối, ô frame, tên clip, Samples (fps của lưới frame), Dopesheet | Curves, khoá.</td></tr>
+                    <tr><td>Danh sách property</td><td>Mỗi dòng <code>Đường dẫn : Component.Property</code> và giá trị tại playhead (sửa giá trị = đặt key). Chuột phải → Remove Properties. <strong>Add Property</strong>: menu object → component → property (mọi field reflect được của object và các con; vector/màu tách theo x/y/z/w; AssetRef như Texture là track sprite).</td></tr>
+                    <tr><td>Dopesheet</td><td>Hàng tổng (mọi key), mỗi property một hàng kim cương. Click/kéo thước = scrub (bật Preview, bám frame); click key chọn (Ctrl thêm), kéo để dời (bám frame), Delete xoá, double-click hàng trống thêm key, chuột phải: Add Key (mọi property tại playhead) / Delete Keys. Lăn chuột zoom thời gian, chuột giữa pan.</td></tr>
+                    <tr><td>Curves</td><td>Đồ thị các curve số (hoặc chỉ property đang chọn), kéo key đổi thời gian + giá trị (Ctrl bám 0.1).</td></tr>
+                    <tr><td>Kéo sprite vào timeline</td><td>Tạo key sprite (SpriteRenderer.Texture) từ frame dưới con trỏ, mỗi sprite một frame; thả cả một texture Multiple = mọi sprite của nó theo thứ tự (flipbook). Clip rỗng chuyển sang 12 samples như Unity.</td></tr>
+                </table>
+                <p>
+                    <strong>Preview</strong> (bật tự động khi scrub/play/record): giá trị lấy mẫu được ghi vào
+                    scene đang mở để xem trong Scene/Game nhưng <em>không</em> làm scene dirty; tắt Preview, đổi
+                    object, Play, Save, Undo đều trả lại giá trị gốc trước (Save không bao giờ lưu tư thế đang
+                    preview). <strong>Record</strong>: đổi một field (Inspector, gizmo...) của object/các con sẽ
+                    đặt key tại playhead; giá trị gốc được trả lại khi thôi preview. Mọi sửa clip ghi ngay vào
+                    file <code>.anim</code> và nằm trong lịch sử Undo của scene (Ctrl+Z hoàn tác key). Clip
+                    nhập từ model (có Channels) là Read-Only.
+                </p>
+                <p>
+                    Định dạng <code>.anim</code> mở rộng tương thích: thêm <code>SampleRate</code>,
+                    <code>Curves[]</code> (<code>Path</code>, <code>Component</code>, <code>Property</code>,
+                    <code>Interpolation</code>, <code>Keys [[t, v]]</code>) và <code>ObjectCurves[]</code>
+                    (<code>Keys [[t, "guid#id"]]</code>); clip cũ chỉ có <code>Channels</code> tải như trước.
+                    Animation component chạy cả hai loại trên desktop và 3DS (cùng hàm
+                    <code>AnimationPlayback::Sample</code> mà cửa sổ dùng để preview).
+                </p>
+
+                <h2>Tile Palette</h2>
+                <p>
+                    <strong>Window → 2D → Tile Palette</strong>. <strong>Active Tilemap</strong> đi theo object
+                    Tilemap đang chọn (hoặc chọn trong danh sách). Palette là các sprite của texture Tileset
+                    (cắt bằng Sprite Editor), xếp đúng vị trí trên sheet; click một ô = brush 1 tile, kéo một
+                    hình chữ nhật = brush nhiều tile. Chỉ số tile trong <code>.tilemap</code> là chỉ số sprite
+                    trong danh sách sprite của tileset (tileset chưa cắt: cả texture cho mọi ô như trước).
+                </p>
+                <table>
+                    <tr><th>Công cụ</th><th>Phím</th><th>Trong Scene view</th></tr>
+                    <tr><td>Paint</td><td>B</td><td>Click/kéo vẽ brush (kéo nhanh không bị đứt nét); con trỏ hiện bóng mờ của brush.</td></tr>
+                    <tr><td>Box Fill</td><td>U</td><td>Kéo một hình chữ nhật, thả để lấp (brush nhiều tile được lặp lại).</td></tr>
+                    <tr><td>Picker</td><td>I</td><td>Click một ô để lấy tile làm brush rồi quay lại Paint.</td></tr>
+                    <tr><td>Erase</td><td>D</td><td>Xoá theo kích thước brush.</td></tr>
+                    <tr><td>Flood Fill</td><td>G</td><td>Lấp vùng 4-hướng cùng giá trị.</td></tr>
+                    <tr><td>(không)</td><td>Esc</td><td>Scene view chọn/kéo gizmo như bình thường.</td></tr>
+                </table>
+                <p>
+                    Mỗi nét vẽ là một bước Undo (file <code>.tilemap</code> được lịch sử scene theo dõi:
+                    <code>SceneHistory::TrackFile</code>). Tilemap chưa có Tile Data sẽ được tạo
+                    <code>Assets/Tilemaps/&lt;Tên&gt;.tilemap</code> ở nét vẽ đầu tiên. Tilemap giờ cũng hiện
+                    trong Scene view và sắp xếp chung với sprite theo Sort Order (như TilemapRenderer của
+                    Unity).
+                </p>
+
+                <h2>Profiler</h2>
+                <p>
+                    <strong>Window → Analysis → Profiler</strong> (<strong>Ctrl+7</strong>). Ghi khi cửa sổ mở
+                    (ô <strong>Record</strong>), tối đa 300 frame; bấm Play để có số liệu của game. Biểu đồ
+                    <strong>CPU Usage</strong> xếp chồng theo nhóm (Rendering, Scripts, Physics, Animation, UI,
+                    Editor, Others; mốc 60/30 FPS), click để chọn frame; <strong>Rendering / Memory</strong>: đồ
+                    thị một bộ đếm (Draw Calls, Sprites, Mesh Draw Calls, Visible Meshes, Texture Memory (KB),
+                    JS Heap (KB), Entities) và giá trị của frame đang chọn; <strong>Hierarchy</strong>: cây
+                    marker gộp theo tên với Total/Self (%), Calls, Time/Self ms.
+                </p>
+                <p>
+                    Marker engine (<code>DUALITY_PROFILE_SCOPE</code>, <code>DualityEngine/Core/Profiler.h</code>):
+                    <code>PlayerLoop</code>, <code>UI.Events</code>, <code>Physics.FixedStep</code>,
+                    <code>Scripts.C++</code> / <code>Scripts.TypeScript</code> (từng callback),
+                    <code>Scene.RuntimeSystems</code>, <code>Animation.Sample</code>, <code>Render.Game</code>,
+                    <code>Render.3D</code>, <code>Render.2D</code>, <code>Render2D.Tilemap</code>,
+                    <code>Render.UI</code>, <code>Editor.Panels</code>. Khi không ghi, mỗi marker chỉ là một
+                    phép so sánh bool; trên bản 3DS chúng bị loại hẳn khi biên dịch.
                 </p>
 
                 <h2>Editor automation (kiểm thử)</h2>
@@ -288,14 +429,46 @@
                     <code>cmd undo|redo|duplicate|delete|copy|cut|paste|paste-child|create-empty|create-empty-child|create-parent|create-prefab|toggle-active|select-all|play|stop|pause|step|save|new-scene|frame|rename|reset-layout</code>,
                     <code>key ctrl+d</code>, <code>keydown/keyup ctrl</code>, <code>type text</code>,
                     <code>click x y [right]</code>, <code>drag x1 y1 x2 y2 [button] [steps]</code>,
-                    <code>wheel d</code>, <code>focus Hierarchy</code>, <code>window hierarchy off</code>,
+                    <code>wheel d</code>, <code>mouse x y</code>, <code>mousedown / mouseup [right|middle]</code> (giữ nút qua nhiều lệnh, vd. bay),
+                    <code>wait-scripts</code> (chờ GameScripts build/reload xong), <code>print-sceneview top|bottom</code> (JSON camera
+                    của pane: pivot, distance, yaw/pitch, orthoSize 2D, điểm thế giới dưới chuột...),
+                    <code>sceneview-mode top|bottom 2d|3d</code>, <code>cmd create-3d Cube|Sphere|...</code>,
+                    <code>focus Hierarchy</code>, <code>window hierarchy off</code>,
                     <code>tool move</code>, <code>set / set-ref / add-component / rename-selected</code>,
                     <code>expect-field / expect-ref / expect-count / expect-name-count / expect-selected(-min) /
                     expect-primary / expect-exists / expect-missing / expect-parent / expect-dirty /
                     expect-playing / expect-paused / expect-undo-label / expect-undo-steps / expect-tool</code>,
-                    <code>print-field</code>, <code>screenshot</code>, <code>quit</code>. Tên entity có thể
+                    <code>print-field</code>, <code>screenshot</code>, <code>drop-file path [...]</code> (y hệt kéo file từ
+                    Explorer thả vào cửa sổ editor; đường dẫn tương đối tính từ thư mục của kịch bản), <code>quit</code>.
+                    Model importer: <code>model-wait-import [frames]</code>, <code>select-asset path</code>,
+                    <code>model-tab Model|Rig|Animation|Materials</code>, <code>model-set model Key json</code> (sửa setting
+                    chưa Apply), <code>model-apply / model-revert / model-reimport model</code>,
+                    <code>model-expect-child model Type min</code>, <code>model-remember-guids</code> /
+                    <code>model-expect-same-guids model</code>, <code>model-expect-budget model maxTris</code>,
+                    <code>model-extract-materials model</code>, <code>model-instantiate model [x y z]</code>. Tên entity có thể
                     là đường dẫn <code>Cha/Con</code> hoặc <code>#2:Tên</code> (cái thứ hai). Nên chạy với
                     một <em>bản sao</em> project và <code>APPDATA</code> riêng để không đụng file thật.
+                </p>
+                <p>
+                    Mỗi cửa sổ công cụ tự đăng ký lệnh của nó (<code>EditorAutomation::RegisterExtension</code>):
+                    <code>sprite-editor-open path</code>, <code>sprite-editor-mode single|multiple</code>,
+                    <code>sprite-editor-slice grid-size W H [ox oy px py] | grid-count C R | auto [min] [safe]</code>,
+                    <code>sprite-editor-select / -set i name|rect|pivot|border ... / -ppu / -apply / -revert / -undo / -redo / -delete / -trim</code>,
+                    <code>sprite-editor-drag x1 y1 x2 y2</code> và <code>sprite-editor-click x y</code> (toạ độ pixel
+                    của texture → kéo chuột thật qua ImGui), <code>sprite-select-asset / sprite-ping path</code>,
+                    <code>sprite-assign entity Component Field path index</code>,
+                    <code>sprite-create-object path index top|bottom x y</code>,
+                    <code>expect-sprite-count / expect-sprite i rect|name|pivot|border ... / expect-sprite-dirty / expect-sprite-meta-count</code>;
+                    <code>animation-open / -create-clip / -frame / -preview / -record / -play / -view curves /
+                    -add-property path Component Prop / -key path Component Prop frame value / -add-sprites frame tex.png:i... /
+                    -delete-key / -move-key</code>, <code>expect-anim-tracks / -keys / -key-frame / -value / -sprite / -preview /
+                    -clip-file-keys</code>; <code>tile-palette-open</code>, <code>tile-target</code>,
+                    <code>tile-tool paint|box|pick|erase|fill|none</code>, <code>tile-brush i</code>,
+                    <code>tile-paint / tile-erase / tile-box / tile-fill / tile-pick</code>,
+                    <code>tile-scene-view top 0.35 x y</code>, <code>tile-scene-drag / tile-scene-click</code> (toạ độ ô →
+                    chuột thật trong Scene view), <code>expect-tile x y i / expect-tile-count / expect-tile-brush</code>;
+                    <code>profiler-open / -record / -select</code>,
+                    <code>expect-profiler-frames-min / -sample Tên / -counter "Tên"</code>.
                 </p>
 
                 <div class="page-nav">

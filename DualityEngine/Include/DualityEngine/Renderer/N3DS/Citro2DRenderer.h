@@ -66,6 +66,10 @@ namespace Duality {
         uint32_t LoadTexture(const std::string& path) override;
         void UnloadAllTextures() override;
         uint32_t GetDrawCallCount() const override { return m_DrawCallCount; }
+        glm::vec2 GetTextureSize(uint32_t textureId) const override;
+        uint64_t GetTextureMemoryBytes() const override;
+        // GPU scissor (C3D_SetScissor) in the rotated framebuffer -- UI Mask / Rect Mask 2D.
+        void SetClipRect(bool enabled, const glm::vec4& rect) override;
 
         // Exposes this renderer's own C2D_CreateScreenTarget-made targets so Citro3DRenderer
         // can draw into the exact SAME target for whichever screen goes Perspective this frame
@@ -85,6 +89,10 @@ namespace Duality {
         C3D_RenderTarget* m_BottomTarget = nullptr;
         bool m_OwnsScreenTargets = false;
         uint32_t m_DrawCallCount = 0;
+        // Target/screen of the current BeginScene (SetClipRect maps into its framebuffer).
+        C3D_RenderTarget* m_CurrentTarget = nullptr;
+        Screen m_CurrentScreen = Screen::Top;
+        bool m_ScissorEnabled = false;
 
         // Index i (0-based) backs textureId i+1 -- 0 stays reserved for "none", matching
         // OpenGLRenderer2D's own handle convention. Cached by path so the same AssetRef drawn

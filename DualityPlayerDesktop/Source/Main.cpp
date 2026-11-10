@@ -156,10 +156,12 @@ namespace {
     // Developer options (all optional; the default run is unchanged):
     //   --scene <path relative to Assets/>    start this scene instead of the project's Start Scene
     //   --screenshot <file.bmp> [--frames N]  render N frames (default 30), save the window, exit
+    //   --fixed-dt <seconds>                  use a constant frame delta (reproducible screenshots)
     struct PlayerOptions {
         std::string Scene;
         std::string Screenshot;
         int Frames = 30;
+        float FixedDeltaTime = 0.0f; // 0 = real time
     };
 
     PlayerOptions ParseOptions(int argc, char** argv) {
@@ -168,6 +170,7 @@ namespace {
             if (std::strcmp(argv[i], "--scene") == 0) options.Scene = argv[++i];
             else if (std::strcmp(argv[i], "--screenshot") == 0) options.Screenshot = argv[++i];
             else if (std::strcmp(argv[i], "--frames") == 0) options.Frames = std::max(1, std::atoi(argv[++i]));
+            else if (std::strcmp(argv[i], "--fixed-dt") == 0) options.FixedDeltaTime = std::max(0.0f, static_cast<float>(std::atof(argv[++i])));
         }
         return options;
     }
@@ -319,7 +322,7 @@ int main(int argc, char** argv) {
         }
 
         double now = glfwGetTime();
-        float deltaTime = static_cast<float>(now - lastTime);
+        float deltaTime = options.FixedDeltaTime > 0.0f ? options.FixedDeltaTime : static_cast<float>(now - lastTime);
         lastTime = now;
 
         const double updateStart = glfwGetTime();

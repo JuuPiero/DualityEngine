@@ -48,6 +48,18 @@ namespace Duality {
 
         static constexpr std::size_t MaxStates = 128;
 
+        // Asset files edited from scene tools that do not live in the scene JSON (a .tilemap
+        // painted by the Tile Palette, an .anim keyed by the Animation window) take part in the
+        // same Undo/Redo: once tracked, every state also snapshots the file's content, a
+        // Capture appends a state when only such a file changed, and Undo/Redo writes the file
+        // back. Call TrackFile BEFORE the first modification: the current content is recorded
+        // into every existing state (it is what the file looked like at each of them).
+        void TrackFile(const std::string& path);
+        bool IsTrackingFile(const std::string& path) const;
+        // Incremented whenever Undo/Redo rewrote a tracked file; tools reload when it changes.
+        static uint64_t RestoredFileSerial();
+        static const std::vector<std::string>& LastRestoredFiles();
+
     private:
         struct State {
             std::string SceneJson;
@@ -55,12 +67,15 @@ namespace Duality {
             std::string Label;
             HistorySelection SelectionBefore; // restored when this change is undone
             HistorySelection SelectionAfter;  // restored when this change is redone
+            std::vector<std::string> Files;   // content of m_TrackedFiles[i] at this state
         };
 
         bool Restore(Scene& scene, EntityIdRegistry& ids, const State& state) const;
+        std::vector<std::string> SnapshotFiles() const;
 
         std::vector<State> m_States;
         std::size_t m_Current = 0;
         std::string m_SavedState;
+        std::vector<std::string> m_TrackedFiles;
     };
 }

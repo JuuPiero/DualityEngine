@@ -5,9 +5,13 @@
 #include <vector>
 
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/SpriteDatabase.h"
 #include "DualityEngine/Input/InputManager.h"
 #include "DualityEngine/Renderer/DrawHelpers2D.h"
+#include "DualityEngine/Renderer/TrailTextLODRendering.h"
+#include "DualityEngine/Renderer/UIWidgetRenderer.h"
 #include "DualityEngine/Renderer/SceneRenderer.h"
+#include "DualityEngine/Scene/SceneRuntimeSystems.h"
 
 namespace Duality {
 
@@ -106,7 +110,8 @@ namespace Duality {
         glm::vec2 topLeft, size;
         ResolveUIRect(scene, entity, topLeft, size);
         return pointer.x >= topLeft.x && pointer.x <= topLeft.x + size.x &&
-               pointer.y >= topLeft.y && pointer.y <= topLeft.y + size.y;
+               pointer.y >= topLeft.y && pointer.y <= topLeft.y + size.y &&
+               IsUIPointerAllowed(scene, entity, pointer); // Canvas Group / masks
     }
 
     void UpdateUIInteractions(Scene& scene) {
@@ -186,6 +191,9 @@ namespace Duality {
             else if (InputManager::GetPointerUp())
                 field.IsFocused = false;
         }
+
+        // Scroll Rect, Scrollbar, Dropdown (ExtendedRuntimeSystems.cpp).
+        UpdateUIWidgetInteractions(scene);
     }
 
     // Resolves fontRef to a loaded font handle via AssetDatabase + IRenderer2D::LoadFont, or 0
@@ -203,6 +211,7 @@ namespace Duality {
 
     void RenderScreenUI(IRenderer2D& renderer, Scene& scene, Screen screen) {
         EnsureUIElementsHaveCanvas(scene);
+        SetUILayoutRenderer(&renderer); // Content Size Fitter measures text with it
         // Kind-tagged, not just UIImageComponent-shaped: a UIRectComponent+UITextComponent
         // entity (no Image at all) has to
         // share this same sorted draw list so Text and Image widgets interleave correctly under
@@ -262,11 +271,29 @@ namespace Duality {
             return a.HierarchyOrder < b.HierarchyOrder;
         });
 
+        // UI Mask / Rect Mask 2D clipping (GPU scissor) is switched only when it changes.
+        bool clipActive = false;
+        glm::vec4 activeClip{ 0.0f };
+
         for (auto& item : items) {
             auto handle = item.Handle;
 
             glm::vec2 topLeft, size;
             ResolveUIRect(scene, Entity(handle, &scene), topLeft, size);
+
+            // Canvas Group alpha and the masks above this element.
+            const float groupAlpha = ResolveCanvasGroupAlpha(scene, Entity(handle, &scene));
+            if (groupAlpha <= 0.0f)
+                continue;
+            glm::vec4 clip;
+            const bool clipped = ResolveUIClipRect(scene, Entity(handle, &scene), clip);
+            if (clipped && (clip.z <= 0.0f || clip.w <= 0.0f))
+                continue; // fully masked out
+            if (clipped != clipActive || (clipped && clip != activeClip)) {
+                renderer.SetClipRect(clipped, clip);
+                clipActive = clipped;
+                activeClip = clip;
+            }
 
             if (item.Kind == UIItemKind::Text) {
                 auto& text = scene.Registry().get<UITextComponent>(handle);
@@ -278,14 +305,30 @@ namespace Duality {
                 else if (text.Alignment == TextAlignment::Right)
                     offsetX = size.x - textSize.x;
                 float offsetY = (size.y - text.FontSize) * 0.5f; // vertical always centered, see UITextComponent's own comment
-                renderer.DrawText(text.Text, topLeft + glm::vec2(offsetX, offsetY), text.FontSize, text.Color, fontId);
+                glm::vec4 textColor = text.Color;
+                textColor.a *= groupAlpha;
+                const glm::vec2 textPos = topLeft + glm::vec2(offsetX, offsetY);
+                DrawUIGraphicEffects(scene, handle, textColor, [&](const glm::vec2& offset, const glm::vec4& effectColor) {
+                    renderer.DrawText(text.Text, textPos + offset, text.FontSize, effectColor, fontId);
+                });
+                renderer.DrawText(text.Text, textPos, text.FontSize, textColor, fontId);
                 continue;
             }
+
+            // A Mask with Show Mask Graphic off still clips its children but draws nothing.
+            if (const auto* mask = scene.Registry().try_get<UIMaskComponent>(handle); mask && mask->Enabled && !mask->ShowMaskGraphic)
+                continue;
 
             auto& image = scene.Registry().get<UIImageComponent>(handle);
 
             glm::vec4 color = image.Color;
-            if (scene.Registry().all_of<UIButtonComponent>(handle)) {
+            if (scene.Registry().all_of<UIScrollbarComponent>(handle)) {
+                DrawUIScrollbar(renderer, scene, handle, topLeft, size, color, groupAlpha);
+                continue;
+            } else if (scene.Registry().all_of<UIDropdownComponent>(handle)) {
+                DrawUIDropdownCaption(renderer, scene, handle, topLeft, size, color, groupAlpha);
+                continue;
+            } else if (scene.Registry().all_of<UIButtonComponent>(handle)) {
                 auto& button = scene.Registry().get<UIButtonComponent>(handle);
                 color = button.IsPressed ? button.PressedColor : (button.IsHovered ? button.HoverColor : button.NormalColor);
             } else if (scene.Registry().all_of<UIToggleComponent>(handle)) {
@@ -296,22 +339,42 @@ namespace Duality {
                 auto& slider = scene.Registry().get<UISliderComponent>(handle);
                 float t = (slider.Value - slider.MinValue) / std::max(slider.MaxValue - slider.MinValue, 0.0001f);
                 glm::vec2 fillSize{ size.x * t, size.y };
-                renderer.DrawQuad(topLeft, size, { 0.2f, 0.2f, 0.2f, 1.0f });
-                renderer.DrawQuad(topLeft, fillSize, { 0.4f, 0.7f, 1.0f, 1.0f });
+                renderer.DrawQuad(topLeft, size, { 0.2f, 0.2f, 0.2f, groupAlpha });
+                renderer.DrawQuad(topLeft, fillSize, { 0.4f, 0.7f, 1.0f, groupAlpha });
                 continue;
             } else if (scene.Registry().all_of<UIInputFieldComponent>(handle)) {
                 auto& field = scene.Registry().get<UIInputFieldComponent>(handle);
                 color = field.IsFocused ? glm::vec4(1.0f) : glm::vec4(0.9f, 0.9f, 0.9f, 1.0f);
+                color.a *= groupAlpha;
                 renderer.DrawQuad(topLeft, size, color);
                 continue;
             }
+            color.a *= groupAlpha;
 
+            // A sprite reference ("guid#id") draws its sub-rect; its Sprite Editor border slices
+            // the image when the component's own Slice Border is zero.
             uint32_t textureId = ResolveSpriteTexture(renderer, image.Texture);
-            if (image.SliceBorder.x > 0.0f || image.SliceBorder.y > 0.0f || image.SliceBorder.z > 0.0f || image.SliceBorder.w > 0.0f)
-                DrawNineSlice(renderer, topLeft, size, color, textureId, image.SliceBorder);
+            ResolvedSprite sprite;
+            const bool resolved = SpriteDatabase::Resolve(image.Texture.Guid, sprite);
+            const glm::vec4 uv = resolved ? sprite.UV : glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
+            const glm::vec4 border = image.SliceBorder != glm::vec4(0.0f) ? image.SliceBorder : (resolved ? sprite.BorderPixels : glm::vec4(0.0f));
+            // UI Shadow / UI Outline copies under the image.
+            DrawUIGraphicEffects(scene, handle, color, [&](const glm::vec2& offset, const glm::vec4& effectColor) {
+                if (border.x > 0.0f || border.y > 0.0f || border.z > 0.0f || border.w > 0.0f)
+                    DrawNineSlice(renderer, topLeft + offset, size, effectColor, textureId, border, uv);
+                else
+                    renderer.DrawQuad(topLeft + offset, size, effectColor, 0.0f, textureId, uv);
+            });
+            if (border.x > 0.0f || border.y > 0.0f || border.z > 0.0f || border.w > 0.0f)
+                DrawNineSlice(renderer, topLeft, size, color, textureId, border, uv);
             else
-                renderer.DrawQuad(topLeft, size, color, 0.0f, textureId);
+                renderer.DrawQuad(topLeft, size, color, 0.0f, textureId, uv);
         }
+
+        if (clipActive)
+            renderer.SetClipRect(false, activeClip);
+        // Open Dropdown lists go on top of everything on this screen, unclipped.
+        DrawUIDropdownLists(renderer, scene, screen);
     }
 
 }

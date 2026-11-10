@@ -61,13 +61,14 @@ namespace Duality {
         // this exists for.
         static int RunCommand(const std::string& command);
 
-    private:
         // Cooks only assets reachable from build scenes and the explicit Start Scene (images to
         // .t3x, everything else copied verbatim), then writes the guid->romfs-path manifest.
-        // `mainScenePath` is the compatibility fallback when no project is active.
+        // `mainScenePath` is the compatibility fallback when no project is active. Public so
+        // editor automation can cook without running build-3ds.bat (test builds in another tree).
         static bool CookAssets(const std::string& repoRoot, const std::string& assetsDirectory,
             const std::string& mainScenePath);
 
+    private:
         // TypeScript scripts for the device: bundles the project's *.ts (minified, release),
         // compiles the bundle to QuickJS bytecode with DualityJsc and writes
         // DualityPlayer/romfs/Scripts/scripts.{jsbc,js,js.map}. Clears that folder for a project

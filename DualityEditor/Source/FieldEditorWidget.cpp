@@ -17,9 +17,12 @@
 #include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorTheme.h"
 #include "DualityEditor/ThumbnailCache.h"
+#include "DualityEditor/Windows/SpriteAssetUI.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
+#include "DualityEngine/Asset/SpriteDatabase.h"
 #include "DualityEngine/Project/Project.h"
+#include "DualityEngine/Renderer/BuiltinMeshes.h"
 #include "DualityEngine/Renderer/CanvasRenderMode.h"
 #include "DualityEngine/Renderer/TextAlignment.h"
 #include "DualityEngine/Renderer/UILayoutType.h"
@@ -89,7 +92,12 @@ namespace Duality {
                 if (!std::filesystem::exists(meta))
                     continue;
                 const std::string path = it->path().generic_string();
-                entries.push_back({ AssetMeta::EnsureMetaFile(it->path()), path, it->path().filename().string() });
+                const std::string guid = AssetMeta::EnsureMetaFile(it->path());
+                entries.push_back({ guid, path, it->path().filename().string() });
+                // Sliced sprites are pickable on their own (Unity's sprite picker lists them).
+                if (ThumbnailCache::IsImageFile(it->path().extension().string()))
+                    for (const SpriteAssetUI::SpriteEntry& sprite : SpriteAssetUI::ListSprites(it->path().string(), guid))
+                        entries.push_back({ sprite.Reference, path, sprite.Name });
             }
             std::sort(entries.begin(), entries.end(), [](const PickerEntry& a, const PickerEntry& b) { return a.Name < b.Name; });
             return entries;
@@ -98,7 +106,8 @@ namespace Duality {
         // Unity's object field: a recessed frame holding an icon (or a small thumbnail) and the
         // referenced object's name, plus a round picker button at the right edge.
         // Returns: 0 nothing, 1 clicked, 2 double-clicked, 3 picker clicked.
-        int ObjectField(const char* id, const std::string& text, const char* icon, uint32_t thumbnail, bool missing, bool empty) {
+        int ObjectField(const char* id, const std::string& text, const char* icon, uint32_t thumbnail, bool missing, bool empty,
+            const ImVec4& thumbnailUV = ImVec4(0.0f, 0.0f, 1.0f, 1.0f)) {
             const float height = ImGui::GetFrameHeight();
             const float width = ImGui::CalcItemWidth();
             const float pickerWidth = height;
@@ -120,7 +129,8 @@ namespace Duality {
             const ImU32 textColor = missing ? EditorColors::PrefabMissing() : ImGui::GetColorU32(empty ? ImGuiCol_TextDisabled : ImGuiCol_Text);
             if (thumbnail) {
                 const float size = height - 4.0f;
-                drawList->AddImage(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(thumbnail)), ImVec2(x, min.y + 2.0f), ImVec2(x + size, min.y + 2.0f + size));
+                drawList->AddImage(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(thumbnail)), ImVec2(x, min.y + 2.0f), ImVec2(x + size, min.y + 2.0f + size),
+                    ImVec2(thumbnailUV.x, thumbnailUV.y), ImVec2(thumbnailUV.z, thumbnailUV.w));
                 x += size + 4.0f;
             } else if (icon && !empty) {
                 drawList->AddText(ImVec2(x, min.y + ImGui::GetStyle().FramePadding.y), textColor, icon);
@@ -360,17 +370,82 @@ namespace Duality {
             return changed;
         }
 
+        bool IsMeshFile(const std::string& path) {
+            const std::string ext = Lower(std::filesystem::path(path).extension().string());
+            return ext == ".obj" || ext == ".dmesh" || ext == ".mesh" || ext == ".fbx" || ext == ".gltf" || ext == ".glb";
+        }
+
+        uint32_t BuiltinMeshThumbnail(MeshPrimitive primitive) {
+            return s_Hooks.BuiltinMeshThumbnail ? s_Hooks.BuiltinMeshThumbnail(primitive) : 0;
+        }
+
+        // The Mesh picker's "Built-in" section (Unity lists its default Cube/Sphere/... meshes
+        // first): one thumbnail row per mesh; each row can also be dragged onto Mesh fields
+        // and the Scene view. Returns true when `guid` changed.
+        bool BuiltinMeshPickerRows(std::string& guid, const char* filter) {
+            bool changed = false;
+            const float rowHeight = ImGui::GetFrameHeight() * 1.6f;
+            for (const BuiltinMeshes::Info& mesh : BuiltinMeshes::All) {
+                if (!ContainsCaseInsensitive(mesh.Name, filter))
+                    continue;
+                const std::string reference = BuiltinMeshes::ReferenceFor(mesh.Primitive);
+                ImGui::PushID(mesh.Name);
+                const ImVec2 rowStart = ImGui::GetCursorScreenPos();
+                if (ImGui::Selectable("##builtin", reference == guid, 0, ImVec2(0.0f, rowHeight))) {
+                    guid = reference;
+                    changed = true;
+                    ImGui::CloseCurrentPopup();
+                }
+                if (ImGui::BeginDragDropSource()) {
+                    ImGui::SetDragDropPayload("ASSET_GUID", reference.c_str(), reference.size() + 1);
+                    ImGui::Text("%s  %s", EditorIcons::Cube, mesh.Name);
+                    ImGui::EndDragDropSource();
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                    ImGui::SetTooltip("Built-in mesh (%s)", reference.c_str());
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                const float size = rowHeight - 4.0f;
+                if (const uint32_t texture = BuiltinMeshThumbnail(mesh.Primitive))
+                    drawList->AddImage(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(texture)),
+                        ImVec2(rowStart.x + 2.0f, rowStart.y + 2.0f), ImVec2(rowStart.x + 2.0f + size, rowStart.y + 2.0f + size), ImVec2(0, 1), ImVec2(1, 0));
+                drawList->AddText(ImVec2(rowStart.x + size + 10.0f, rowStart.y + (rowHeight - ImGui::GetTextLineHeight()) * 0.5f),
+                    ImGui::GetColorU32(ImGuiCol_Text), mesh.Name);
+                ImGui::PopID();
+            }
+            return changed;
+        }
+
+        // The asset kind of the field currently being drawn (FieldHandle::AssetType).
+        std::string s_CurrentAssetType;
+
         // Object field for an asset reference. Returns true when `guid` changed.
         bool AssetField(const char* id, std::string& guid) {
             bool changed = false;
-            const std::string path = guid.empty() ? std::string() : AssetDatabase::ResolvePath(guid);
-            const bool missing = !guid.empty() && path.empty();
-            std::string label = guid.empty() ? std::string("None (Asset)") : (missing ? "Missing (" + guid.substr(0, 8) + ")" : std::filesystem::path(path).filename().string());
+            const bool meshField = s_CurrentAssetType == "Mesh";
+            MeshPrimitive builtinMesh = MeshPrimitive::Cube;
+            const bool isBuiltinMesh = BuiltinMeshes::TryGetPrimitive(guid, builtinMesh);
+            const std::string path = (guid.empty() || isBuiltinMesh) ? std::string() : AssetDatabase::ResolvePath(guid);
+            const bool missing = !guid.empty() && path.empty() && !isBuiltinMesh;
+            std::string label = guid.empty() ? std::string(meshField ? "None (Mesh)" : "None (Asset)") : (missing ? "Missing (" + guid.substr(0, 8) + ")" : std::filesystem::path(path).filename().string());
             uint32_t thumbnail = 0;
-            if (!path.empty() && ThumbnailCache::IsImageFile(Lower(std::filesystem::path(path).extension().string())))
+            ImVec4 thumbnailUV(0.0f, 0.0f, 1.0f, 1.0f);
+            if (isBuiltinMesh) {
+                label = BuiltinMeshes::NameOf(builtinMesh);
+                thumbnail = BuiltinMeshThumbnail(builtinMesh);
+                thumbnailUV = ImVec4(0.0f, 1.0f, 1.0f, 0.0f); // framebuffer rows are bottom-up
+            } else if (!path.empty() && ThumbnailCache::IsImageFile(Lower(std::filesystem::path(path).extension().string()))) {
                 thumbnail = Thumbnails().GetThumbnail(path);
-            const int action = ObjectField(id, IsMixed() ? std::string(kMixed) : label, path.empty() ? nullptr : IconForAssetPath(path), IsMixed() ? 0 : thumbnail, missing, guid.empty());
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) && !path.empty())
+                // A sliced sprite shows its own name and sub-rect (Unity's sprite object field).
+                ResolvedSprite sprite;
+                if (SpriteRef::IsSubSprite(guid) && SpriteDatabase::Resolve(guid, sprite)) {
+                    label = sprite.IsSubSprite() ? sprite.Name : label + " (missing sprite)";
+                    thumbnailUV = ImVec4(sprite.UV.x, sprite.UV.y, sprite.UV.z, sprite.UV.w);
+                }
+            }
+            const int action = ObjectField(id, IsMixed() ? std::string(kMixed) : label, isBuiltinMesh ? EditorIcons::Cube : (path.empty() ? nullptr : IconForAssetPath(path)), IsMixed() ? 0 : thumbnail, missing, guid.empty(), thumbnailUV);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) && isBuiltinMesh)
+                ImGui::SetTooltip("Built-in mesh (%s)", guid.c_str());
+            else if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) && !path.empty())
                 ImGui::SetTooltip("%s", path.c_str());
             if (action == 1 && !path.empty() && s_Hooks.PingAsset)
                 s_Hooks.PingAsset(path);
@@ -398,7 +473,9 @@ namespace Duality {
                 }
                 ImGui::SetNextItemWidth(300.0f);
                 ImGui::InputTextWithHint("##filter", "Search assets", filter, sizeof(filter));
-                const std::string currentExtension = path.empty() ? std::string() : Lower(std::filesystem::path(path).extension().string());
+                // A typed field (Mesh) lists only that kind, like Unity's object picker; an
+                // untyped one can narrow to the current asset's extension.
+                const std::string currentExtension = (meshField || path.empty()) ? std::string() : Lower(std::filesystem::path(path).extension().string());
                 if (!currentExtension.empty()) {
                     ImGui::SameLine();
                     ImGui::Checkbox(("Only " + currentExtension).c_str(), &sameType);
@@ -409,8 +486,15 @@ namespace Duality {
                     changed = true;
                     ImGui::CloseCurrentPopup();
                 }
+                if (meshField) {
+                    ImGui::SeparatorText("Built-in");
+                    changed |= BuiltinMeshPickerRows(guid, filter);
+                    ImGui::SeparatorText("Assets");
+                }
                 for (const PickerEntry& entry : s_PickerEntries) {
                     if (!ContainsCaseInsensitive(entry.Name, filter))
+                        continue;
+                    if (meshField && !IsMeshFile(entry.Path))
                         continue;
                     if (sameType && !currentExtension.empty() && Lower(std::filesystem::path(entry.Path).extension().string()) != currentExtension)
                         continue;
@@ -524,6 +608,7 @@ namespace Duality {
         FieldValue value = field.Get(instance);
         bool changed = false;
         s_CurrentTooltip = field.Tooltip;
+        s_CurrentAssetType = field.AssetType;
         if (field.HasRange && (std::holds_alternative<float>(value) || std::holds_alternative<int>(value))) {
             s_State = std::move(s_NextState);
             s_NextState = {};
@@ -537,6 +622,7 @@ namespace Duality {
             changed = DrawFieldValueWidget(field.Name, value, scene);
         }
         s_CurrentTooltip.clear();
+        s_CurrentAssetType.clear();
         if (changed)
             field.Set(instance, value);
         return changed;
@@ -609,7 +695,7 @@ namespace Duality {
                 changed = EnumCombo(id.c_str(), v, items);
             } else if constexpr (std::is_same_v<T, MeshPrimitive>) {
                 const std::string id = BeginPropertyRow(name, indentDepth);
-                static const char* const items[] = { "Cube", "Sphere", "Plane", "Capsule" };
+                static const char* const items[] = { "Cube", "Sphere", "Plane", "Capsule", "Cylinder", "Quad" };
                 changed = EnumCombo(id.c_str(), v, items);
             } else if constexpr (std::is_same_v<T, UIAnchor>) {
                 const std::string id = BeginPropertyRow(name, indentDepth);

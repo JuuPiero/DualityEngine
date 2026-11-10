@@ -44,6 +44,9 @@ namespace Duality {
         bool HasClipboard(const EditorContext& ctx);
         Entity CreateEmpty(EditorContext& ctx, Entity parent = {});
         Entity CreateEmptyParent(EditorContext& ctx);
+        // GameObject > 3D Object > Cube/Sphere/...: Mesh Filter (built-in mesh) + Mesh Renderer
+        // + the matching collider, like Unity. `builtinMeshName` is "Cube", "Sphere", ...
+        Entity Create3DObject(EditorContext& ctx, const std::string& builtinMeshName, Entity parent = {});
         // Toggles ActiveComponent on the selection (Unity: Alt+Shift+A).
         // Writes `entity` (+ descendants) to Assets/Prefabs/<Name>.prefab and links it as an instance.
         void CreatePrefab(EditorContext& ctx, Entity entity);

@@ -1,5 +1,8 @@
 #include "DualityEngine/Renderer/N3DS/Citro2DRenderer.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <3ds/services/cfgu.h>
 
 #include "DualityEngine/Asset/TextureImportSettings.h"
@@ -158,6 +161,12 @@ namespace Duality {
         C2D_Flush();
         C3D_FrameDrawOn(target);
         C2D_SceneSize(240, screen == Screen::Top ? 400 : 320, true);
+        m_CurrentTarget = target;
+        m_CurrentScreen = screen;
+        if (m_ScissorEnabled) {
+            C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+            m_ScissorEnabled = false;
+        }
     }
 
     void Citro2DRenderer::EndScene() {
@@ -165,25 +174,78 @@ namespace Duality {
         // by the last C2D_SceneBegin -- nothing to flush explicitly here yet.
         // This is still a real bracket in the interface so a future batched
         // implementation has a defined place to flush from.
+        if (m_ScissorEnabled) {
+            C2D_Flush();
+            C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+            m_ScissorEnabled = false;
+        }
+    }
+
+    void Citro2DRenderer::SetClipRect(bool enabled, const glm::vec4& rect) {
+        // citro2d batches vertices: everything queued so far must be drawn with the old scissor.
+        C2D_Flush();
+        if (!enabled || !m_CurrentTarget) {
+            C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+            m_ScissorEnabled = false;
+            return;
+        }
+        // The framebuffer is the screen rotated 90 degrees (240 x 400 / 240 x 320, possibly
+        // supersampled for anti-aliasing): screen x runs along the framebuffer's height, screen
+        // y along its width, both reversed.
+        const float screenWidth = m_CurrentScreen == Screen::Top ? 400.0f : 320.0f;
+        const float scaleX = static_cast<float>(m_CurrentTarget->frameBuf.width) / 240.0f;
+        const float scaleY = static_cast<float>(m_CurrentTarget->frameBuf.height) / screenWidth;
+        const float x0 = std::clamp(rect.x, 0.0f, screenWidth), x1 = std::clamp(rect.x + rect.z, 0.0f, screenWidth);
+        const float y0 = std::clamp(rect.y, 0.0f, 240.0f), y1 = std::clamp(rect.y + rect.w, 0.0f, 240.0f);
+        const u32 left = static_cast<u32>((240.0f - y1) * scaleX);
+        const u32 top = static_cast<u32>((screenWidth - x1) * scaleY);
+        const u32 right = static_cast<u32>((240.0f - y0) * scaleX);
+        const u32 bottom = static_cast<u32>((screenWidth - x0) * scaleY);
+        C3D_SetScissor(GPU_SCISSOR_NORMAL, left, top, right, bottom);
+        m_ScissorEnabled = true;
     }
 
     void Citro2DRenderer::DrawQuad(const glm::vec2& position, const glm::vec2& size, const glm::vec4& color, float rotationDegrees, uint32_t textureId, const glm::vec4& uvRect) {
-        (void)uvRect; // citro2d sheet sub-rect not wired yet; full sheet used
-        m_DrawCallCount++; // one C2D_DrawRectSolid/C2D_DrawSpriteTinted call below == one real draw call
+        m_DrawCallCount++; // one C2D_DrawRectSolid/C2D_DrawImage call below == one real draw call
 
-        if (textureId != 0) {
-            C2D_Sprite sprite;
-            C2D_SpriteFromSheet(&sprite, m_TextureSheets[textureId - 1], 0); // single-image .t3x (BuildPipeline::CookAssets) -> always index 0
-            C2D_SpriteSetCenter(&sprite, 0.5f, 0.5f); // rotate/scale around center, matching this function's own documented contract
-            if (sprite.params.pos.w > 0.0f && sprite.params.pos.h > 0.0f)
-                C2D_SpriteSetScale(&sprite, size.x / sprite.params.pos.w, size.y / sprite.params.pos.h); // native px -> requested Size
-            glm::vec2 center = position + size * 0.5f;
-            C2D_SpriteSetPos(&sprite, center.x, center.y);
-            C2D_SpriteSetRotationDegrees(&sprite, rotationDegrees);
+        if (textureId != 0 && textureId <= m_TextureSheets.size()) {
+            // single-image .t3x (BuildPipeline::CookAssets) -> always index 0
+            const C2D_Image image = C2D_SpriteSheetGetImage(m_TextureSheets[textureId - 1], 0);
+            if (!image.tex || !image.subtex)
+                return;
+            // uvRect (sprite sub-rects, 9-slice patches, sheet-animator frames) is normalized
+            // over the ORIGINAL image, v = 0 at its top. tex3ds pads a non-power-of-two image
+            // inside a larger GPU texture and records the image's own texcoords in the
+            // subtexture (stored vertically flipped: top > bottom), so interpolating between
+            // those edges maps the sub-rect correctly whatever the padding/orientation.
+            const Tex3DS_SubTexture* base = image.subtex;
+            Tex3DS_SubTexture subtex = *base;
+            const float du = base->right - base->left;
+            const float dv = base->bottom - base->top;
+            subtex.left = base->left + du * uvRect.x;
+            subtex.right = base->left + du * uvRect.z;
+            subtex.top = base->top + dv * uvRect.y;
+            subtex.bottom = base->top + dv * uvRect.w;
+            subtex.width = static_cast<u16>(std::max(1.0f, std::fabs(base->width * (uvRect.z - uvRect.x))));
+            subtex.height = static_cast<u16>(std::max(1.0f, std::fabs(base->height * (uvRect.w - uvRect.y))));
+            const C2D_Image subImage{ image.tex, &subtex };
+
+            // Rotate around the quad's center (this function's documented contract). A negative
+            // size mirrors, exactly like C2D_SpriteScale with a negative factor does.
+            const glm::vec2 center = position + size * 0.5f;
+            C2D_DrawParams params;
+            params.pos.x = center.x;
+            params.pos.y = center.y;
+            params.pos.w = size.x;
+            params.pos.h = size.y;
+            params.center.x = size.x * 0.5f;
+            params.center.y = size.y * 0.5f;
+            params.depth = 0.0f;
+            params.angle = C3D_AngleFromDegrees(rotationDegrees);
 
             C2D_ImageTint tint;
             C2D_PlainImageTint(&tint, ToC2DColor(color), 1.0f);
-            C2D_DrawSpriteTinted(&sprite, &tint);
+            C2D_DrawImage(subImage, &params, &tint);
             return;
         }
 
@@ -296,6 +358,27 @@ namespace Duality {
         }
         m_TextureSheets.clear();
         m_TextureCache.clear();
+    }
+
+    glm::vec2 Citro2DRenderer::GetTextureSize(uint32_t textureId) const {
+        if (textureId == 0 || textureId > m_TextureSheets.size() || !m_TextureSheets[textureId - 1])
+            return glm::vec2(0.0f);
+        const C2D_Image image = C2D_SpriteSheetGetImage(m_TextureSheets[textureId - 1], 0);
+        if (!image.subtex)
+            return glm::vec2(0.0f);
+        return { static_cast<float>(image.subtex->width), static_cast<float>(image.subtex->height) };
+    }
+
+    uint64_t Citro2DRenderer::GetTextureMemoryBytes() const {
+        uint64_t bytes = 0;
+        for (C2D_SpriteSheet sheet : m_TextureSheets) {
+            if (!sheet)
+                continue;
+            const C2D_Image image = C2D_SpriteSheetGetImage(sheet, 0);
+            if (image.tex)
+                bytes += image.tex->size;
+        }
+        return bytes;
     }
 
 }

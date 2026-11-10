@@ -31,6 +31,10 @@
 #include "DualityEditor/SceneViewCamera.h"
 #include "DualityEditor/SceneViewCamera3D.h"
 #include "DualityEditor/Window.h"
+#include "DualityEditor/Windows/AnimationWindow.h"
+#include "DualityEditor/Windows/ProfilerWindow.h"
+#include "DualityEditor/Windows/SpriteEditorWindow.h"
+#include "DualityEditor/Windows/TilePaletteWindow.h"
 #include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer3D.h"
@@ -201,6 +205,11 @@ namespace Duality {
         PackageManagerPanel m_PackageManagerPanel;
         PreferencesPanel m_PreferencesPanel;
         LightingPanel m_LightingPanel;
+        // Unity-style tool windows (Window menu): Sprite Editor, Animation, Tile Palette, Profiler.
+        SpriteEditorWindow m_SpriteEditorWindow;
+        AnimationWindow m_AnimationWindow;
+        TilePaletteWindow m_TilePaletteWindow;
+        ProfilerWindow m_ProfilerWindow;
     };
 
 }

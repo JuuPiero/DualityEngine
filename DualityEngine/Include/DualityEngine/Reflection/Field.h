@@ -111,6 +111,10 @@ namespace Duality {
         float RangeMax = 0.0f;
         std::string Tooltip;
         std::string Header;
+        // For AssetRef fields: the kind of asset the Inspector's object picker offers (Unity's
+        // object field type), e.g. "Mesh" lists the built-in meshes (BuiltinMeshes.h) plus
+        // imported meshes/models. Empty = any asset.
+        std::string AssetType;
     };
 
     template<typename C, typename T>

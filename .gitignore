@@ -20,3 +20,20 @@ DualityPlayer/romfs/Scripts/
 **/Library/ScriptAssemblies/
 **/Library/Types/
 Tools/TypeScript/node_modules/
+
+# Component work build dirs
+build-components
+build-3ds-components
+
+# Editor tool-window work build dirs (Sprite Editor / Animation / Tile Palette / Profiler)
+build-windows
+build-3ds-windows
+
+# MeshFilter / restructuring work build dirs
+build-refactor
+build-3ds-refactor
+build-tf-check
+
+# Model importer (FBX/glTF -> 3DS) work build dirs
+build-fbx
+build-3ds-fbx

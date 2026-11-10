@@ -20,6 +20,7 @@ namespace Duality {
     // Components.h for other reasons before actually using the returned value.
     struct TransformComponent;
     class Behaviour;
+    struct PhysicsContactEvent; // Source/Scene/Systems/PhysicsWorlds.h (internal)
 
     class Scene {
     public:
@@ -150,6 +151,16 @@ namespace Duality {
         // True between OnRuntimeStart and OnRuntimeStop (Play mode / on-device runtime).
         bool IsRunning() const { return m_Running; }
 
+        // Calls `invoke(instance, user)` once for every live, enabled script of `entity`, with
+        // the same ScriptContext binding and exception guard as every engine callback. Used by
+        // systems outside Scene.cpp (joint breaks, Character Controller hits...).
+        void InvokeScriptCallbacks(entt::entity entity, const char* callbackName, void (*invoke)(Behaviour*, void*), void* user);
+
+        // The live physics worlds (b2World* / btDiscreteDynamicsWorld*), null outside Play.
+        // Opaque so this header stays free of Box2D/Bullet.
+        void* GetNativePhysicsWorld2D() const;
+        void* GetNativePhysicsWorld3D() const;
+
         // Creates (and Awakes -- OnCreate) every script slot in `root`'s subtree that has no
         // live instance yet. Used for entities that appear DURING Play: a prefab spawned by
         // Instantiate, or a script added by AddRuntimeScript. OnEnable/OnUpdate follow on the
@@ -226,6 +237,19 @@ namespace Duality {
         void CreateScriptsOn(entt::entity handle);
         // Box2D/Bullet bodies for every eligible entity (nullptr) or only the listed ones.
         void CreatePhysicsBodies(const std::vector<entt::entity>* only);
+
+        // Physics systems, one file per world (Source/Scene/Systems/Physics2DSystem.cpp and
+        // Physics3DSystem.cpp); Scene.cpp calls them in lifecycle order.
+        void CreatePhysicsWorld2D();
+        void CreatePhysicsWorld3D();
+        void CreatePhysicsBodies2D(const std::vector<entt::entity>* only);
+        void CreatePhysicsBodies3D(const std::vector<entt::entity>* only);
+        void StepPhysics2D(float fixedDeltaTime, std::vector<PhysicsContactEvent>& contactEvents);
+        void StepPhysics3D(float fixedDeltaTime, std::vector<PhysicsContactEvent>& contactEvents);
+        void ReleasePhysics2D(entt::entity handle);
+        void ReleasePhysics3D(entt::entity handle);
+        void DestroyPhysicsWorld2D();
+        void DestroyPhysicsWorld3D();
 
         LightingSettings m_Lighting;
     };

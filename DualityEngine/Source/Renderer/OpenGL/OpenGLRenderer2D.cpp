@@ -1,5 +1,6 @@
 #include "DualityEngine/Renderer/OpenGL/OpenGLRenderer2D.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include <GL/glew.h>
@@ -59,9 +60,39 @@ namespace Duality {
         glOrtho(0.0, static_cast<double>(width), static_cast<double>(height), 0.0, -1.0, 1.0);
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
+        m_ViewBounds = { 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height) };
+        glDisable(GL_SCISSOR_TEST);
     }
 
     void OpenGLRenderer2D::EndScene() {
+        glDisable(GL_SCISSOR_TEST);
+    }
+
+    void OpenGLRenderer2D::SetClipRect(bool enabled, const glm::vec4& rect) {
+        if (!enabled) {
+            glDisable(GL_SCISSOR_TEST);
+            return;
+        }
+        // Map the rect from the current ortho space onto the bound viewport (framebuffer pixels,
+        // bottom-left origin) -- works for the Game view FBO, the player window and the editor.
+        GLint viewport[4];
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        const float spanX = m_ViewBounds.z - m_ViewBounds.x;
+        const float spanY = m_ViewBounds.w - m_ViewBounds.y;
+        if (spanX == 0.0f || spanY == 0.0f)
+            return;
+        const float sx = static_cast<float>(viewport[2]) / spanX;
+        const float sy = static_cast<float>(viewport[3]) / spanY;
+        const float left = viewport[0] + (rect.x - m_ViewBounds.x) * sx;
+        const float right = viewport[0] + (rect.x + rect.z - m_ViewBounds.x) * sx;
+        const float top = (rect.y - m_ViewBounds.y) * sy;
+        const float bottom = (rect.y + rect.w - m_ViewBounds.y) * sy;
+        const GLint x = static_cast<GLint>(std::floor(left));
+        const GLint y = static_cast<GLint>(std::floor(viewport[1] + viewport[3] - bottom));
+        const GLsizei w = static_cast<GLsizei>(std::max(0.0f, std::ceil(right) - std::floor(left)));
+        const GLsizei h = static_cast<GLsizei>(std::max(0.0f, std::ceil(bottom) - std::floor(top)));
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(x, y, w, h);
     }
 
     void OpenGLRenderer2D::BeginCustomView(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, const glm::vec4& clearColor, bool clear) {
@@ -80,6 +111,8 @@ namespace Duality {
         glOrtho(center.x - halfWidth, center.x + halfWidth, center.y + halfHeight, center.y - halfHeight, -1.0, 1.0);
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
+        m_ViewBounds = { center.x - halfWidth, center.y - halfHeight, center.x + halfWidth, center.y + halfHeight };
+        glDisable(GL_SCISSOR_TEST);
     }
 
     void OpenGLRenderer2D::DrawGrid(const glm::vec2& center, float zoom, float viewportWidth, float viewportHeight, float cellSize) {
@@ -233,7 +266,27 @@ namespace Duality {
         // so sprites appear exactly as authored.
         uint32_t texture = GLTextureLoader::LoadTextureFromFile(path, TextureImportSettings::Load(path), false);
         m_TextureCache[path] = texture;
+        if (texture != 0) {
+            GLint width = 0, height = 0;
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
+            glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            m_TextureSizes[texture] = { static_cast<float>(width), static_cast<float>(height) };
+        }
         return texture;
+    }
+
+    glm::vec2 OpenGLRenderer2D::GetTextureSize(uint32_t textureId) const {
+        auto found = m_TextureSizes.find(textureId);
+        return found != m_TextureSizes.end() ? found->second : glm::vec2(0.0f);
+    }
+
+    uint64_t OpenGLRenderer2D::GetTextureMemoryBytes() const {
+        uint64_t bytes = 0;
+        for (const auto& [id, size] : m_TextureSizes)
+            bytes += static_cast<uint64_t>(size.x) * static_cast<uint64_t>(size.y) * 4u; // RGBA8, no mips counted
+        return bytes;
     }
 
     void OpenGLRenderer2D::UnloadAllTextures() {
@@ -244,6 +297,7 @@ namespace Duality {
             }
         }
         m_TextureCache.clear();
+        m_TextureSizes.clear();
     }
 
     void OpenGLRenderer2D::UnloadAllFonts() {

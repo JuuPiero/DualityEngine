@@ -163,6 +163,9 @@ namespace Duality {
         json root;
         root["WorldUnitsVersion"] = WorldUnitsVersion;
         root["CanvasUIVersion"] = CanvasUIVersion;
+        // Mesh Renderer no longer stores Primitive/Mesh (they live in "Mesh Filter"); files
+        // without this stamp are migrated per entity by EntitySerialization.
+        root["MeshFilterVersion"] = 1;
         json entities = json::array();
 
         // entt::entity handles don't survive save/load (Deserialize below creates

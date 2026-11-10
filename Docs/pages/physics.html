@@ -116,9 +116,50 @@
 RaycastHit2D <span class="tok-fn">Scene::Raycast2D</span>(<span class="tok-kw">const</span> glm::vec2&amp; origin, <span class="tok-kw">const</span> glm::vec2&amp; direction, <span class="tok-type">float</span> maxDistance);
 <span class="tok-type">bool</span> <span class="tok-fn">Scene::ScreenPointToRay3D</span>(Screen screen, <span class="tok-kw">const</span> glm::vec2&amp; screenPoint, glm::vec3&amp; outOrigin, glm::vec3&amp; outDirection);</code></pre>
 
+                <h2>Joints, Effectors, Character Controller</h2>
+                <p>
+                    Danh sách field đầy đủ ở <a href="components.html">Components Reference</a>
+                    (mục "Components bổ sung kiểu Unity"). Cơ chế: <code>Scene.cpp</code> gọi các hook
+                    trong <code>Scene/PhysicsSystems.h</code> (namespace <code>PhysicsSystems</code>, cài đặt ở
+                    <code>Source/Scene/Systems/Physics2DJoints.cpp</code> / <code>Physics3DJoints.cpp</code>; world Box2D / Bullet và việc dựng collider ở <code>Physics2DSystem.cpp</code> / <code>Physics3DSystem.cpp</code>) — sau khi
+                    tạo body (tạo joint, Character Controller), trước mỗi bước cố định 1/60 s (đồng bộ
+                    motor/limit/target mà script vừa sửa, lực effector, Constant Force) và sau bước
+                    (đọc phản lực → break). Mọi việc mỗi bước không cấp phát bộ nhớ; component vắng mặt
+                    chỉ tốn vài view EnTT rỗng.
+                </p>
+                <ul>
+                    <li><strong>2D</strong>: <code>Edge Collider 2D</code> (chain shape), 9 loại Joint 2D
+                    (Distance, Hinge, Spring, Fixed, Slider, Wheel, Friction, Relative, Target), 5 Effector 2D
+                    (Area, Point, Surface, Platform một chiều, Buoyancy) + <code>Constant Force 2D</code>.
+                    Platform/Surface dùng <code>b2ContactListener::PreSolve</code> (tắt contact từ dưới lên;
+                    <code>SetTangentSpeed</code> cho băng chuyền). Break: <code>GetReactionForce</code> /
+                    <code>GetReactionTorque</code> mỗi bước.</li>
+                    <li><strong>3D</strong>: Fixed / Hinge (motor, limit, spring) / Spring / Character Joint,
+                    <code>Mesh Collider</code> (tam giác cho static, convex hull cho Dynamic),
+                    <code>Constant Force</code>. Break đọc <code>btJointFeedback</code>.</li>
+                    <li><strong>Character Controller</strong>: capsule kinematic (<code>btCollisionObject</code>
+                    nhóm CharacterFilter) di chuyển bằng <code>convexSweepTest</code> 3 pha (nâng Step Offset →
+                    trượt ngang → hạ xuống), giữ khoảng Skin Width, "up" = ngược hướng trọng lực (−Y).
+                    <code>Move()</code>/<code>SimpleMove()</code> từ C++ (<code>Scripting/CharacterController.h</code>,
+                    qua <code>EngineServices</code>) và TypeScript (<code>CharacterController.move/simpleMove</code>).</li>
+                    <li>Callback mới: <code>OnJointBreak2D(Entity joint, float force)</code>,
+                    <code>OnJointBreak(Entity joint, float force)</code>,
+                    <code>OnControllerColliderHit(const ControllerColliderHit&amp;)</code> (TS:
+                    <code>onJointBreak2D</code>, <code>onJointBreak</code>, <code>onControllerColliderHit</code>).</li>
+                </ul>
+                <div class="callout">
+                    <span class="callout-title">Trục 3D</span>
+                    Trọng lực Bullet là +Y (giống 2D) trong khi renderer 3D vẽ +Y hướng lên màn hình như
+                    OpenGL. Scene 3D có vật lý nên đặt camera xoay Z = 180° (như
+                    <code>ComponentsDemo</code>) để vật rơi xuống dưới màn hình.
+                    <code>GravityScale</code>/<code>UseGravity</code> của Rigidbody hiện vẫn chưa được áp vào
+                    body (giới hạn có từ trước).
+                </div>
+
                 <h2>Chưa có (biết trước)</h2>
                 <ul>
-                    <li>Joints/constraints (hinge, spring, fixed) — cả <code>b2World</code> lẫn <code>btDiscreteDynamicsWorld</code> mới chỉ wire free rigid bodies.</li>
+                    <li>Joint 2D/3D chỉ tạo lúc Play bắt đầu (hoặc khi prefab được Instantiate); bật/tắt
+                    component giữa chừng không tạo/huỷ joint. Platform Effector bỏ qua "One Way Grouping".</li>
                     <li><code>OnCollisionStay</code>/<code>OnTriggerStay</code> — chỉ có cạnh enter/exit.</li>
                     <li>Toggle <code>Active</code> giữa lúc Play không tự thêm/gỡ physics body — chỉ quyết định lúc Play bắt đầu.</li>
                     <li><code>Rigidbody2DComponent</code> không theo dõi parent đang di chuyển/xoay lúc simulate — body Box2D spawn ở world transform đã resolve rồi simulate độc lập sau đó (giống giới hạn thật Unity tài liệu cho non-kinematic parent/child Rigidbody).</li>

@@ -42,6 +42,8 @@ namespace Duality {
         std::function<void(const std::string& assetPath)> SelectAsset;
         std::function<void(uint32_t entityHandle)> PingEntity;
         std::function<void(uint32_t entityHandle)> SelectEntity;
+        // Thumbnail texture (bottom-up rows) of a built-in mesh for Mesh object fields; 0 = none.
+        std::function<uint32_t(MeshPrimitive)> BuiltinMeshThumbnail;
     };
     void SetFieldEditorHooks(FieldEditorHooks hooks);
 

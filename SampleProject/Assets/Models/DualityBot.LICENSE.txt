@@ -1,0 +1,5 @@
+DualityBot.gltf + DualityBot_Checker.png
+License: CC0 1.0 (public domain dedication) -- procedurally generated for DualityEngine by
+Tools/Models/make-dualitybot.ps1 (no third-party content).
+A static textured body plus a 4-bone skinned arm with two animation takes ("Wave", "Spin"),
+used to exercise the model importer (FBX/glTF -> 3DS-ready .dmesh/.mat/.png/.anim + prefab).

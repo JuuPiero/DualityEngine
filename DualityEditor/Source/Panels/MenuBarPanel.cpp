@@ -11,6 +11,10 @@
 #include "DualityEditor/EditorSettings.h"
 #include "DualityEditor/Panels/LightingPanel.h"
 #include "DualityEditor/SceneOps.h"
+#include "DualityEditor/Windows/AnimationWindow.h"
+#include "DualityEditor/Windows/ProfilerWindow.h"
+#include "DualityEditor/Windows/SpriteEditorWindow.h"
+#include "DualityEditor/Windows/TilePaletteWindow.h"
 #include "DualityEditor/ScriptEngine.h"
 #include "DualityEngine/Reflection/TypeRegistry.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -131,7 +135,7 @@ namespace Duality {
                 if (!ImGui::BeginMenu(category, hasSelection))
                     continue;
                 for (ComponentTypeInfo& type : TypeRegistry::All()) {
-                    if (type.Mandatory || type.DisplayName == "Scripts" || type.DisplayName == "Prefab Instance" ||
+                    if (type.Category.empty() ||
                         std::string(EditorCommands::ComponentCategoryOf(type.DisplayName)) != category)
                         continue;
                     if (ImGui::MenuItem(type.DisplayName.c_str()))
@@ -155,6 +159,22 @@ namespace Duality {
             if (ImGui::BeginMenu("Rendering")) {
                 // Unity: Window > Rendering > Lighting (scene ambient, lights, shadows).
                 ImGui::MenuItem("Lighting", nullptr, &LightingPanel::IsOpen());
+                ImGui::EndMenu();
+            }
+            // Unity: Window > Animation > Animation (Ctrl+6), Window > 2D > Sprite Editor /
+            // Tile Palette, Window > Analysis > Profiler (Ctrl+7).
+            if (ImGui::BeginMenu("Animation")) {
+                ImGui::MenuItem("Animation", "Ctrl+6", &AnimationWindow::IsOpen());
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("2D")) {
+                if (ImGui::MenuItem("Sprite Editor", nullptr, SpriteEditorWindow::IsOpen()))
+                    SpriteEditorWindow::IsOpen() = !SpriteEditorWindow::IsOpen();
+                ImGui::MenuItem("Tile Palette", nullptr, &TilePaletteWindow::IsOpen());
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Analysis")) {
+                ImGui::MenuItem("Profiler", "Ctrl+7", &ProfilerWindow::IsOpen());
                 ImGui::EndMenu();
             }
             ImGui::MenuItem(WithIcon(EditorIcons::Package, "Package Manager").c_str(), nullptr, &ctx.ShowPackageManager);

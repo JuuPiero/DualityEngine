@@ -11,6 +11,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "DualityEngine/Renderer/BuiltinMeshes.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/Material.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
@@ -65,7 +66,7 @@ namespace {
     Entity AddCube(Scene& scene, const char* name, const glm::vec3& position, const std::string& materialGuid) {
         Entity entity = scene.CreateEntity(name);
         auto& mesh = entity.AddComponent<MeshRendererComponent>();
-        mesh.Primitive = MeshPrimitive::Cube;
+        entity.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Cube);
         if (!materialGuid.empty())
             mesh.Materials.push_back(AssetRef{ materialGuid });
         entity.GetComponent<TransformComponent>().Translation = position;

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,18 @@ namespace Duality {
 
     struct EditorContext;
     class Window;
+
+    // What an automation extension (a tool window's own test commands) can do: record a
+    // PASS/FAIL, queue commands to run next (e.g. a `drag` in screen coordinates it computed),
+    // or wait some frames.
+    struct AutomationApi {
+        std::function<void(bool, const std::string&)> Expect;
+        std::function<void(const std::string&)> RunNext;
+        std::function<void(int)> Wait;
+        std::string ScriptDirectory;
+    };
+    // Returns true when it recognised args[0] (lower-case command name).
+    using AutomationExtension = std::function<bool(EditorContext&, const std::vector<std::string>& args, AutomationApi&)>;
 
     // In-process scripted driver for the editor (`DualityEditor --editor-test script.txt`).
     //
@@ -31,6 +44,10 @@ namespace Duality {
 
         bool WantsQuit() const { return m_Quit; }
         int FailureCount() const { return m_Failures; }
+
+        // Tool windows register their own commands (sprite-editor-*, animation-*, tile-*,
+        // profiler-*) so this file does not grow with every window.
+        static void RegisterExtension(AutomationExtension extension);
 
     private:
         void Execute(EditorContext& ctx, Window& window, const std::string& line);

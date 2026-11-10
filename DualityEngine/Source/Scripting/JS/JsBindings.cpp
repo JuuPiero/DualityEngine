@@ -17,6 +17,7 @@
 #include "DualityEngine/Asset/ScriptableObjectLoader.h"
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Input/InputManager.h"
+#include "DualityEngine/Scene/PhysicsSystems.h"
 #include "DualityEngine/Physics/PhysicsUnits.h"
 #include "DualityEngine/Reflection/TypeRegistry.h"
 #include "DualityEngine/Scene/Components.h"
@@ -370,8 +371,11 @@ namespace Duality::Js {
             return JS_TRUE;
         }
         DUALITY_JS_FN(FieldId) {
-            const std::string typeName = Str(ctx, argc, argv, 0);
+            std::string typeName = Str(ctx, argc, argv, 0);
             const std::string fieldName = Str(ctx, argc, argv, 1);
+            // Scripts written before the MeshFilter split read the mesh from the Mesh Renderer.
+            if (typeName == "Mesh Renderer" && fieldName == "Mesh")
+                typeName = "Mesh Filter";
             ComponentTypeInfo* type = TypeRegistry::Find(typeName);
             if (!type)
                 return JS_NewInt32(ctx, -1);
@@ -763,6 +767,25 @@ namespace Duality::Js {
 #undef DUALITY_JS_FN
 #undef UNUSED_ARGS
 
+        // cc(id, op, x, y, z): Character Controller -- 0 move (returns CollisionFlags),
+        // 1 simpleMove (returns isGrounded), 2 isGrounded, 3 velocity->scratch, 4 collisionFlags
+        JSValue Cc(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+            Entity entity = Ent(ctx, argc, argv, 0);
+            const int op = Int(ctx, argc, argv, 1);
+            auto* controller = entity ? entity.TryGetComponent<CharacterControllerComponent>() : nullptr;
+            if (!controller)
+                return op == 3 ? JS_FALSE : JS_NewInt32(ctx, 0);
+            const glm::vec3 v(F(ctx, argc, argv, 2), F(ctx, argc, argv, 3), F(ctx, argc, argv, 4));
+            switch (op) {
+                case 0: return JS_NewInt32(ctx, PhysicsSystems::CharacterMove(*entity.GetScene(), entity, v));
+                case 1: return JS_NewBool(ctx, PhysicsSystems::CharacterSimpleMove(*entity.GetScene(), entity, v));
+                case 2: return JS_NewBool(ctx, controller->IsGrounded);
+                case 3: Out3(controller->Velocity); return JS_TRUE;
+                case 4: return JS_NewInt32(ctx, controller->CollisionFlags);
+                default: return JS_UNDEFINED;
+            }
+        }
+
         struct NativeEntry {
             const char* Name;
             JSCFunction* Function;
@@ -788,7 +811,7 @@ namespace Duality::Js {
             { "addScript", AddScript, 2 }, { "scriptCall", ScriptCall, 3 },
             { "benabled", BehaviourEnabled, 1 }, { "bsetEnabled", BehaviourSetEnabled, 2 },
             { "rb2", Rb2, 4 }, { "rb3", Rb3, 5 }, { "ray2", Ray2, 6 }, { "ray3", Ray3, 8 }, { "point2", Point2, 3 },
-            { "screenRay", ScreenRay, 4 },
+            { "screenRay", ScreenRay, 4 }, { "cc", Cc, 5 },
             { "audio", Audio, 3 }, { "playSound", PlaySound, 2 }, { "stopSounds", StopSounds, 0 },
             { "loadScene", LoadScene, 2 }, { "unloadScene", UnloadScene, 1 }, { "assetPath", AssetPath, 1 },
             { "soInfo", SoInfo, 1 }, { "soGet", SoGet, 2 }, { "soSet", SoSet, 3 },

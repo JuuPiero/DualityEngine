@@ -17,8 +17,10 @@
 #include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorTheme.h"
 #include "DualityEditor/SceneOps.h"
+#include "DualityEditor/Windows/SpriteAssetUI.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
+#include "DualityEngine/Asset/ModelAsset.h"
 #include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Layer.h"
@@ -115,9 +117,27 @@ namespace Duality {
         bool InstantiateDroppedPrefab(EditorContext& ctx, const ImGuiPayload* payload, Entity parent) {
             std::string guid = static_cast<const char*>(payload->Data);
             std::string path = AssetDatabase::ResolvePath(guid);
-            if (path.empty() || std::filesystem::path(path).extension() != ".prefab")
+            if (!path.empty() && SpriteAssetUI::IsSpriteReference(guid)) {
+                // Unity: dropping a sprite (or texture) into the Hierarchy creates a GameObject
+                // with a SpriteRenderer at its native size.
+                const std::string spriteName = SpriteAssetUI::DisplayName(guid);
+                Entity sprite = ctx.SceneRef.CreateEntity(spriteName.empty() ? std::string("Sprite") : std::filesystem::path(spriteName).stem().string());
+                SpriteRendererComponent& renderer = sprite.AddComponent<SpriteRendererComponent>();
+                renderer.Texture.Guid = guid;
+                glm::vec2 nativeSize;
+                if (SpriteAssetUI::NativeWorldSize(guid, nativeSize))
+                    renderer.Size = nativeSize;
+                ctx.SceneRef.SetParent(sprite, IsLive(ctx, parent) ? parent : ctx.SceneRef.EnsureScreenRoot(Screen::Top), {}, false);
+                EditorCommands::SelectOnly(ctx, sprite);
+                ctx.Session.RequestRevealSelection = true;
+                MarkSceneDirty(ctx, "Create Sprite");
+                return true;
+            }
+            // A .prefab, or an imported model's generated prefab (linked to the model GUID).
+            const std::string prefabPath = path.empty() ? std::string() : ModelAsset::ResolveInstantiablePrefab(guid);
+            if (prefabPath.empty())
                 return false;
-            Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path, IsLive(ctx, parent) ? parent : Entity{}, AssetRef{ guid });
+            Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, prefabPath, IsLive(ctx, parent) ? parent : Entity{}, AssetRef{ guid });
             if (!instance)
                 return false;
             EditorCommands::SelectOnly(ctx, instance);

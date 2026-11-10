@@ -29,7 +29,14 @@ namespace Duality {
     // Skips the "Parent" key (the caller's own bespoke hierarchy field) and logs a warning
     // for any other unrecognized key, matching SceneSerializer::Deserialize's original
     // behavior exactly.
+    // Applies the per-entity format migrations first (see MigrateLegacyMeshRenderer), so every
+    // loader -- scenes, prefabs, duplicate, clipboard, undo snapshots -- reads old data the same.
     void DeserializeEntityComponents(Entity entity, const json& entityJson);
+
+    // Pre-MeshFilter "Mesh Renderer" {Primitive, Mesh, ...} -> "Mesh Filter" {Mesh} (the imported
+    // mesh when one was set, else "builtin:<Primitive>") + "Mesh Renderer" without those keys.
+    // Returns false (and leaves `entityJson` untouched) when there is nothing to migrate.
+    bool MigrateLegacyMeshRenderer(json& entityJson);
 
     // EntityRef values serialize as {"$entity": rawHandle}. Files store them as the index of
     // the referenced entity inside that file's own "Entities" array (-1 = none / outside the

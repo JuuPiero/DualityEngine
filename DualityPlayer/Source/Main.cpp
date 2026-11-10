@@ -99,6 +99,11 @@ namespace {
             static_cast<unsigned long>(stats.Vertices), static_cast<unsigned long>(stats.LitVertices),
             static_cast<unsigned long>(stats.LightSlotUpdates), static_cast<unsigned long>(stats.MaterialLutChanges),
             static_cast<unsigned long>(stats.ProgramBinds));
+        // Current top-screen framebuffer (BGR8, 240x400 column-major): lets an emulator-side
+        // tool read the rendered image back through Citra's scripting RPC for verification.
+        u16 fbWidth = 0, fbHeight = 0;
+        const u8* framebuffer = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, &fbWidth, &fbHeight);
+        fprintf(file, "framebuffer top 0x%08lx %ux%u\n", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(framebuffer)), fbWidth, fbHeight);
         fclose(file);
     }
 

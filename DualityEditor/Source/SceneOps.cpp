@@ -24,11 +24,29 @@ namespace Duality {
             session.PendingUndoLabel = undoLabel;
     }
 
+    namespace {
+        // Puts the authored values back while the scene is serialized / replaced when the
+        // Animation window previews a clip (EditorSession::ScenePreviewHook).
+        struct ScenePreviewSuspend {
+            explicit ScenePreviewSuspend(EditorContext& context) : Ctx(context), Active(static_cast<bool>(context.Session.ScenePreviewHook)) {
+                if (Active)
+                    Ctx.Session.ScenePreviewHook(true);
+            }
+            ~ScenePreviewSuspend() {
+                if (Active && Ctx.Session.ScenePreviewHook)
+                    Ctx.Session.ScenePreviewHook(false);
+            }
+            EditorContext& Ctx;
+            bool Active;
+        };
+    }
+
     bool SaveScene(EditorContext& ctx) {
         if (ctx.IsPlaying) {
             Log::Warn("Exit Play mode before saving the scene (changes made in Play mode are not kept).");
             return false;
         }
+        ScenePreviewSuspend previewSuspend(ctx);
         if (ctx.IsEditingPrefab) {
             if (ctx.SceneRef.GetRootEntities().empty())
                 return false;
@@ -65,6 +83,7 @@ namespace Duality {
 
     bool UndoScene(EditorContext& ctx) {
         HistorySelection selection;
+        ScenePreviewSuspend previewSuspend(ctx);
         if (ctx.IsPlaying || !ctx.History.Undo(ctx.SceneRef, ctx.Session.Ids, &selection))
             return false;
         FinishHistoryRestore(ctx, selection);
@@ -73,6 +92,7 @@ namespace Duality {
 
     bool RedoScene(EditorContext& ctx) {
         HistorySelection selection;
+        ScenePreviewSuspend previewSuspend(ctx);
         if (ctx.IsPlaying || !ctx.History.Redo(ctx.SceneRef, ctx.Session.Ids, &selection))
             return false;
         FinishHistoryRestore(ctx, selection);

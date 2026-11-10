@@ -19,8 +19,12 @@
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/EditorTheme.h"
 #include "DualityEditor/ModelImporter.h"
+#include "DualityEditor/Import/ModelImportUI.h"
 #include "DualityEditor/SceneOps.h"
+#include "DualityEditor/ThumbnailCache.h"
+#include "DualityEditor/Windows/SpriteAssetUI.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
+#include "DualityEngine/Asset/SpriteDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Asset/Material.h"
 #include "DualityEngine/Asset/MaterialLoader.h"
@@ -691,6 +695,8 @@ namespace Duality {
     void ContentBrowserPanel::MoveAssetInto(const std::string& guid, const std::filesystem::path& destDir) {
         if (IsPackagesView(destDir))
             return;
+        if (guid.find('#') != std::string::npos)
+            return; // a sprite sub-asset lives inside its texture; it cannot be moved on its own
         std::string sourcePathStr = AssetDatabase::ResolvePath(guid);
         if (sourcePathStr.empty())
             return;
@@ -729,18 +735,35 @@ namespace Duality {
 
         std::filesystem::path destination = m_CurrentDirectory / sourceFile.filename();
         std::error_code error;
-        std::filesystem::copy_file(sourceFile, destination, std::filesystem::copy_options::overwrite_existing, error);
+        // A dropped folder (e.g. a model with its textures) is copied as a whole, like Unity.
+        if (std::filesystem::is_directory(sourceFile, error))
+            std::filesystem::copy(sourceFile, destination, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, error);
+        else
+            std::filesystem::copy_file(sourceFile, destination, std::filesystem::copy_options::overwrite_existing, error);
         if (error)
             Log::Error("ContentBrowserPanel: failed to import '" + sourceFile.string() + "': " + error.message());
         else {
-            ModelImporter::Invalidate(destination);
+            // Models are imported (baked for the 3DS) right away, on the importer's worker thread.
+            // Queued on the next frame so textures dropped together with the model are copied
+            // before the importer looks for them.
             if (ModelImporter::IsSupported(destination))
-                ModelImporter::Inspect(destination); // extract parent-model child inventory immediately on drop
+                m_PendingModelImports.push_back(destination);
             Log::Info("Imported asset: " + destination.string());
         }
     }
 
     void ContentBrowserPanel::OnImGuiRender(EditorContext& ctx) {
+        // Models dropped in from Explorer last frame: import now (even with the Project window
+        // hidden), select it (Inspector shows its import settings + 3DS budget) and unfold its
+        // sub-assets, like Unity.
+        for (const std::filesystem::path& model : m_PendingModelImports) {
+            ModelImporter::RequestImport(model, /*force=*/true);
+            m_ExpandedModelPaths.insert(model.string());
+            ctx.SelectedAssetPath = model.string();
+            ctx.SelectedAssetPaths = { model.string() };
+        }
+        m_PendingModelImports.clear();
+
         if (!ctx.Session.ShowProject)
             return;
         // Unity calls this window "Project" (it was "Content Browser"; Application migrates the
@@ -761,6 +784,10 @@ namespace Duality {
                 m_CurrentDirectory = pinged.parent_path();
                 m_SearchBuffer[0] = '\0';
                 m_ScrollToPath = std::filesystem::absolute(pinged).lexically_normal().string();
+                // Unity: pinging a sliced texture (or one of its sprites) unfolds its sprites.
+                if (ThumbnailCache::IsImageFile(pinged.extension().string()) &&
+                    SpriteDatabase::Settings(pinged.string()).SpriteMode == SpriteImportMode::Multiple)
+                    m_ExpandedModelPaths.insert((m_CurrentDirectory / pinged.filename()).string());
             }
         }
 
@@ -923,6 +950,10 @@ namespace Duality {
             std::string name = path.filename().string();
             const ModelImportInfo& model = !isDirectory ? ModelImporter::Inspect(path) : ModelImportInfo{};
             const bool hasModelChildren = model.Valid && !model.Children.empty();
+            // Unity: a Multiple-mode texture expands into its sliced sprites (sub-assets).
+            const std::vector<SpriteAssetUI::SpriteEntry> spriteChildren = (!isDirectory && !guid.empty() &&
+                ThumbnailCache::IsImageFile(path.extension().string())) ? SpriteAssetUI::ListSprites(path.string(), guid) : std::vector<SpriteAssetUI::SpriteEntry>{};
+            const bool hasSpriteChildren = !spriteChildren.empty();
 
             ImGui::PushID(name.c_str());
             ImGui::BeginGroup();
@@ -959,6 +990,8 @@ namespace Duality {
                 drawList->AddImage(reinterpret_cast<ImTextureID>(static_cast<uintptr_t>(thumbnailTexture)), iconMin, iconMax);
             else
                 DrawFileIcon(drawList, iconMin, iconMax, path);
+            if (!isDirectory)
+                ModelImportUI::DrawTileBadge(drawList, iconMin, iconMax, path); // "Importing..." progress
 
             bool renamingThis = (m_RenamingPath == path.string());
             if (renamingThis) {
@@ -973,7 +1006,7 @@ namespace Duality {
                 else if (ImGui::IsItemDeactivated())
                     CommitRename(ctx); // fires on both Enter and click-away
             } else {
-                if (hasModelChildren) {
+                if (hasModelChildren || hasSpriteChildren) {
                     const bool expanded = m_ExpandedModelPaths.count(path.string()) != 0;
                     if (ImGui::ArrowButton("##modelChildren", expanded ? ImGuiDir_Down : ImGuiDir_Right)) {
                         if (expanded) m_ExpandedModelPaths.erase(path.string());
@@ -1090,8 +1123,15 @@ namespace Duality {
                     ImGui::BeginGroup();
                     const ImVec2 childIconMin = ImGui::GetCursorScreenPos();
                     const ImVec2 childIconMax(childIconMin.x + thumbnailSize, childIconMin.y + thumbnailSize);
-                    ImGui::InvisibleButton("##modelChildThumb", ImVec2(thumbnailSize, thumbnailSize));
+                    const bool childPressed = ImGui::InvisibleButton("##modelChildThumb", ImVec2(thumbnailSize, thumbnailSize));
                     const bool childHovered = ImGui::IsItemHovered();
+                    // Click selects the generated sub-asset: the Inspector shows the (read-only)
+                    // material / mesh info, like Unity's model sub-assets.
+                    if (childPressed && !subAsset.AssetPath.empty()) {
+                        ctx.SelectedAssetPath = subAsset.AssetPath;
+                        ctx.SelectedAssetPaths = { subAsset.AssetPath };
+                    }
+                    const bool childSelected = !subAsset.AssetPath.empty() && ctx.SelectedAssetPath == subAsset.AssetPath;
                     // Must be called while InvisibleButton remains LastItemData. Calling it
                     // after EndGroup made ImGui attempt a drag source on an ID-less group,
                     // triggering its explicit assertion in imgui.cpp:14398 when a mesh child
@@ -1104,7 +1144,7 @@ namespace Duality {
                     ImDrawList* childDrawList = ImGui::GetWindowDrawList();
                     const ImU32 fill = childHovered ? IM_COL32(53, 67, 90, 255) : IM_COL32(40, 47, 62, 255);
                     childDrawList->AddRectFilled(childIconMin, childIconMax, fill, 5.0f);
-                    childDrawList->AddRect(childIconMin, childIconMax, IM_COL32(95, 125, 170, 255), 5.0f, 0, 1.5f);
+                    childDrawList->AddRect(childIconMin, childIconMax, childSelected ? IM_COL32(80, 160, 255, 255) : IM_COL32(95, 125, 170, 255), 5.0f, 0, childSelected ? 2.5f : 1.5f);
                     const char* glyph = GetModelChildIcon(subAsset.Type);
                     const ImVec2 glyphSize = ImGui::CalcTextSize(glyph);
                     childDrawList->AddText(ImVec2(childIconMin.x + (thumbnailSize - glyphSize.x) * 0.5f,
@@ -1116,6 +1156,40 @@ namespace Duality {
                     ImGui::EndGroup();
                     if (childHovered && !subAsset.Detail.empty())
                         ImGui::SetTooltip("%s", subAsset.Detail.c_str());
+                    ImGui::PopID();
+                    ImGui::NextColumn();
+                }
+            }
+
+            // Sliced sprites of an expanded Multiple-mode texture: one tile each, draggable onto
+            // sprite fields / the Scene / the Hierarchy as "<textureGuid>#<spriteId>".
+            if (hasSpriteChildren && m_ExpandedModelPaths.count(path.string()) != 0) {
+                for (const SpriteAssetUI::SpriteEntry& sprite : spriteChildren) {
+                    ImGui::PushID(sprite.Reference.c_str());
+                    ImGui::BeginGroup();
+                    const ImVec2 childMin = ImGui::GetCursorScreenPos();
+                    const ImVec2 childMax(childMin.x + thumbnailSize, childMin.y + thumbnailSize);
+                    const bool childPressed = ImGui::InvisibleButton("##spriteThumb", ImVec2(thumbnailSize, thumbnailSize));
+                    const bool childHovered = ImGui::IsItemHovered();
+                    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                        ImGui::SetDragDropPayload("ASSET_GUID", sprite.Reference.c_str(), sprite.Reference.size() + 1);
+                        ImGui::Text("%s %s", EditorIcons::Image, sprite.Name.c_str());
+                        ImGui::EndDragDropSource();
+                    }
+                    ImDrawList* childDrawList = ImGui::GetWindowDrawList();
+                    childDrawList->AddRectFilled(childMin, childMax, childHovered ? IM_COL32(53, 67, 90, 255) : IM_COL32(40, 47, 62, 255), 5.0f);
+                    SpriteAssetUI::DrawThumbnail(childDrawList, m_Thumbnails, sprite.Reference,
+                        ImVec2(childMin.x + 4.0f, childMin.y + 4.0f), ImVec2(childMax.x - 4.0f, childMax.y - 4.0f));
+                    childDrawList->AddRect(childMin, childMax, IM_COL32(95, 125, 170, 255), 5.0f, 0, 1.0f);
+                    ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + thumbnailSize);
+                    ImGui::TextWrapped("%s", sprite.Name.c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::TextDisabled("Sprite");
+                    ImGui::EndGroup();
+                    if (childHovered)
+                        ImGui::SetTooltip("%s (%gx%g)", sprite.Name.c_str(), sprite.SizePixels.x, sprite.SizePixels.y);
+                    if (childPressed)
+                        SelectAsset(ctx, path, false, false);
                     ImGui::PopID();
                     ImGui::NextColumn();
                 }

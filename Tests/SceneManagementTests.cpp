@@ -6,6 +6,7 @@
 // (Scene::Clear, SerializeToJson, DeserializeFromJson) is.
 #include "TestFramework.h"
 
+#include "DualityEngine/Renderer/BuiltinMeshes.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Scene.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -143,11 +144,12 @@ TEST_CASE("Directional blob shadows submit a transparent depth-read-only plane o
     Scene scene;
     Entity receiver = scene.CreateEntity("Ground");
     auto& receiverMesh = receiver.AddComponent<MeshRendererComponent>();
-    receiverMesh.Primitive = MeshPrimitive::Plane;
+    receiver.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Plane);
     receiver.GetComponent<TransformComponent>().Scale = { 20.0f, 1.0f, 20.0f };
 
     Entity caster = scene.CreateEntity("Caster");
-    caster.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Cube;
+    caster.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Cube);
+    caster.AddComponent<MeshRendererComponent>();
     caster.GetComponent<TransformComponent>().Translation = { 1.0f, 4.0f, -2.0f };
     caster.GetComponent<TransformComponent>().Scale = { 2.0f, 2.0f, 2.0f };
 
@@ -194,11 +196,13 @@ TEST_CASE("RenderScreen3D frustum-culls mesh bounding spheres and reports render
     cameraData.FarPlane = 100.0f;
 
     Entity visible = scene.CreateEntity("Visible");
-    visible.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Cube;
+    visible.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Cube);
+    visible.AddComponent<MeshRendererComponent>();
     visible.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, -5.0f };
 
     Entity outside = scene.CreateEntity("Outside frustum");
-    outside.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Cube;
+    outside.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Cube);
+    outside.AddComponent<MeshRendererComponent>();
     outside.GetComponent<TransformComponent>().Translation = { 1000.0f, 0.0f, -5.0f };
 
     RecordingRenderer3D renderer;
@@ -215,7 +219,8 @@ TEST_CASE("MeshRenderer runtime material color is per-renderer, non-serialized, 
     cameraData.Primary = true;
 
     Entity cube = scene.CreateEntity("Cube");
-    cube.AddComponent<MeshRendererComponent>().Primitive = MeshPrimitive::Cube;
+    cube.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(MeshPrimitive::Cube);
+    cube.AddComponent<MeshRendererComponent>();
     MeshRenderer scriptingApi(cube);
     const glm::vec4 animatedColor{ 0.1f, 0.8f, 0.3f, 0.65f };
     scriptingApi.SetMaterialColor(animatedColor);

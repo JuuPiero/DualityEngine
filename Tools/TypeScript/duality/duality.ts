@@ -353,6 +353,19 @@ export class Texture extends Asset {}
 export class Material extends Asset {}
 export class SceneAsset extends Asset {}
 
+/** Names of the built-in meshes (Unity's GameObject > 3D Object primitives). */
+export type BuiltinMeshName = 'Cube' | 'Sphere' | 'Capsule' | 'Cylinder' | 'Plane' | 'Quad';
+
+/** A mesh asset: an imported mesh/model GUID or a built-in mesh ("builtin:Cube"). */
+export class Mesh extends Asset {
+  /** The built-in mesh `name` (`Mesh.builtin('Sphere')`), like Unity's built-in Sphere mesh. */
+  static builtin(name: BuiltinMeshName): Mesh { return new Mesh('builtin:' + name); }
+  /** True for one of the built-in meshes. */
+  get isBuiltin(): boolean { return this.guid.startsWith('builtin:'); }
+  /** "Cube" for a built-in mesh, else the asset's file name. */
+  get name(): string { return this.isBuiltin ? this.guid.substring(8) : (this.path.split('/').pop() ?? ''); }
+}
+
 /** A ScriptableObject data asset (.asset, class defined in C++ GameScripts): fields by name. */
 export class ScriptableObject extends Asset {
   get className(): string { const info = N.soInfo(this.guid); return info ? info[0] : ''; }
@@ -689,7 +702,10 @@ export class Rigidbody extends Component {
 export const Rigidbody3D = Rigidbody;
 
 export class Collider2D extends Component {
-  static readonly typeNames: readonly string[] = ['Box Collider 2D', 'Circle Collider 2D', 'Capsule Collider 2D', 'Polygon Collider 2D'];
+  static readonly typeNames: readonly string[] = ['Box Collider 2D', 'Circle Collider 2D', 'Capsule Collider 2D', 'Polygon Collider 2D', 'Edge Collider 2D'];
+  /** Shape of an Effector2D on the same GameObject. */
+  get usedByEffector(): boolean { return this.get('Used By Effector'); }
+  set usedByEffector(v: boolean) { this.set('Used By Effector', v); }
   get isTrigger(): boolean { return this.get('Is Trigger'); }
   set isTrigger(v: boolean) { this.set('Is Trigger', v); }
   get offset(): Vector2 { return this.getVec2('Offset'); }
@@ -707,7 +723,7 @@ export class CircleCollider2D extends Collider2D {
   set radius(v: number) { this.set('Radius', v); }
 }
 export class Collider extends Component {
-  static readonly typeNames: readonly string[] = ['Box Collider 3D', 'Sphere Collider 3D', 'Capsule Collider 3D'];
+  static readonly typeNames: readonly string[] = ['Box Collider 3D', 'Sphere Collider 3D', 'Capsule Collider 3D', 'Mesh Collider'];
   get isTrigger(): boolean { return this.get('Is Trigger'); }
   set isTrigger(v: boolean) { this.set('Is Trigger', v); }
   get center(): Vector3 { return this.getVec3('Offset'); }
@@ -762,11 +778,25 @@ export class SpriteRenderer extends Component {
   set sprite(v: Texture | null) { this.set('Texture', v ? v.guid : ''); }
 }
 
+/** Unity's MeshFilter: which mesh the MeshRenderer of the same GameObject draws. */
+export class MeshFilter extends Component {
+  static readonly typeNames = ['Mesh Filter'] as const;
+  /** The mesh (null = none: nothing is drawn). `mesh = Mesh.builtin('Sphere')` switches shape. */
+  get mesh(): Mesh | null { return this.getAsset('Mesh', Mesh); }
+  set mesh(v: Mesh | null) { this.set('Mesh', v ? v.guid : ''); }
+  /** Unity name; the same asset as `mesh` here (meshes are never instanced per renderer). */
+  get sharedMesh(): Mesh | null { return this.mesh; }
+  set sharedMesh(v: Mesh | null) { this.mesh = v; }
+}
+
 export class MeshRenderer extends Component {
   static readonly typeNames = ['Mesh Renderer', 'Skinned Mesh Renderer'] as const;
   get sortingOrder(): number { return this.get('Sort Order'); }
   set sortingOrder(v: number) { this.set('Sort Order', v); }
   get materials(): Material[] { return ((this.get('Materials') as string[]) ?? []).filter((g) => g).map((g) => new Material(g)); }
+  set materials(v: Material[]) { this.set('Materials', v.map((m) => m.guid)); }
+  get material(): Material | null { return this.materials[0] ?? null; }
+  set material(v: Material | null) { const list = this.materials; if (v) list[0] = v; else list.shift(); this.materials = list; }
 }
 
 export class Camera extends Component {
@@ -790,6 +820,370 @@ export class ParticleSystem extends Component {
   get emissionRate(): number { return this.get('Emission Rate'); }
   set emissionRate(v: number) { this.set('Emission Rate', v); }
 }
+
+// --- joints, effectors, Character Controller (Unity names; +Y is down) ----------------------
+
+function goFromField(value: any): GameObject | null { return typeof value === 'number' && value >= 0 ? GameObject._wrap(value) : null; }
+
+export class EdgeCollider2D extends Collider2D {
+  static readonly typeNames = ['Edge Collider 2D'];
+  /** Local points of the polyline (2..8). */
+  get points(): Vector2[] {
+    const count = Math.max(2, Math.min(8, this.get('Point Count') | 0));
+    const out: Vector2[] = [];
+    for (let i = 0; i < count; i++) out.push(this.getVec2('Point ' + i));
+    return out;
+  }
+  set points(v: Vector2[]) {
+    const count = Math.max(2, Math.min(8, v.length));
+    this.set('Point Count', count);
+    for (let i = 0; i < count; i++) this.set('Point ' + i, v[i]);
+  }
+  get edgeRadius(): number { return this.get('Edge Radius'); }
+  set edgeRadius(v: number) { this.set('Edge Radius', v); }
+}
+
+/** Base of every 2D joint: Anchor/Connected Anchor/Connected Body/Break Force (0 = infinity). */
+export class Joint2D extends Component {
+  static readonly typeNames: readonly string[] = ['Distance Joint 2D', 'Hinge Joint 2D', 'Spring Joint 2D', 'Fixed Joint 2D',
+    'Slider Joint 2D', 'Wheel Joint 2D', 'Friction Joint 2D', 'Relative Joint 2D', 'Target Joint 2D'];
+  get connectedBody(): GameObject | null { return goFromField(this.get('Connected Body')); }
+  set connectedBody(v: GameObject | Rigidbody2D | null) { this.set('Connected Body', v ?? -1); }
+  get anchor(): Vector2 { return this.getVec2('Anchor'); }
+  set anchor(v: Vector2) { this.set('Anchor', v); }
+  get connectedAnchor(): Vector2 { return this.getVec2('Connected Anchor'); }
+  set connectedAnchor(v: Vector2) { this.set('Connected Anchor', v); }
+  get autoConfigureConnectedAnchor(): boolean { return this.get('Auto Configure Connected Anchor'); }
+  set autoConfigureConnectedAnchor(v: boolean) { this.set('Auto Configure Connected Anchor', v); }
+  get enableCollision(): boolean { return this.get('Enable Collision'); }
+  set enableCollision(v: boolean) { this.set('Enable Collision', v); }
+  /** 0 = Infinity. */
+  get breakForce(): number { return this.get('Break Force'); }
+  set breakForce(v: number) { this.set('Break Force', v); }
+  get breakTorque(): number { return this.get('Break Torque'); }
+  set breakTorque(v: number) { this.set('Break Torque', v); }
+}
+export class DistanceJoint2D extends Joint2D {
+  static readonly typeNames = ['Distance Joint 2D'];
+  get distance(): number { return this.get('Distance'); }
+  set distance(v: number) { this.set('Distance', v); this.set('Auto Configure Distance', false); }
+  get maxDistanceOnly(): boolean { return this.get('Max Distance Only'); }
+  set maxDistanceOnly(v: boolean) { this.set('Max Distance Only', v); }
+}
+export class SpringJoint2D extends Joint2D {
+  static readonly typeNames = ['Spring Joint 2D'];
+  get distance(): number { return this.get('Distance'); }
+  set distance(v: number) { this.set('Distance', v); this.set('Auto Configure Distance', false); }
+  get dampingRatio(): number { return this.get('Damping Ratio'); }
+  set dampingRatio(v: number) { this.set('Damping Ratio', v); }
+  get frequency(): number { return this.get('Frequency'); }
+  set frequency(v: number) { this.set('Frequency', v); }
+}
+export class FixedJoint2D extends Joint2D {
+  static readonly typeNames = ['Fixed Joint 2D'];
+  get dampingRatio(): number { return this.get('Damping Ratio'); }
+  set dampingRatio(v: number) { this.set('Damping Ratio', v); }
+  get frequency(): number { return this.get('Frequency'); }
+  set frequency(v: number) { this.set('Frequency', v); }
+}
+/** Unity's JointMotor2D (speed in degrees/second for hinges and wheels, units/second for sliders). */
+export interface JointMotor2D { motorSpeed: number; maxMotorTorque: number }
+export interface JointAngleLimits2D { min: number; max: number }
+export class HingeJoint2D extends Joint2D {
+  static readonly typeNames = ['Hinge Joint 2D'];
+  get useMotor(): boolean { return this.get('Use Motor'); }
+  set useMotor(v: boolean) { this.set('Use Motor', v); }
+  get motor(): JointMotor2D { return { motorSpeed: this.get('Motor Speed'), maxMotorTorque: this.get('Max Motor Torque') }; }
+  set motor(v: JointMotor2D) { this.set('Motor Speed', v.motorSpeed); this.set('Max Motor Torque', v.maxMotorTorque); }
+  get useLimits(): boolean { return this.get('Use Limits'); }
+  set useLimits(v: boolean) { this.set('Use Limits', v); }
+  get limits(): JointAngleLimits2D { return { min: this.get('Lower Angle'), max: this.get('Upper Angle') }; }
+  set limits(v: JointAngleLimits2D) { this.set('Lower Angle', v.min); this.set('Upper Angle', v.max); }
+}
+export class SliderJoint2D extends Joint2D {
+  static readonly typeNames = ['Slider Joint 2D'];
+  get angle(): number { return this.get('Angle'); }
+  set angle(v: number) { this.set('Angle', v); }
+  get useMotor(): boolean { return this.get('Use Motor'); }
+  set useMotor(v: boolean) { this.set('Use Motor', v); }
+  get motorSpeed(): number { return this.get('Motor Speed'); }
+  set motorSpeed(v: number) { this.set('Motor Speed', v); }
+  get useLimits(): boolean { return this.get('Use Limits'); }
+  set useLimits(v: boolean) { this.set('Use Limits', v); }
+  get limits(): JointAngleLimits2D { return { min: this.get('Lower Translation'), max: this.get('Upper Translation') }; }
+  set limits(v: JointAngleLimits2D) { this.set('Lower Translation', v.min); this.set('Upper Translation', v.max); }
+}
+export class WheelJoint2D extends Joint2D {
+  static readonly typeNames = ['Wheel Joint 2D'];
+  get useMotor(): boolean { return this.get('Use Motor'); }
+  set useMotor(v: boolean) { this.set('Use Motor', v); }
+  get motor(): JointMotor2D { return { motorSpeed: this.get('Motor Speed'), maxMotorTorque: this.get('Max Motor Torque') }; }
+  set motor(v: JointMotor2D) { this.set('Motor Speed', v.motorSpeed); this.set('Max Motor Torque', v.maxMotorTorque); }
+}
+export class FrictionJoint2D extends Joint2D {
+  static readonly typeNames = ['Friction Joint 2D'];
+  get maxForce(): number { return this.get('Max Force'); }
+  set maxForce(v: number) { this.set('Max Force', v); }
+  get maxTorque(): number { return this.get('Max Torque'); }
+  set maxTorque(v: number) { this.set('Max Torque', v); }
+}
+export class RelativeJoint2D extends Joint2D {
+  static readonly typeNames = ['Relative Joint 2D'];
+  get linearOffset(): Vector2 { return this.getVec2('Linear Offset'); }
+  set linearOffset(v: Vector2) { this.set('Linear Offset', v); }
+  get angularOffset(): number { return this.get('Angular Offset'); }
+  set angularOffset(v: number) { this.set('Angular Offset', v); }
+}
+export class TargetJoint2D extends Joint2D {
+  static readonly typeNames = ['Target Joint 2D'];
+  /** World point the anchor is pulled to (e.g. the pointer for dragging). */
+  get target(): Vector2 { return this.getVec2('Target'); }
+  set target(v: Vector2) { this.set('Target', v); }
+}
+/** Passed to onJointBreak2D: the joint is already removed from its GameObject. */
+export class BrokenJoint2D {
+  constructor(readonly gameObject: GameObject, readonly breakForce: number) {}
+  get transform(): Transform { return this.gameObject.transform; }
+}
+
+export enum EffectorSelection2D { Rigidbody = 0, Collider = 1 }
+export enum EffectorForceMode2D { Constant = 0, InverseLinear = 1, InverseSquared = 2 }
+export class Effector2D extends Component {
+  static readonly typeNames: readonly string[] = ['Area Effector 2D', 'Point Effector 2D', 'Surface Effector 2D', 'Platform Effector 2D', 'Buoyancy Effector 2D'];
+  get useColliderMask(): boolean { return this.get('Use Collider Mask'); }
+  set useColliderMask(v: boolean) { this.set('Use Collider Mask', v); }
+  get colliderMask(): number { return this.get('Collider Mask'); }
+  set colliderMask(v: number) { this.set('Collider Mask', v >>> 0); }
+}
+export class AreaEffector2D extends Effector2D {
+  static readonly typeNames = ['Area Effector 2D'];
+  /** Degrees, 0 = +X, 90 = up (-Y). */
+  get forceAngle(): number { return this.get('Force Angle'); }
+  set forceAngle(v: number) { this.set('Force Angle', v); }
+  get forceMagnitude(): number { return this.get('Force Magnitude'); }
+  set forceMagnitude(v: number) { this.set('Force Magnitude', v); }
+  get drag(): number { return this.get('Drag'); }
+  set drag(v: number) { this.set('Drag', v); }
+}
+export class PointEffector2D extends Effector2D {
+  static readonly typeNames = ['Point Effector 2D'];
+  /** Negative attracts, positive repels. */
+  get forceMagnitude(): number { return this.get('Force Magnitude'); }
+  set forceMagnitude(v: number) { this.set('Force Magnitude', v); }
+  get forceMode(): EffectorForceMode2D { return this.get('Force Mode'); }
+  set forceMode(v: EffectorForceMode2D) { this.set('Force Mode', v); }
+}
+export class SurfaceEffector2D extends Effector2D {
+  static readonly typeNames = ['Surface Effector 2D'];
+  get speed(): number { return this.get('Speed'); }
+  set speed(v: number) { this.set('Speed', v); }
+}
+export class PlatformEffector2D extends Effector2D {
+  static readonly typeNames = ['Platform Effector 2D'];
+  get useOneWay(): boolean { return this.get('Use One Way'); }
+  set useOneWay(v: boolean) { this.set('Use One Way', v); }
+  get surfaceArc(): number { return this.get('Surface Arc'); }
+  set surfaceArc(v: number) { this.set('Surface Arc', v); }
+  get rotationalOffset(): number { return this.get('Rotational Offset'); }
+  set rotationalOffset(v: number) { this.set('Rotational Offset', v); }
+}
+export class BuoyancyEffector2D extends Effector2D {
+  static readonly typeNames = ['Buoyancy Effector 2D'];
+  get surfaceLevel(): number { return this.get('Surface Level'); }
+  set surfaceLevel(v: number) { this.set('Surface Level', v); }
+  get density(): number { return this.get('Density'); }
+  set density(v: number) { this.set('Density', v); }
+  get flowMagnitude(): number { return this.get('Flow Magnitude'); }
+  set flowMagnitude(v: number) { this.set('Flow Magnitude', v); }
+}
+export class ConstantForce2D extends Component {
+  static readonly typeNames = ['Constant Force 2D'] as const;
+  get force(): Vector2 { return this.getVec2('Force'); }
+  set force(v: Vector2) { this.set('Force', v); }
+  get relativeForce(): Vector2 { return this.getVec2('Relative Force'); }
+  set relativeForce(v: Vector2) { this.set('Relative Force', v); }
+  get torque(): number { return this.get('Torque'); }
+  set torque(v: number) { this.set('Torque', v); }
+}
+
+export class MeshCollider extends Collider {
+  static readonly typeNames = ['Mesh Collider'];
+  get convex(): boolean { return this.get('Convex'); }
+  set convex(v: boolean) { this.set('Convex', v); }
+}
+
+/** Base of every 3D joint (Break Force/Torque 0 = infinity). */
+export class Joint extends Component {
+  static readonly typeNames: readonly string[] = ['Fixed Joint', 'Hinge Joint', 'Spring Joint', 'Character Joint'];
+  get connectedBody(): GameObject | null { return goFromField(this.get('Connected Body')); }
+  set connectedBody(v: GameObject | Rigidbody | null) { this.set('Connected Body', v ?? -1); }
+  get anchor(): Vector3 { return this.getVec3('Anchor'); }
+  set anchor(v: Vector3) { this.set('Anchor', v); }
+  get connectedAnchor(): Vector3 { return this.getVec3('Connected Anchor'); }
+  set connectedAnchor(v: Vector3) { this.set('Connected Anchor', v); }
+  get breakForce(): number { return this.get('Break Force'); }
+  set breakForce(v: number) { this.set('Break Force', v); }
+  get breakTorque(): number { return this.get('Break Torque'); }
+  set breakTorque(v: number) { this.set('Break Torque', v); }
+}
+export class FixedJoint extends Joint { static readonly typeNames = ['Fixed Joint']; }
+export interface JointMotor { targetVelocity: number; force: number; freeSpin: boolean }
+export interface JointSpring { spring: number; damper: number; targetPosition: number }
+export interface JointLimits { min: number; max: number; bounciness: number }
+export class HingeJoint extends Joint {
+  static readonly typeNames = ['Hinge Joint'];
+  get axis(): Vector3 { return this.getVec3('Axis'); }
+  set axis(v: Vector3) { this.set('Axis', v); }
+  get useMotor(): boolean { return this.get('Use Motor'); }
+  set useMotor(v: boolean) { this.set('Use Motor', v); }
+  get motor(): JointMotor { return { targetVelocity: this.get('Target Velocity'), force: this.get('Force'), freeSpin: this.get('Free Spin') }; }
+  set motor(v: JointMotor) { this.set('Target Velocity', v.targetVelocity); this.set('Force', v.force); this.set('Free Spin', !!v.freeSpin); }
+  get useSpring(): boolean { return this.get('Use Spring'); }
+  set useSpring(v: boolean) { this.set('Use Spring', v); }
+  get spring(): JointSpring { return { spring: this.get('Spring'), damper: this.get('Damper'), targetPosition: this.get('Target Position') }; }
+  set spring(v: JointSpring) { this.set('Spring', v.spring); this.set('Damper', v.damper); this.set('Target Position', v.targetPosition); }
+  get useLimits(): boolean { return this.get('Use Limits'); }
+  set useLimits(v: boolean) { this.set('Use Limits', v); }
+  get limits(): JointLimits { return { min: this.get('Min'), max: this.get('Max'), bounciness: this.get('Bounciness') }; }
+  set limits(v: JointLimits) { this.set('Min', v.min); this.set('Max', v.max); this.set('Bounciness', v.bounciness ?? 0); }
+}
+export class SpringJoint extends Joint {
+  static readonly typeNames = ['Spring Joint'];
+  get spring(): number { return this.get('Spring'); }
+  set spring(v: number) { this.set('Spring', v); }
+  get damper(): number { return this.get('Damper'); }
+  set damper(v: number) { this.set('Damper', v); }
+  get minDistance(): number { return this.get('Min Distance'); }
+  set minDistance(v: number) { this.set('Min Distance', v); }
+  get maxDistance(): number { return this.get('Max Distance'); }
+  set maxDistance(v: number) { this.set('Max Distance', v); }
+}
+export class CharacterJoint extends Joint { static readonly typeNames = ['Character Joint']; }
+export class ConstantForce extends Component {
+  static readonly typeNames = ['Constant Force'] as const;
+  get force(): Vector3 { return this.getVec3('Force'); }
+  set force(v: Vector3) { this.set('Force', v); }
+  get relativeForce(): Vector3 { return this.getVec3('Relative Force'); }
+  set relativeForce(v: Vector3) { this.set('Relative Force', v); }
+  get torque(): Vector3 { return this.getVec3('Torque'); }
+  set torque(v: Vector3) { this.set('Torque', v); }
+}
+
+/** Unity's CollisionFlags (bit mask returned by CharacterController.move). */
+export enum CollisionFlags { None = 0, Sides = 1, Above = 2, Below = 4 }
+export class CharacterController extends Component {
+  static readonly typeNames = ['Character Controller'] as const;
+  /** Moves by `motion` (not scaled by deltaTime), colliding and sliding. */
+  move(motion: Vector3): CollisionFlags { return N.cc(this.gameObject._id, 0, motion.x, motion.y, motion.z); }
+  /** Moves with `speed` units/second (vertical ignored) plus gravity; call once per frame. */
+  simpleMove(speed: Vector3): boolean { return !!N.cc(this.gameObject._id, 1, speed.x, speed.y, speed.z); }
+  get isGrounded(): boolean { return !!N.cc(this.gameObject._id, 2); }
+  get velocity(): Vector3 { return N.cc(this.gameObject._id, 3) ? new Vector3(F[0], F[1], F[2]) : new Vector3(); }
+  get collisionFlags(): CollisionFlags { return N.cc(this.gameObject._id, 4); }
+  get radius(): number { return this.get('Radius'); }
+  set radius(v: number) { this.set('Radius', v); }
+  get height(): number { return this.get('Height'); }
+  set height(v: number) { this.set('Height', v); }
+  get center(): Vector3 { return this.getVec3('Center'); }
+  set center(v: Vector3) { this.set('Center', v); }
+  get slopeLimit(): number { return this.get('Slope Limit'); }
+  set slopeLimit(v: number) { this.set('Slope Limit', v); }
+  get stepOffset(): number { return this.get('Step Offset'); }
+  set stepOffset(v: number) { this.set('Step Offset', v); }
+}
+/** Passed to onControllerColliderHit. */
+export class ControllerColliderHit {
+  constructor(readonly controller: CharacterController, readonly gameObject: GameObject | null, readonly point: Vector3,
+              readonly normal: Vector3, readonly moveDirection: Vector3, readonly moveLength: number) {}
+  get transform(): Transform | null { return this.gameObject?.transform ?? null; }
+  get collider(): Collider | null { return this.gameObject?.getComponent(Collider) ?? null; }
+  get rigidbody(): Rigidbody | null { return this.gameObject?.getComponent(Rigidbody) ?? null; }
+}
+
+// --- more UI, rendering helpers, constraints ------------------------------------------------
+
+export class ScrollRect extends Component {
+  static readonly typeNames = ['UI Scroll Rect'] as const;
+  get content(): GameObject | null { return goFromField(this.get('Content')); }
+  set content(v: GameObject | null) { this.set('Content', v ?? -1); }
+  get horizontal(): boolean { return this.get('Horizontal'); }
+  set horizontal(v: boolean) { this.set('Horizontal', v); }
+  get vertical(): boolean { return this.get('Vertical'); }
+  set vertical(v: boolean) { this.set('Vertical', v); }
+}
+export class Scrollbar extends Component {
+  static readonly typeNames = ['UI Scrollbar'] as const;
+  get value(): number { return this.get('Value'); }
+  set value(v: number) { this.set('Value', v); }
+  get size(): number { return this.get('Size'); }
+  set size(v: number) { this.set('Size', v); }
+}
+export class Dropdown extends Component {
+  static readonly typeNames = ['UI Dropdown'] as const;
+  get value(): number { return this.get('Value'); }
+  set value(v: number) { this.set('Value', v | 0); }
+  get options(): string[] { return String(this.get('Options') ?? '').split('|'); }
+  set options(v: string[]) { this.set('Options', v.join('|')); }
+  get captionText(): string { return this.options[this.value] ?? ''; }
+}
+export class CanvasGroup extends Component {
+  static readonly typeNames = ['Canvas Group'] as const;
+  get alpha(): number { return this.get('Alpha'); }
+  set alpha(v: number) { this.set('Alpha', v); }
+  get interactable(): boolean { return this.get('Interactable'); }
+  set interactable(v: boolean) { this.set('Interactable', v); }
+  get blocksRaycasts(): boolean { return this.get('Blocks Raycasts'); }
+  set blocksRaycasts(v: boolean) { this.set('Blocks Raycasts', v); }
+}
+export class Mask extends Component {
+  static readonly typeNames = ['UI Mask', 'UI Rect Mask 2D'] as const;
+}
+export class TrailRenderer extends Component {
+  static readonly typeNames = ['Trail Renderer'] as const;
+  get time(): number { return this.get('Time'); }
+  set time(v: number) { this.set('Time', v); }
+  get emitting(): boolean { return this.get('Emitting'); }
+  set emitting(v: boolean) { this.set('Emitting', v); }
+  get startWidth(): number { return this.get('Start Width'); }
+  set startWidth(v: number) { this.set('Start Width', v); }
+  get endWidth(): number { return this.get('End Width'); }
+  set endWidth(v: number) { this.set('End Width', v); }
+  get startColor(): Color { return this.getColor('Start Color'); }
+  set startColor(v: Color) { this.set('Start Color', v); }
+  get endColor(): Color { return this.getColor('End Color'); }
+  set endColor(v: Color) { this.set('End Color', v); }
+}
+export class TextMesh extends Component {
+  static readonly typeNames = ['Text Mesh'] as const;
+  get text(): string { return this.get('Text'); }
+  set text(v: string) { this.set('Text', String(v)); }
+  get color(): Color { return this.getColor('Color'); }
+  set color(v: Color) { this.set('Color', v); }
+  get fontSize(): number { return this.get('Font Size'); }
+  set fontSize(v: number) { this.set('Font Size', v); }
+  get characterSize(): number { return this.get('Character Size'); }
+  set characterSize(v: number) { this.set('Character Size', v); }
+}
+export class LODGroup extends Component {
+  static readonly typeNames = ['LOD Group'] as const;
+  get lodBias(): number { return this.get('LOD Bias'); }
+  set lodBias(v: number) { this.set('LOD Bias', v); }
+}
+/** Position/Rotation/Scale/Parent/LookAt/Aim Constraint: weight + constraintActive (= enabled). */
+export class Constraint extends Component {
+  static readonly typeNames: readonly string[] = ['Position Constraint', 'Rotation Constraint', 'Scale Constraint',
+    'Parent Constraint', 'Look At Constraint', 'Aim Constraint'];
+  get weight(): number { return this.get('Weight'); }
+  set weight(v: number) { this.set('Weight', v); }
+  get constraintActive(): boolean { return this.enabled; }
+  set constraintActive(v: boolean) { this.enabled = v; }
+}
+export class PositionConstraint extends Constraint { static readonly typeNames = ['Position Constraint']; }
+export class RotationConstraint extends Constraint { static readonly typeNames = ['Rotation Constraint']; }
+export class ScaleConstraint extends Constraint { static readonly typeNames = ['Scale Constraint']; }
+export class ParentConstraint extends Constraint { static readonly typeNames = ['Parent Constraint']; }
+export class LookAtConstraint extends Constraint { static readonly typeNames = ['Look At Constraint']; }
+export class AimConstraint extends Constraint { static readonly typeNames = ['Aim Constraint']; }
 
 /** A C++ script (GameScripts Behaviour) found by getComponent('ClassName'): its
  *  DUALITY_PROPERTY fields by name. */
@@ -1252,6 +1646,19 @@ N.init({
     if (type < 2) arg = is2D ? new Collision2D(go) : new Collision(go);
     else arg = (is2D ? go.getComponent(Collider2D) : go.getComponent(Collider)) ?? new Collision(go);
     fn.call(obj, arg);
+  },
+  /** Engine events with arguments (only sent when the script defines the method). */
+  event(obj: any, name: string, otherId: number, ...n: number[]): void {
+    const fn = obj[name];
+    if (typeof fn !== 'function') return;
+    const go = GameObject._wrap(otherId);
+    if (name === 'onJointBreak2D') fn.call(obj, new BrokenJoint2D(go ?? obj.gameObject, n[0]));
+    else if (name === 'onJointBreak') fn.call(obj, n[0]);
+    else if (name === 'onControllerColliderHit') {
+      const controller = obj.gameObject.getComponent(CharacterController) as CharacterController;
+      fn.call(obj, new ControllerColliderHit(controller, go, new Vector3(n[0], n[1], n[2]), new Vector3(n[3], n[4], n[5]),
+        new Vector3(n[6], n[7], n[8]), n[9]));
+    }
   },
   sceneStopped(slot: number): void {
     for (const id of [...goCache.keys()]) if (slotOf(id) === slot) goCache.delete(id);

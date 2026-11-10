@@ -208,11 +208,37 @@
                     <a href="rendering.html">Rendering</a>.
                 </p>
 
-                <h3>MeshRendererComponent</h3>
+                <h3>MeshFilterComponent ("Mesh Filter")</h3>
                 <p>
-                    Vẽ bằng Material/Shader (<code>Lit/*</code>, <code>Toon/Lit</code>, <code>Unlit/*</code>... — xem
-                    <a href="rendering.html">Rendering</a>); slot material rỗng vẽ Unlit trắng như trước. Một primitive dựng thủ tục
-                    (khi không import mesh) đặt kích thước/hướng theo chính
+                    Giống <code>MeshFilter</code> của Unity: giữ <em>mesh nào</em> được vẽ; Mesh Renderer cùng
+                    entity giữ <em>vẽ thế nào</em>. Mesh dựng sẵn được tham chiếu như asset:
+                    <code>builtin:Cube</code>, <code>builtin:Sphere</code>, <code>builtin:Capsule</code>,
+                    <code>builtin:Cylinder</code>, <code>builtin:Plane</code>, <code>builtin:Quad</code> (kích thước như Unity:
+                    Cube/Sphere 1 đơn vị, Capsule/Cylinder cao 1 bán kính 0.25, Plane/Quad 1×1; Plane nằm trên mặt XZ,
+                    Quad quay về +Z). Trong Inspector, nút chọn của field <strong>Mesh</strong> có mục
+                    <strong>Built-in</strong> (kèm thumbnail, kéo thả được như asset) và các mesh đã import
+                    (<code>.obj</code>, <code>.dmesh</code>, mesh của model).
+                </p>
+                <table>
+                    <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
+                    <tr><td><code>Mesh</code></td><td><code>AssetRef</code></td><td>rỗng</td><td><code>builtin:&lt;Tên&gt;</code> hoặc GUID mesh import. Rỗng / không load được = không vẽ gì.</td></tr>
+                </table>
+                <div class="callout note">
+                    <span class="callout-title">Scene / prefab cũ được chuyển tự động</span>
+                    Trước đây Mesh Renderer có dropdown <code>Primitive</code> và field <code>Mesh</code>. Khi load
+                    scene / prefab / clipboard cũ, engine tạo Mesh Filter với <code>Mesh</code> (nếu có) hoặc
+                    <code>builtin:&lt;Primitive&gt;</code>, rồi bỏ hai key cũ khỏi Mesh Renderer — nhìn y như cũ. Khi lưu,
+                    file được ghi theo dạng mới (gốc file có <code>"MeshFilterVersion": 1</code>). Mesh Renderer không có
+                    Mesh Filter không vẽ gì (như Unity); Inspector hiện cảnh báo kèm nút <strong>Add Mesh Filter</strong>.
+                    <strong>GameObject ▸ 3D Object ▸ Cube/Sphere/Capsule/Cylinder/Plane/Quad</strong> tạo Mesh Filter +
+                    Mesh Renderer + collider tương ứng (Box / Sphere / Capsule / Mesh Collider).
+                </div>
+
+                <h3>MeshRendererComponent ("Mesh Renderer")</h3>
+                <p>
+                    Vẽ mesh của Mesh Filter cùng entity bằng Material/Shader (<code>Lit/*</code>, <code>Toon/Lit</code>, <code>Unlit/*</code>... — xem
+                    <a href="rendering.html">Rendering</a>); slot material rỗng vẽ Unlit trắng như trước. Mesh
+                    đặt kích thước/hướng theo chính
                     <code>TransformComponent</code> của entity — world-space <code>Scale</code>
                     chính là kích thước mesh (khác <code>SpriteRendererComponent</code> có field
                     <code>Size</code> riêng, vì mesh 3D không có "kích thước pixel" nào có nghĩa
@@ -221,9 +247,9 @@
                 </p>
                 <table>
                     <tr><th>Field</th><th>Type</th><th>Default</th><th>Ý nghĩa</th></tr>
-                    <tr><td><code>Primitive</code></td><td><code>MeshPrimitive</code></td><td><code>Cube</code></td><td>Dùng khi <code>Mesh</code> (bên dưới) rỗng/chưa resolve — <code>Cube</code> | <code>Sphere</code> | <code>Plane</code>, dựng thủ tục, không cần asset.</td></tr>
-                    <tr><td><code>Materials</code></td><td><code>std::vector&lt;AssetRef&gt;</code></td><td>rỗng</td><td><strong>Mới — trước đây là <code>Material</code> đơn.</strong> Một GUID asset <code>.mat</code> cho mỗi submesh, khớp theo index — xem callout bên dưới.</td></tr>
-                    <tr><td><code>Mesh</code></td><td><code>AssetRef</code></td><td>rỗng</td><td>GUID mesh <code>.obj</code> import — rỗng/chưa resolve = dùng lại <code>Primitive</code> ở trên.</td></tr>
+                    <tr><td><code>Enabled</code></td><td><code>bool</code></td><td><code>true</code></td><td>Checkbox của card.</td></tr>
+                    <tr><td><code>Materials</code></td><td><code>std::vector&lt;AssetRef&gt;</code></td><td>rỗng</td><td>Một GUID asset <code>.mat</code> cho mỗi submesh, khớp theo index — xem callout bên dưới.</td></tr>
+                    <tr><td><code>Sort Order</code></td><td><code>int</code></td><td><code>0</code></td><td>Thứ tự vẽ trong cùng render queue.</td></tr>
                 </table>
                 <div class="callout note">
                     <span class="callout-title">Mới: Materials — danh sách material thật theo từng submesh</span>
@@ -418,13 +444,17 @@
                     <tr><td><code>UILayoutGroupComponent</code></td><td>Horizontal/Vertical layout con</td></tr>
                     <tr><td><code>UISliderComponent</code> / <code>UIToggleComponent</code> / <code>UIInputFieldComponent</code></td><td>Widget tương tác (InputField chưa gõ phím đầy đủ v1)</td></tr>
                     <tr><td><code>UIDocumentReferenceComponent</code></td><td>Spawn <code>.uidoc</code> lúc Play</td></tr>
-                    <tr><td><code>SpriteSheetAnimatorComponent</code></td><td>Animation atlas UV (thay flipbook frame riêng lẻ)</td></tr>
-                    <tr><td><code>TilemapComponent</code></td><td>Lưới tile + asset tileset/tiledata</td></tr>
+                    <tr><td><code>SpriteSheetAnimatorComponent</code></td><td>Animation atlas UV (thay flipbook frame riêng lẻ); texture ở Sprite Mode Multiple thì chạy lần lượt các sprite đã cắt thay cho lưới Columns × Rows</td></tr>
+                    <tr><td><code>TilemapComponent</code></td><td>Lưới tile + asset tileset/tiledata; chỉ số tile = sprite thứ i của tileset (Sprite Editor), vẽ bằng Tile Palette; sắp xếp chung với sprite theo Sort Order</td></tr>
                     <tr><td><code>LineRendererComponent</code></td><td>Polyline 3D/2D (tối đa 8 điểm)</td></tr>
                     <tr><td><code>FollowTargetComponent</code></td><td>Theo entity khác (<code>EntityRef Target</code>)</td></tr>
                     <tr><td><code>ParticleSystemComponent</code></td><td>CPU emitter — rate, lifetime, màu, gravity</td></tr>
                 </table>
-                <p>SpriteRenderer thêm: <code>SortOrder</code>, <code>FlipX/Y</code>, <code>Pivot</code>, <code>SliceBorder</code> (9-slice).</p>
+                <p>SpriteRenderer thêm: <code>SortOrder</code>, <code>FlipX/Y</code>, <code>Pivot</code>, <code>SliceBorder</code> (9-slice, pixel nguồn),
+                    <code>Draw Mode</code> (Simple / Sliced — Sliced dùng border của sprite khi SliceBorder = 0). Field <code>Texture</code>
+                    (và frame của Sprite Flipbook, Texture của UI Image / Particle System) nhận một sprite đã cắt
+                    <code>"guid#id"</code>: vẽ đúng vùng cắt, pivot của sprite thay cho Pivot của renderer (như Unity);
+                    lật / xoay quanh pivot. Xem <a href="editor.html">Editor → Sprite Editor</a>.</p>
 
                 <h2>Physics 3D <span class="badge badge-3d">3D</span></h2>
                 <p>
@@ -469,6 +499,78 @@
                     <tr><td><code>IsTrigger</code></td><td><code>bool</code></td><td><code>false</code></td><td>Bullet không có cờ sensor per-shape sẵn như Box2D — body trigger được gắn <code>CF_NO_CONTACT_RESPONSE</code> lúc tạo thay vào (contact manifold vẫn sinh ra nên phần diff enter/exit thủ công trong <code>Scene.cpp</code> vẫn phát hiện được, chỉ tắt phản ứng đẩy vật lý). Cùng quy tắc "một bên trigger = cả cặp Trigger" như 2D.</td></tr>
                     <tr><td><code>EditMode</code></td><td><code>bool</code></td><td><code>false</code></td><td><strong>Mới</strong> — cùng field, cùng hành vi <code>EditMode</code> như collider 2D (callout ở mục Physics 2D phía trên): bật thì Scene view hiện handle kéo resize (3D: một handle mỗi mặt cho Box, một handle trên xích đạo cho Sphere); outline cũng chỉ hiện cho entity đang chọn.</td></tr>
                 </table>
+
+                <h2>Components bổ sung kiểu Unity <span class="badge badge-2d">2D</span> <span class="badge badge-3d">3D</span></h2>
+                <p>
+                    Khai báo theo domain trong <code>Scene/Components/*.h</code> (Physics2D.h, Physics3D.h, UI.h,
+                    Rendering3D.h, Constraints.h... — <code>Components.h</code> include tất cả), đăng ký ở
+                    <code>Source/Scene/Components/&lt;Domain&gt;Components.cpp</code> (xem
+                    <a href="architecture.html#add-component">Thêm một component</a>) — tên hiển thị và tên field ở
+                    đây chính là tên được ghi vào <code>.scene</code>/<code>.prefab</code>, copy/paste
+                    và snapshot Undo (đều đi qua <code>TypeRegistry</code>, không cần code riêng).
+                    Mọi field mới đều có giá trị mặc định nên scene cũ load y nguyên. Quy ước trục:
+                    <strong>+Y hướng xuống</strong> (2D lẫn 3D), nên mọi góc kiểu Unity "0 = +X, 90 =
+                    lên" ở đây có 90° chỉ về <code>-Y</code>. <code>Break Force</code>/<code>Break
+                    Torque</code> = <code>0</code> nghĩa là Infinity (JSON không có vô cực).
+                    Demo: <code>SampleProject/Assets/ComponentsDemo/ComponentsDemo.scene</code>.
+                </p>
+
+                <h3>Physics 2D (Box2D)</h3>
+                <table>
+                    <tr><th>Component</th><th>Field chính (mặc định)</th><th>Ghi chú</th></tr>
+                    <tr><td><code>Edge Collider 2D</code></td><td>Offset, Point Count (2..8), Point 0..7, Edge Radius (0), Density/Friction/Restitution, Is Trigger, Used By Effector, Physics Material</td><td>Polyline hở = <code>b2ChainShape</code> (2 điểm = <code>b2EdgeShape</code>), va chạm cả hai phía. Scene view: kéo từng điểm.</td></tr>
+                    <tr><td>Mọi Joint 2D</td><td>Connected Body (entity, trống = gắn vào world), Enable Collision (false), Auto Configure Connected Anchor (true), Anchor, Connected Anchor, Break Force/Torque (0 = ∞)</td><td>Joint nằm trên Rigidbody 2D của chính entity. Vượt Break Force/Torque: joint bị huỷ, script nhận <code>OnJointBreak2D(joint, force)</code>, component bị gỡ (như Unity). Scene view: kéo Anchor, thấy Connected Anchor và đường nối. Distance/Spring/Slider/Wheel tự cấu hình Connected Anchor ở gốc body nối; Hinge/Fixed/Friction/Relative thì trùng Anchor.</td></tr>
+                    <tr><td><code>Distance Joint 2D</code></td><td>Auto Configure Distance (true), Distance (1), Max Distance Only (false)</td><td><code>b2DistanceJoint</code>; Max Distance Only = dây thừng.</td></tr>
+                    <tr><td><code>Hinge Joint 2D</code></td><td>Use Motor, Motor Speed (độ/s), Max Motor Torque (10000), Use Limits, Lower/Upper Angle (0/359)</td><td><code>b2RevoluteJoint</code>. Runtime: <code>JointAngle</code>, <code>JointSpeed</code>. Sửa motor/limit lúc Play có hiệu lực ngay.</td></tr>
+                    <tr><td><code>Spring Joint 2D</code></td><td>Auto Configure Distance, Distance, Damping Ratio (0), Frequency (1)</td><td>Frequency 0 = cứng.</td></tr>
+                    <tr><td><code>Fixed Joint 2D</code></td><td>Damping Ratio (0), Frequency (0)</td><td><code>b2WeldJoint</code>.</td></tr>
+                    <tr><td><code>Slider Joint 2D</code></td><td>Auto Configure Angle, Angle, Use Motor, Motor Speed, Max Motor Force, Use Limits, Lower/Upper Translation</td><td><code>b2PrismaticJoint</code>.</td></tr>
+                    <tr><td><code>Wheel Joint 2D</code></td><td>Suspension Damping Ratio (0.7) / Frequency (2) / Angle (90), Use Motor, Motor Speed, Max Motor Torque</td><td>Đặt trên thân xe, Connected Body = bánh xe (như Unity).</td></tr>
+                    <tr><td><code>Friction Joint 2D</code> / <code>Relative Joint 2D</code> / <code>Target Joint 2D</code></td><td>Max Force/Torque; Relative: Correction Scale, Linear/Angular Offset; Target: Target, Auto Configure Target, Frequency (5), Damping Ratio (1)</td><td>Target Joint 2D kéo Anchor về điểm world (kéo thả bằng chuột/touch).</td></tr>
+                    <tr><td><code>Area / Point / Surface / Platform / Buoyancy Effector 2D</code></td><td>Use Collider Mask + Collider Mask; Area: Force Angle/Magnitude/Variation, Force Target, Drag; Point: Force Magnitude (âm = hút), Distance Scale, Force Mode; Surface: Speed; Platform: Use One Way, Surface Arc (180), Rotational Offset, Side Friction/Bounce; Buoyancy: Surface Level, Density (2), Linear/Angular Drag, Flow</td><td>Tác dụng lên body chạm collider có <strong>Used By Effector</strong> của entity (không collider nào đánh dấu thì dùng mọi collider — nới lỏng so với Unity). Platform một chiều và Surface (băng chuyền, <code>SetTangentSpeed</code>) chạy trong <code>PreSolve</code>.</td></tr>
+                    <tr><td><code>Constant Force 2D</code></td><td>Force, Relative Force, Torque</td><td>Mỗi bước physics cố định.</td></tr>
+                </table>
+                <p>Collider 2D cũ (Box/Circle/Capsule/Polygon) có thêm field <code>Used By Effector</code> (mặc định false).</p>
+
+                <h3>Physics 3D (Bullet)</h3>
+                <table>
+                    <tr><th>Component</th><th>Field chính (mặc định)</th><th>Ghi chú</th></tr>
+                    <tr><td><code>Fixed Joint</code></td><td>Connected Body, Anchor, Auto Configure Connected Anchor, Connected Anchor, Enable Collision, Break Force/Torque</td><td><code>btFixedConstraint</code>. Lực/mômen đọc từ <code>btJointFeedback</code> → <code>OnJointBreak(joint, force)</code>.</td></tr>
+                    <tr><td><code>Hinge Joint</code></td><td>Axis (1,0,0), Use Spring (Spring, Damper, Target Position), Use Motor (Target Velocity độ/s, Force, Free Spin), Use Limits (Min, Max, Bounciness)</td><td><code>btHingeConstraint</code>; spring là mômen tự tính. Motor dương quay body theo quy tắc bàn tay phải quanh Axis. Runtime: <code>Angle</code>, <code>Velocity</code>.</td></tr>
+                    <tr><td><code>Spring Joint</code></td><td>Spring (10), Damper (0.2), Min/Max Distance (0 = khoảng cách lúc Play), Tolerance</td><td>Cặp lực mỗi bước (không phải constraint Bullet).</td></tr>
+                    <tr><td><code>Character Joint</code></td><td>Axis, Swing Axis, Low/High Twist Limit (-20/70), Swing 1/2 Limit (40)</td><td><code>btConeTwistConstraint</code> (twist bất đối xứng được dời tâm).</td></tr>
+                    <tr><td><code>Mesh Collider</code></td><td>Mesh (trống = mesh của Mesh Filter cùng entity), Convex, Is Trigger, Density/Friction/Restitution, Physics Material</td><td>Static: <code>btBvhTriangleMeshShape</code> đúng tam giác; Rigidbody Dynamic: convex hull (rút gọn ≤ ~64 điểm). Có áp Scale của Transform. Mặt phẳng (Plane) chỉ va chạm một mặt.</td></tr>
+                    <tr><td><code>Character Controller</code></td><td>Slope Limit (45), Step Offset (0.3), Skin Width (0.08), Min Move Distance (0.001), Center, Radius (0.5), Height (2, gồm hai nửa cầu)</td><td>Capsule kinematic, <code>Move()</code>/<code>SimpleMove()</code> bằng convex sweep của Bullet (trượt theo tường, leo dốc ≤ Slope Limit, bậc ≤ Step Offset, giữ khoảng Skin Width). Runtime: <code>IsGrounded</code>, <code>CollisionFlags</code> (theo vị trí điểm chạm trên capsule), <code>Velocity</code>. Callback <code>OnControllerColliderHit</code>. Không bị rigidbody đẩy.</td></tr>
+                    <tr><td><code>Constant Force</code></td><td>Force, Relative Force, Torque, Relative Torque</td><td></td></tr>
+                </table>
+
+                <h3>UI</h3>
+                <table>
+                    <tr><th>Component</th><th>Field chính</th><th>Ghi chú</th></tr>
+                    <tr><td><code>UI Scroll Rect</code></td><td>Content, Horizontal/Vertical, Movement Type (Elastic), Elasticity (0.1), Inertia, Deceleration Rate (0.135), Scroll Sensitivity, Viewport, Horizontal/Vertical Scrollbar</td><td>Kéo bằng touch/chuột; Elastic bật lại, Clamped chặn. Runtime: <code>NormalizedPosition</code>, <code>Velocity</code>.</td></tr>
+                    <tr><td><code>UI Scrollbar</code></td><td>Direction, Value, Size, Number Of Steps, Handle Color</td><td>Cần <code>UI Image</code> (màu track) như Unity; đồng bộ hai chiều với Scroll Rect.</td></tr>
+                    <tr><td><code>UI Mask</code> / <code>UI Rect Mask 2D</code></td><td>Show Mask Graphic / Padding</td><td>Cắt mọi con cháu theo rect bằng <strong>GPU scissor</strong> (<code>glScissor</code> / <code>C3D_SetScissor</code>, đúng cả trên 3DS) và chặn input ngoài vùng. Mask không hỗ trợ hình không chữ nhật.</td></tr>
+                    <tr><td><code>UI Dropdown</code></td><td>Options (ngăn cách bởi <code>|</code>), Value, Font, Font Size, Text/Item/Highlight Color, Item Height</td><td>Cần <code>UI Image</code>. Danh sách mở vẽ trên cùng. Runtime: <code>IsExpanded</code>, <code>WasChanged</code> (1 frame).</td></tr>
+                    <tr><td><code>Canvas Group</code></td><td>Alpha, Interactable, Blocks Raycasts, Ignore Parent Groups</td><td>Alpha nhân dồn theo cây.</td></tr>
+                    <tr><td><code>UI Grid Layout Group</code> / <code>UI Content Size Fitter</code> / <code>UI Aspect Ratio Fitter</code></td><td>Padding, Cell Size, Spacing, Start Corner/Axis, Constraint (+Count) / Horizontal &amp; Vertical Fit / Aspect Mode, Aspect Ratio</td><td>Chạy cùng <code>UI Layout Group</code> mỗi frame Play.</td></tr>
+                    <tr><td><code>UI Shadow</code> / <code>UI Outline</code></td><td>Effect Color, Effect Distance, Use Graphic Alpha</td><td>Cho UI Text và UI Image.</td></tr>
+                </table>
+
+                <h3>Rendering &amp; Miscellaneous</h3>
+                <table>
+                    <tr><th>Component</th><th>Field chính</th><th>Ghi chú</th></tr>
+                    <tr><td><code>Trail Renderer</code></td><td>Time (1), Min Vertex Distance (0.02), Start/End Width, Start/End Color, Emitting, Autodestruct, Sort Order</td><td>Ring buffer cố định 64 điểm (không cấp phát mỗi frame). Vẽ ở pass 2D (mặt XY) như Line Renderer.</td></tr>
+                    <tr><td><code>Text Mesh</code></td><td>Text, Character Size (1), Font Size (16), Color, Anchor, Alignment, Font, Sort Order</td><td>Chữ world-space; cao 1 dòng = Font Size × Character Size / 100 đơn vị. Hiện cả ở Scene view. Không xoay.</td></tr>
+                    <tr><td><code>LOD Group</code></td><td>LOD 0..3 (entity), Distance 0..2, Cull Distance (0 = không), LOD Bias</td><td>Chọn theo khoảng cách camera ở mỗi mesh pass (cả Scene view), ẩn cả cây con bằng tag runtime <code>LODHiddenTag</code> — rẻ, hợp 3DS.</td></tr>
+                    <tr><td><code>Billboard</code></td><td>Mode (Face Camera / Align With Camera), Lock Y Axis</td><td>Xoay theo camera chính của màn hình (Play).</td></tr>
+                    <tr><td><code>Position / Rotation / Scale / Parent / Look At / Aim Constraint</code></td><td>Weight, Sources (hoặc Source), At Rest, Offset, Constrain X/Y/Z; Parent: Auto Offset; Look At: Roll, World Up Object; Aim: Aim Vector, Up Vector, World Up Type</td><td>Chạy sau <code>LateUpdate</code> mỗi frame Play. Look At hướng <code>-Z</code> (forward của Camera/Light). Aim 2D: Aim Vector (1,0,0) + World Up Type None.</td></tr>
+                </table>
+                <p>
+                    Audio: <code>AudioReverbZone</code>/<code>AudioLowPassFilter</code> <strong>chưa</strong>
+                    có — ndsp của 3DS không có DSP reverb (phải tự convolution trên CPU ARM11, quá
+                    đắt); low-pass làm được bằng biquad IIR của ndsp nhưng cần mở rộng
+                    <code>AudioEngine</code> cả hai backend (miniaudio trên desktop), để đợt sau.
+                </p>
 
                 <h2>Scripting</h2>
                 <h3>BehaviourComponent</h3>

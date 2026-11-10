@@ -50,6 +50,8 @@ namespace Duality {
 
         // OS file drop (e.g. dragging files in from Windows Explorer).
         void SetDropCallback(const std::function<void(const std::vector<std::string>&)>& callback) { m_DropCallback = callback; }
+        // Editor automation (`drop-file`): the exact path an OS drop takes, without OS input.
+        void SimulateFileDrop(const std::vector<std::string>& files) { if (m_DropCallback) m_DropCallback(files); }
 
     private:
         void CaptureScreenshot();

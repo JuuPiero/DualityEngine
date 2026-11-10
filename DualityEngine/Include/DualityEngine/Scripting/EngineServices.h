@@ -142,6 +142,11 @@ namespace Duality {
         bool (*SetScriptField)(void* script, const char* className, const char* fieldName, const void* value);
         bool (*CallScriptMethod)(void* script, const char* methodName);
 
+        // Unity CharacterController.Move (returns CollisionFlags) / SimpleMove (returns
+        // isGrounded) -- see Scripting/CharacterController.h and Scene/PhysicsSystems.h.
+        int (*CharacterControllerMove)(void* scene, unsigned int entityHandle, float x, float y, float z);
+        bool (*CharacterControllerSimpleMove)(void* scene, unsigned int entityHandle, float x, float y, float z);
+
         // Per-callback context for ScriptContext (Bind/Clear/Scene/EntityHandle) -- lives HERE,
         // as mutable fields on this one process-wide struct instance, deliberately NOT as
         // ScriptContext's own `static`/`inline static` variables. A plain header-only static

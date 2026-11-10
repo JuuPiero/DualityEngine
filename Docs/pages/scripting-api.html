@@ -79,6 +79,8 @@
                     <tr><td><code>OnFixedUpdate(float fixedDeltaTime)</code></td><td>Mỗi bước vật lý cố định 1/60 s (0..N lần/frame), trước khi bước đó được mô phỏng.</td></tr>
                     <tr><td><code>OnCollisionEnter(Entity other)</code> / <code>OnCollisionExit(Entity other)</code></td><td>Cặp collider chạm/rời nhau, không bên nào <code>IsTrigger</code>. Cả 2D và 3D dùng chung callback này.</td></tr>
                     <tr><td><code>OnTriggerEnter(Entity other)</code> / <code>OnTriggerExit(Entity other)</code></td><td>Giống trên, nhưng ít nhất một bên <code>IsTrigger = true</code>.</td></tr>
+                    <tr><td><code>OnJointBreak2D(Entity joint, float breakForce)</code> / <code>OnJointBreak(Entity joint, float breakForce)</code></td><td>Joint 2D/3D trên entity này vượt <code>Break Force</code>/<code>Break Torque</code> (ngay sau bước vật lý). Component joint bị gỡ ngay sau callback, như Unity.</td></tr>
+                    <tr><td><code>OnControllerColliderHit(const ControllerColliderHit&amp; hit)</code></td><td>Trong lúc <code>CharacterController::Move/SimpleMove</code>, mỗi collider bị chạm (<code>hit.Other</code>, <code>Point</code>, <code>Normal</code>, <code>MoveDirection</code>, <code>MoveLength</code>).</td></tr>
                     <tr><td><code>OnDestroy()</code></td><td>Một lần lúc Stop — một instance vẫn active nhận thêm một <code>OnDisable()</code> cuối ngay trước đó. Cũng chạy cuối frame khi entity bị <code>ScriptScene::Destroy(entity)</code>.</td></tr>
                 </table>
                 <div class="callout warn">
@@ -110,13 +112,30 @@ transform.Rotation.z += <span class="tok-num">90.0f</span> * deltaTime; <span cl
                 <table>
                     <tr><th>Method</th><th>Wrapper</th></tr>
                     <tr><td><code>GetTransform()</code></td><td>Local/world position, rotation Z/Y, scale</td></tr>
-                    <tr><td><code>SpriteRenderer(GetEntity())</code> / <code>MeshRenderer(GetEntity())</code></td><td>Wrapper component render được tạo tường minh.</td></tr>
+                    <tr><td><code>SpriteRenderer(GetEntity())</code> / <code>MeshRenderer(GetEntity())</code></td><td>Wrapper component render được tạo tường minh (<code>SetMaterialColor</code>, <code>ClearMaterialColor</code>; <code>SetPrimitive</code>/<code>SetMesh</code> cũ vẫn chạy và chuyển sang Mesh Filter).</td></tr>
+                    <tr><td><code>MeshFilter(GetEntity())</code></td><td><code>GetMesh()</code>, <code>SetMesh(AssetRef)</code> / <code>SetMesh(MeshPrimitive::Sphere)</code> (= <code>builtin:Sphere</code>), <code>IsBuiltinMesh()</code>.</td></tr>
                     <tr><td><code>Rigidbody2D(GetEntity())</code> / <code>Rigidbody3D(GetEntity())</code></td><td>Velocity, AddForce, BodyType.</td></tr>
                     <tr><td><code>Collider2D(GetEntity())</code> / <code>Collider3D(GetEntity())</code></td><td>Wrapper collider được tạo tường minh.</td></tr>
                     <tr><td><code>EntityLayer(GetEntity())</code></td><td><code>GetLayer()</code>, <code>SetComponentLayer(Layer)</code>.</td></tr>
                     <tr><td><code>AudioSource(GetEntity())</code></td><td>Play/Stop/Pause/Volume.</td></tr>
                     <tr><td><code>UIButton(GetEntity())</code>, <code>UIRect(GetEntity())</code>, …</td><td>UI wrapper được tạo tường minh.</td></tr>
+                    <tr><td><code>CharacterController(GetEntity())</code> (<code>Scripting/CharacterController.h</code>)</td><td><code>Move(motion)</code> → CollisionFlags, <code>SimpleMove(speed)</code> → isGrounded, <code>IsGrounded()</code>, <code>GetVelocity()</code>, <code>GetCollisionFlags()</code>. Đi qua <code>EngineServices</code> nên dùng được từ GameScripts.dll.</td></tr>
                 </table>
+                <p>
+                    Joint, effector, UI mới, constraint... là dữ liệu thuần: sửa thẳng field qua
+                    <code>GetComponent&lt;HingeJoint2DComponent&gt;()</code>,
+                    <code>TryGetComponent&lt;UIScrollRectComponent&gt;()</code>... — motor, limit, target,
+                    tốc độ băng chuyền, alpha Canvas Group được đọc lại mỗi bước/frame nên đổi lúc Play có
+                    hiệu lực ngay. Field runtime đọc được: <code>JointAngle</code>/<code>JointSpeed</code>,
+                    <code>ReactionForce</code>, <code>IsGrounded</code>, <code>WasChanged</code> (Dropdown,
+                    Scrollbar), <code>NormalizedPosition</code> (Scroll Rect), <code>CurrentLOD</code>.
+                </p>
+                <pre><code><span class="tok-kw">void</span> <span class="tok-fn">OnUpdate</span>(<span class="tok-type">float</span> dt) {
+    Duality::CharacterController controller(<span class="tok-fn">GetEntity</span>());
+    controller.<span class="tok-fn">SimpleMove</span>({ Input::<span class="tok-fn">GetAxis</span>(<span class="tok-str">"Horizontal"</span>) * <span class="tok-num">2.0f</span>, <span class="tok-num">0.0f</span>, <span class="tok-num">0.0f</span> });
+    <span class="tok-kw">if</span> (<span class="tok-kw">auto</span>* hinge = <span class="tok-fn">TryGetComponent</span>&lt;Duality::HingeJoint2DComponent&gt;())
+        hinge-&gt;MotorSpeed = <span class="tok-num">180.0f</span>; <span class="tok-com">// độ/giây, có hiệu lực ở bước vật lý kế tiếp</span>
+}</code></pre>
 
                 <h2>DUALITY_PROPERTY &amp; Inspector</h2>
                 <p>

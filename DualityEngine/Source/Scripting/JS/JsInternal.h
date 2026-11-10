@@ -69,6 +69,9 @@ namespace Duality::Js {
         JSValue HookContact = JS_UNDEFINED;
         JSValue HookSceneStopped = JS_UNDEFINED;
         JSValue HookTick = JS_UNDEFINED;
+        // event(obj, name, entityId, ...numbers): engine events with arguments
+        // (onJointBreak2D, onJointBreak, onControllerColliderHit) -- optional in the TS runtime.
+        JSValue HookEvent = JS_UNDEFINED;
         JSValue ScratchArray = JS_UNDEFINED;
         double* Scratch = nullptr;  // Float64Array shared with the TS runtime
         size_t ScratchCount = 0;
@@ -137,6 +140,9 @@ namespace Duality::Js {
         void OnCollisionExit(Entity other) override { Contact(1, other); }
         void OnTriggerEnter(Entity other) override { Contact(2, other); }
         void OnTriggerExit(Entity other) override { Contact(3, other); }
+        void OnJointBreak2D(Entity joint, float breakForce) override;
+        void OnJointBreak(Entity joint, float breakForce) override;
+        void OnControllerColliderHit(const ControllerColliderHit& hit) override;
 
         FieldValue GetField(size_t index);
         void SetField(size_t index, const FieldValue& value);
@@ -156,6 +162,7 @@ namespace Duality::Js {
         bool Call(Method method, int argc = 0, JSValueConst* argv = nullptr);
         void EnsureStarted();
         void Contact(int type, Entity other);
+        void Event(const char* name, Entity other, const double* numbers, int count);
         void Fault();
 
         ClassInfo* m_Class = nullptr;

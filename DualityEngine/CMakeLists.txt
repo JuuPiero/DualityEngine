@@ -6,19 +6,35 @@ add_library(DualityEngine STATIC
     Source/Asset/PhysicsMaterialLoader.cpp
     Source/Asset/MeshLoader.cpp
     Source/Asset/AnimationClipLoader.cpp
+    Source/Asset/ModelAsset.cpp
     Source/Asset/ScriptableObjectLoader.cpp
     Source/Asset/TextureImportSettings.cpp
     Source/Asset/AudioImportSettings.cpp
+    Source/Asset/SpriteDatabase.cpp
+    Source/Asset/TilemapAsset.cpp
+    Source/Core/Profiler.cpp
     Source/Input/InputManager.cpp
     Source/Physics/PhysicsUnits.cpp
     Source/Reflection/TypeRegistry.cpp
     Source/Reflection/Reflection.cpp
     Source/Reflection/FieldSerialization.cpp
+    # Component registration, one file per domain (Scene/Components/<Domain>.h).
+    Source/Scene/Components/CoreComponents.cpp
+    Source/Scene/Components/Rendering2DComponents.cpp
+    Source/Scene/Components/AnimationComponents.cpp
+    Source/Scene/Components/Rendering3DComponents.cpp
+    Source/Scene/Components/AudioComponents.cpp
+    Source/Scene/Components/UIComponents.cpp
+    Source/Scene/Components/Physics2DComponents.cpp
+    Source/Scene/Components/Physics3DComponents.cpp
+    Source/Scene/Components/ConstraintComponents.cpp
+    Source/Scene/Components/ScriptingComponents.cpp
     Source/Scripting/ScriptRegistry.cpp
     Source/Scripting/ScriptableObjectRegistry.cpp
     Source/Scene/Scene.cpp
     Source/Scene/SceneValidator.cpp
     Source/Scene/SceneRuntimeSystems.cpp
+    Source/Scene/AnimationPlayback.cpp
     Source/Scene/SceneSerializer.cpp
     Source/Scene/EntitySerialization.cpp
     Source/Scene/PrefabSerializer.cpp
@@ -29,7 +45,20 @@ add_library(DualityEngine STATIC
     Source/Renderer/UIRenderer.cpp
     Source/Renderer/UIAnchor.cpp
     Source/Renderer/PrimitiveMeshes.cpp
+    Source/Asset/MeshReference.cpp
     Source/Project/Project.cpp
+)
+
+target_sources(DualityEngine PRIVATE
+    # Runtime systems by domain (Scene.cpp orchestrates them in lifecycle order).
+    Source/Scene/Systems/Physics2DSystem.cpp
+    Source/Scene/Systems/Physics2DJoints.cpp
+    Source/Scene/Systems/Physics3DSystem.cpp
+    Source/Scene/Systems/Physics3DJoints.cpp
+    Source/Scene/Systems/ConstraintSystem.cpp
+    Source/Scene/Systems/UISystem.cpp
+    Source/Renderer/TrailTextLODRendering.cpp
+    Source/Renderer/UIWidgetRenderer.cpp
 )
 
 target_include_directories(DualityEngine PUBLIC Include)

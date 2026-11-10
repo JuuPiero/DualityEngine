@@ -6,8 +6,36 @@ this file whenever something below actually gets built, or a new deferred item c
 
 ## Rendering
 
-- [ ] Spritesheet/atlas-based animation (UV sub-rects), as an alternative to the
-      fixed-frame-slot flipbook (`SpriteFlipbookComponent`).
+- [x] Mesh Filter + Mesh Renderer split (Unity): `MeshFilterComponent { Mesh }` holds the
+      mesh (`builtin:Cube|Sphere|Capsule|Cylinder|Plane|Quad`, `Renderer/BuiltinMeshes.h`, or an
+      imported mesh GUID), `MeshRendererComponent` keeps Materials / Sort Order; the Primitive
+      dropdown is gone. Old `Mesh Renderer { Primitive, Mesh }` entities are migrated per entity
+      on load (scenes, prefabs, clipboard, undo) and saved with `"MeshFilterVersion": 1`.
+      Cylinder and Quad added. Built-in picker with thumbnails, 3D Object menu adds the matching
+      collider, renderer-without-filter helpbox, culling / blob shadow radii from the real mesh
+      (`Asset/MeshReference.h`), C++ `Scripting/MeshFilter.h` (old `MeshRenderer::SetPrimitive/
+      SetMesh` forward to it), TypeScript `MeshFilter` / `Mesh.builtin()`.
+      Behaviour change: a Mesh Renderer whose Mesh cannot be loaded (e.g. an `.fbx` GUID put
+      straight into the old `Mesh` field) now draws nothing instead of a fallback cube.
+
+- [x] Trail Renderer (bounded 64-point ring buffer, 2D XY pass), Text Mesh (world-space text,
+      also drawn in the Scene view), LOD Group (distance switch per mesh pass incl. the Scene
+      view, hides whole subtrees through a runtime-only `LODHiddenTag`), Billboard, and the
+      Position / Rotation / Scale / Parent / Look At / Aim constraints (after LateUpdate).
+      Not added: Sorting Group (sprite sort keys are owned by the sprite pass being reworked),
+      AudioReverbZone (no reverb DSP in ndsp) / AudioLowPassFilter (needs AudioEngine API on both
+      backends).
+- [x] Spritesheet/atlas-based animation (UV sub-rects), as an alternative to the
+      fixed-frame-slot flipbook (`SpriteFlipbookComponent`). Sprites are sliced sub-assets of a
+      texture (Sprite Editor, `Asset/SpriteDatabase.h`, `"<textureGuid>#<spriteId>"` refs) drawn
+      as UV sub-rects with their own pivot / 9-slice border on desktop and 3DS (Citro2D maps the
+      rect through the `.t3x` subtexture, so power-of-two padding / the 1024 px resize are safe);
+      Sprite Flipbook frames and Animation-window sprite keyframes take sprites, and a Sprite Sheet
+      Animator on a Multiple-mode texture plays its sprites in order. SpriteRenderer gained Draw
+      Mode Simple / Sliced; 9-slice uses real texture-pixel UV splits (was fixed quarters).
+- [ ] Sprite Atlas (pack many textures into one page at build time, Unity's Sprite Atlas) --
+      sprites are per-texture sub-rects for now; tilemaps / flipbooks draw from one texture each.
+- [ ] Sprite Renderer Draw Mode Tiled, sprite masks, sorting layers (only Sort Order exists).
 - [x] 3D renderer -- unlit only (no lighting yet), a per-screen *exclusive* 2D-or-3D switch
       (`CameraComponent::Projection`, never both composited on one screen in the same frame) --
       see `IRenderer3D`/`OpenGLRenderer3D`/`Citro3DRenderer`. Ended up covering more than the
@@ -325,11 +353,35 @@ this file whenever something below actually gets built, or a new deferred item c
         matching the camera's own forward axis exactly, and graceful failure with no camera/an
         Orthographic one) plus the full existing suite (50/50) and clean `build.bat`/
         `build-3ds.bat`.
-- [ ] Joints/constraints (hinge, spring, fixed) -- neither `b2World` nor the new
-      `btDiscreteDynamicsWorld` wires up any joint type yet, just free rigid bodies.
+- [x] Joints, effectors and more Unity components (now `Scene/Components/*.h`, registered in
+      `Source/Scene/Components/*Components.cpp`, physics in `Source/Scene/Systems/`; originally
+      `Reflection/ExtendedReflection.cpp`, `Physics/Physics2DExtensions.cpp` /
+      `Physics3DExtensions.cpp` driven through the hooks in `Physics/PhysicsExtensions.h`):
+      - 2D: Edge Collider 2D (chain shape); Distance / Hinge / Spring / Fixed / Slider / Wheel /
+        Friction / Relative / Target Joint 2D (Connected Body entity ref, auto-configured anchors,
+        live motor/limit/target sync, Break Force/Torque -> `OnJointBreak2D`, component removed);
+        Area / Point / Surface / Platform (one-way, `PreSolve`) / Buoyancy Effector 2D with the
+        colliders' new `Used By Effector`; Constant Force 2D.
+      - 3D: Fixed / Hinge (motor, limits, spring) / Spring / Character Joint (break via
+        `btJointFeedback` -> `OnJointBreak`); Mesh Collider (BVH triangle mesh for static,
+        convex hull for Dynamic); Character Controller (kinematic capsule, collide-and-slide
+        convex sweeps, Slope Limit, Step Offset, Skin Width, CollisionFlags, isGrounded,
+        `OnControllerColliderHit`; C++ `Scripting/CharacterController.h`, TS
+        `CharacterController`); Constant Force.
+      - Tests: `Tests/PhysicsJointsTests.cpp` (was ExtendedPhysicsTests; stepped simulations of each family).
+- [ ] Follow-ups: joints created/destroyed when toggled mid-Play; Platform Effector "one way
+      grouping"; per-body GravityScale/UseGravity (still ignored by both worlds); 3D gravity is
+      +Y while the 3D renderer draws +Y up (physics scenes roll the camera 180 degrees).
 
 ## UI
 
+- [x] More Unity UI components: UI Scroll Rect (drag, Elastic / Clamped, inertia, scrollbar sync),
+      UI Scrollbar, UI Mask / UI Rect Mask 2D (rectangular GPU scissor -- new
+      `IRenderer2D::SetClipRect`, `glScissor` on desktop, `C3D_SetScissor` in the rotated
+      framebuffer on 3DS; pointer input clipped too), UI Dropdown, Canvas Group (alpha /
+      interactable / blocks raycasts), UI Grid Layout Group, UI Content Size Fitter, UI Aspect
+      Ratio Fitter, UI Shadow / UI Outline. GameObject > UI menu: Dropdown, Scrollbar, Scroll View.
+      Tests: `Tests/ComponentSystemsTests.cpp` (was ExtendedComponentTests). Not yet: non-rectangular (sprite) Mask stencil.
 - [x] In-game UI system -- a basic first cut, not the originally-planned XML+CSS-like system
       (that's still a possible future direction, not ruled out): `UIRectComponent` (Anchor +
       Offset + Size, resolved against a physical Screen's own fixed pixel space, no camera
@@ -380,6 +432,39 @@ this file whenever something below actually gets built, or a new deferred item c
 
 ## Editor
 
+- [x] Scene view navigation and look like PiaEngine (`SceneView/SceneViewNavigation.cpp`,
+      unit-tested in `Tests/SceneViewNavigationTests.cpp`): MMB pan scaled so the point under the
+      cursor follows it, RMB fly (speed from pivot distance, wheel = fly speed), Alt+LMB orbit,
+      Alt+RMB dolly, wheel zoom x1.12 (2D: x1.15 toward the cursor), animated F frame, axis
+      gizmo (animated axis snaps to orthographic views, Persp/Iso toggle, drag = orbit),
+      orthographic 3D view, per-pane Grid / Gizmos toggles and tools overlay, cameras remembered
+      per scene in `Library/SceneViewState.json`. Editor automation got `print-sceneview`,
+      `sceneview-mode`, `mousedown/mouseup`, `wait-scripts`, and ignores the real OS mouse.
+- [ ] Scene view follow-ups: the 3D grid switches between 1 and 10 unit cells by pivot
+      distance (no continuous fade between levels); there is no combined "Transform" tool
+      (PiaEngine's move+rotate+scale handle); the Scene view has no right-click context menu.
+- [x] Code layout by domain (behaviour unchanged): `Scene/Components/*.h` + one registration
+      file per domain (`Source/Scene/Components/*Components.cpp`, Add Component category in the
+      registry), physics worlds split out of `Scene.cpp` into `Source/Scene/Systems/` (one shared
+      collider-shape builder per dimension), runtime UI / constraint systems, the Scene panel's
+      drop / gizmo drawing / overlays in `DualityEditor/Source/SceneView/`, `ExtendedGizmos` ->
+      `SceneView/ComponentGizmos`, `Scripting/Scripting.h` umbrella. See README "Code layout".
+
+- [x] Unity tool windows (`DualityEditor/Source/Windows/`, see `Docs/pages/editor.html`):
+      **Sprite Editor** (Single/Multiple sprite mode, Slice: Automatic / Grid By Cell Size /
+      Grid By Cell Count, draw / move / resize rects, pivot + green 9-slice border handles, Trim,
+      Apply / Revert with its own Undo; sprites unfold in the Project window and drop into Scene /
+      Hierarchy / fields), **Animation** (Ctrl+6: dopesheet + curves, Add Property on any
+      reflected field of the object tree, keys add / move / delete, Record mode, edit-mode
+      preview that never dirties the scene, sprite keyframes by dropping sprites; clip edits in
+      the scene Undo history via `SceneHistory::TrackFile`), **Tile Palette** (Paint / Box / Pick
+      / Erase / Fill in the Scene view, multi-tile brushes from the sliced tileset, one stroke =
+      one Undo step), **Profiler** (Ctrl+7: CPU stacked graph by category, counters, Hierarchy
+      table; `DUALITY_PROFILE_SCOPE` markers compiled out on 3DS). Not built yet: Animator state
+      machine window + controller asset, animation events, curve tangents (keys are linear or
+      constant), Sprite Editor custom outline / physics shape, Tile Palette rule tiles / Tile
+      assets / infinite tilemaps (the grid is GridWidth x GridHeight), a device-side profiler
+      (markers are compiled out of the 3DS player), GPU timings.
 - [x] Parent/child entity tree (`DualityEngine/Include/DualityEngine/Scene/Components.h`'s
       `HierarchyComponent`, `Scene::SetParent`/`GetWorldTransform`) -- Unity/Cocos-style
       Hierarchy panel with drag-and-drop reparenting (drop onto a node) and sibling
@@ -737,6 +822,22 @@ this file whenever something below actually gets built, or a new deferred item c
 
 ## Assets
 
+- [x] Model import on arrival, baked for the 3DS (Unity's ModelImporter): FBX/glTF/GLB/OBJ dropped
+      onto the Editor (or copied in / changed on disk, ~2 s rescan) import on a worker thread into
+      `.dmesh` v4 (<= 24 bones and <= 65535 vertices per draw, <= 4 normalized weights, optional
+      quantization), Material v2 `.mat`, power-of-two PNG textures (tex3ds format per
+      `TextureImportSettings::N3DSFormat`), sampled + keyframe-reduced `.anim` clips (clip list,
+      loop, in-place option) and a read-only model prefab (MeshFilter/MeshRenderer, Skinned Mesh
+      Renderer bound to bones, Animation). Stable sub-asset GUIDs (key -> previous GUID, else
+      model GUID + key hash), Model Import Settings inspector with Apply/Revert and a 3DS budget
+      report, Extract Materials/Textures keeping GUIDs. See README "Model import".
+- [ ] Model import follow-ups: re-import does not yet push structural changes (new/removed
+      nodes) into existing prefab instances (Revert does); root motion is only *removed*
+      (in-place clips), not applied to the object; runtime still draws flat non-indexed
+      triangle lists (72 B/corner) -- an indexed GPU path on citro3d/GL would cut 3DS vertex
+      memory ~3x for typical models; Read/Write is stored but both players keep the CPU copy;
+      no blend shapes, no Humanoid avatar/retargeting, no multi-UV/lightmap UVs, no LODs from
+      the file; one material per mesh (Assimp splits multi-material nodes into child objects).
 - [ ] Folder-level `.meta` files -- currently only individual files get one.
 - [ ] Upfront recursive asset scan on project load -- `.meta` generation and the
       GUID->path index are currently populated lazily as the Project window is

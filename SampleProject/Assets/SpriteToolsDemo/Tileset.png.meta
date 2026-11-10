@@ -1,0 +1,128 @@
+{
+    "Importer": {
+        "FilterMode": "Point",
+        "GenerateMipmaps": false,
+        "PixelsPerUnit": 16.0,
+        "SpriteMode": "Multiple",
+        "Sprites": [
+            {
+                "Id": "48866cab7da99e6e",
+                "Name": "Tileset_0",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    0.0,
+                    0.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "9e98868b0586edd4",
+                "Name": "Tileset_1",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    16.0,
+                    0.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "81d92b8b1270c16c",
+                "Name": "Tileset_2",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    32.0,
+                    0.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "181fcbc63dd3171e",
+                "Name": "Tileset_3",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    48.0,
+                    0.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "23b731d3afce7bdb",
+                "Name": "Tileset_4",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    0.0,
+                    16.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "f8699b26c251cf8f",
+                "Name": "Tileset_5",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    16.0,
+                    16.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "3f3938a270f12e08",
+                "Name": "Tileset_6",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    32.0,
+                    16.0,
+                    16.0,
+                    16.0
+                ]
+            },
+            {
+                "Id": "20d98fdcecfc3d8b",
+                "Name": "Tileset_7",
+                "Pivot": [
+                    0.5,
+                    0.5
+                ],
+                "Rect": [
+                    48.0,
+                    16.0,
+                    16.0,
+                    16.0
+                ]
+            }
+        ],
+        "TextureSize": [
+            64,
+            32
+        ],
+        "WrapMode": "Clamp"
+    },
+    "guid": "549fc56a2fff425aa63b7fbb44bb2701"
+}

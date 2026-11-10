@@ -269,6 +269,17 @@ export declare class Material extends Asset {
 }
 export declare class SceneAsset extends Asset {
 }
+/** Names of the built-in meshes (Unity's GameObject > 3D Object primitives). */
+export type BuiltinMeshName = 'Cube' | 'Sphere' | 'Capsule' | 'Cylinder' | 'Plane' | 'Quad';
+/** A mesh asset: an imported mesh/model GUID or a built-in mesh ("builtin:Cube"). */
+export declare class Mesh extends Asset {
+    /** The built-in mesh `name` (`Mesh.builtin('Sphere')`), like Unity's built-in Sphere mesh. */
+    static builtin(name: BuiltinMeshName): Mesh;
+    /** True for one of the built-in meshes. */
+    get isBuiltin(): boolean;
+    /** "Cube" for a built-in mesh, else the asset's file name. */
+    get name(): string;
+}
 /** A ScriptableObject data asset (.asset, class defined in C++ GameScripts): fields by name. */
 export declare class ScriptableObject extends Asset {
     get className(): string;
@@ -432,6 +443,9 @@ export declare class Rigidbody extends Component {
 export declare const Rigidbody3D: typeof Rigidbody;
 export declare class Collider2D extends Component {
     static readonly typeNames: readonly string[];
+    /** Shape of an Effector2D on the same GameObject. */
+    get usedByEffector(): boolean;
+    set usedByEffector(v: boolean);
     get isTrigger(): boolean;
     set isTrigger(v: boolean);
     get offset(): Vector2;
@@ -501,11 +515,24 @@ export declare class SpriteRenderer extends Component {
     get sprite(): Texture | null;
     set sprite(v: Texture | null);
 }
+/** Unity's MeshFilter: which mesh the MeshRenderer of the same GameObject draws. */
+export declare class MeshFilter extends Component {
+    static readonly typeNames: readonly ["Mesh Filter"];
+    /** The mesh (null = none: nothing is drawn). `mesh = Mesh.builtin('Sphere')` switches shape. */
+    get mesh(): Mesh | null;
+    set mesh(v: Mesh | null);
+    /** Unity name; the same asset as `mesh` here (meshes are never instanced per renderer). */
+    get sharedMesh(): Mesh | null;
+    set sharedMesh(v: Mesh | null);
+}
 export declare class MeshRenderer extends Component {
     static readonly typeNames: readonly ["Mesh Renderer", "Skinned Mesh Renderer"];
     get sortingOrder(): number;
     set sortingOrder(v: number);
     get materials(): Material[];
+    set materials(v: Material[]);
+    get material(): Material | null;
+    set material(v: Material | null);
 }
 export declare class Camera extends Component {
     static readonly typeNames: readonly ["Camera"];
@@ -526,6 +553,399 @@ export declare class ParticleSystem extends Component {
     get isPlaying(): boolean;
     get emissionRate(): number;
     set emissionRate(v: number);
+}
+export declare class EdgeCollider2D extends Collider2D {
+    static readonly typeNames: string[];
+    /** Local points of the polyline (2..8). */
+    get points(): Vector2[];
+    set points(v: Vector2[]);
+    get edgeRadius(): number;
+    set edgeRadius(v: number);
+}
+/** Base of every 2D joint: Anchor/Connected Anchor/Connected Body/Break Force (0 = infinity). */
+export declare class Joint2D extends Component {
+    static readonly typeNames: readonly string[];
+    get connectedBody(): GameObject | null;
+    set connectedBody(v: GameObject | Rigidbody2D | null);
+    get anchor(): Vector2;
+    set anchor(v: Vector2);
+    get connectedAnchor(): Vector2;
+    set connectedAnchor(v: Vector2);
+    get autoConfigureConnectedAnchor(): boolean;
+    set autoConfigureConnectedAnchor(v: boolean);
+    get enableCollision(): boolean;
+    set enableCollision(v: boolean);
+    /** 0 = Infinity. */
+    get breakForce(): number;
+    set breakForce(v: number);
+    get breakTorque(): number;
+    set breakTorque(v: number);
+}
+export declare class DistanceJoint2D extends Joint2D {
+    static readonly typeNames: string[];
+    get distance(): number;
+    set distance(v: number);
+    get maxDistanceOnly(): boolean;
+    set maxDistanceOnly(v: boolean);
+}
+export declare class SpringJoint2D extends Joint2D {
+    static readonly typeNames: string[];
+    get distance(): number;
+    set distance(v: number);
+    get dampingRatio(): number;
+    set dampingRatio(v: number);
+    get frequency(): number;
+    set frequency(v: number);
+}
+export declare class FixedJoint2D extends Joint2D {
+    static readonly typeNames: string[];
+    get dampingRatio(): number;
+    set dampingRatio(v: number);
+    get frequency(): number;
+    set frequency(v: number);
+}
+/** Unity's JointMotor2D (speed in degrees/second for hinges and wheels, units/second for sliders). */
+export interface JointMotor2D {
+    motorSpeed: number;
+    maxMotorTorque: number;
+}
+export interface JointAngleLimits2D {
+    min: number;
+    max: number;
+}
+export declare class HingeJoint2D extends Joint2D {
+    static readonly typeNames: string[];
+    get useMotor(): boolean;
+    set useMotor(v: boolean);
+    get motor(): JointMotor2D;
+    set motor(v: JointMotor2D);
+    get useLimits(): boolean;
+    set useLimits(v: boolean);
+    get limits(): JointAngleLimits2D;
+    set limits(v: JointAngleLimits2D);
+}
+export declare class SliderJoint2D extends Joint2D {
+    static readonly typeNames: string[];
+    get angle(): number;
+    set angle(v: number);
+    get useMotor(): boolean;
+    set useMotor(v: boolean);
+    get motorSpeed(): number;
+    set motorSpeed(v: number);
+    get useLimits(): boolean;
+    set useLimits(v: boolean);
+    get limits(): JointAngleLimits2D;
+    set limits(v: JointAngleLimits2D);
+}
+export declare class WheelJoint2D extends Joint2D {
+    static readonly typeNames: string[];
+    get useMotor(): boolean;
+    set useMotor(v: boolean);
+    get motor(): JointMotor2D;
+    set motor(v: JointMotor2D);
+}
+export declare class FrictionJoint2D extends Joint2D {
+    static readonly typeNames: string[];
+    get maxForce(): number;
+    set maxForce(v: number);
+    get maxTorque(): number;
+    set maxTorque(v: number);
+}
+export declare class RelativeJoint2D extends Joint2D {
+    static readonly typeNames: string[];
+    get linearOffset(): Vector2;
+    set linearOffset(v: Vector2);
+    get angularOffset(): number;
+    set angularOffset(v: number);
+}
+export declare class TargetJoint2D extends Joint2D {
+    static readonly typeNames: string[];
+    /** World point the anchor is pulled to (e.g. the pointer for dragging). */
+    get target(): Vector2;
+    set target(v: Vector2);
+}
+/** Passed to onJointBreak2D: the joint is already removed from its GameObject. */
+export declare class BrokenJoint2D {
+    readonly gameObject: GameObject;
+    readonly breakForce: number;
+    constructor(gameObject: GameObject, breakForce: number);
+    get transform(): Transform;
+}
+export declare enum EffectorSelection2D {
+    Rigidbody = 0,
+    Collider = 1
+}
+export declare enum EffectorForceMode2D {
+    Constant = 0,
+    InverseLinear = 1,
+    InverseSquared = 2
+}
+export declare class Effector2D extends Component {
+    static readonly typeNames: readonly string[];
+    get useColliderMask(): boolean;
+    set useColliderMask(v: boolean);
+    get colliderMask(): number;
+    set colliderMask(v: number);
+}
+export declare class AreaEffector2D extends Effector2D {
+    static readonly typeNames: string[];
+    /** Degrees, 0 = +X, 90 = up (-Y). */
+    get forceAngle(): number;
+    set forceAngle(v: number);
+    get forceMagnitude(): number;
+    set forceMagnitude(v: number);
+    get drag(): number;
+    set drag(v: number);
+}
+export declare class PointEffector2D extends Effector2D {
+    static readonly typeNames: string[];
+    /** Negative attracts, positive repels. */
+    get forceMagnitude(): number;
+    set forceMagnitude(v: number);
+    get forceMode(): EffectorForceMode2D;
+    set forceMode(v: EffectorForceMode2D);
+}
+export declare class SurfaceEffector2D extends Effector2D {
+    static readonly typeNames: string[];
+    get speed(): number;
+    set speed(v: number);
+}
+export declare class PlatformEffector2D extends Effector2D {
+    static readonly typeNames: string[];
+    get useOneWay(): boolean;
+    set useOneWay(v: boolean);
+    get surfaceArc(): number;
+    set surfaceArc(v: number);
+    get rotationalOffset(): number;
+    set rotationalOffset(v: number);
+}
+export declare class BuoyancyEffector2D extends Effector2D {
+    static readonly typeNames: string[];
+    get surfaceLevel(): number;
+    set surfaceLevel(v: number);
+    get density(): number;
+    set density(v: number);
+    get flowMagnitude(): number;
+    set flowMagnitude(v: number);
+}
+export declare class ConstantForce2D extends Component {
+    static readonly typeNames: readonly ["Constant Force 2D"];
+    get force(): Vector2;
+    set force(v: Vector2);
+    get relativeForce(): Vector2;
+    set relativeForce(v: Vector2);
+    get torque(): number;
+    set torque(v: number);
+}
+export declare class MeshCollider extends Collider {
+    static readonly typeNames: string[];
+    get convex(): boolean;
+    set convex(v: boolean);
+}
+/** Base of every 3D joint (Break Force/Torque 0 = infinity). */
+export declare class Joint extends Component {
+    static readonly typeNames: readonly string[];
+    get connectedBody(): GameObject | null;
+    set connectedBody(v: GameObject | Rigidbody | null);
+    get anchor(): Vector3;
+    set anchor(v: Vector3);
+    get connectedAnchor(): Vector3;
+    set connectedAnchor(v: Vector3);
+    get breakForce(): number;
+    set breakForce(v: number);
+    get breakTorque(): number;
+    set breakTorque(v: number);
+}
+export declare class FixedJoint extends Joint {
+    static readonly typeNames: string[];
+}
+export interface JointMotor {
+    targetVelocity: number;
+    force: number;
+    freeSpin: boolean;
+}
+export interface JointSpring {
+    spring: number;
+    damper: number;
+    targetPosition: number;
+}
+export interface JointLimits {
+    min: number;
+    max: number;
+    bounciness: number;
+}
+export declare class HingeJoint extends Joint {
+    static readonly typeNames: string[];
+    get axis(): Vector3;
+    set axis(v: Vector3);
+    get useMotor(): boolean;
+    set useMotor(v: boolean);
+    get motor(): JointMotor;
+    set motor(v: JointMotor);
+    get useSpring(): boolean;
+    set useSpring(v: boolean);
+    get spring(): JointSpring;
+    set spring(v: JointSpring);
+    get useLimits(): boolean;
+    set useLimits(v: boolean);
+    get limits(): JointLimits;
+    set limits(v: JointLimits);
+}
+export declare class SpringJoint extends Joint {
+    static readonly typeNames: string[];
+    get spring(): number;
+    set spring(v: number);
+    get damper(): number;
+    set damper(v: number);
+    get minDistance(): number;
+    set minDistance(v: number);
+    get maxDistance(): number;
+    set maxDistance(v: number);
+}
+export declare class CharacterJoint extends Joint {
+    static readonly typeNames: string[];
+}
+export declare class ConstantForce extends Component {
+    static readonly typeNames: readonly ["Constant Force"];
+    get force(): Vector3;
+    set force(v: Vector3);
+    get relativeForce(): Vector3;
+    set relativeForce(v: Vector3);
+    get torque(): Vector3;
+    set torque(v: Vector3);
+}
+/** Unity's CollisionFlags (bit mask returned by CharacterController.move). */
+export declare enum CollisionFlags {
+    None = 0,
+    Sides = 1,
+    Above = 2,
+    Below = 4
+}
+export declare class CharacterController extends Component {
+    static readonly typeNames: readonly ["Character Controller"];
+    /** Moves by `motion` (not scaled by deltaTime), colliding and sliding. */
+    move(motion: Vector3): CollisionFlags;
+    /** Moves with `speed` units/second (vertical ignored) plus gravity; call once per frame. */
+    simpleMove(speed: Vector3): boolean;
+    get isGrounded(): boolean;
+    get velocity(): Vector3;
+    get collisionFlags(): CollisionFlags;
+    get radius(): number;
+    set radius(v: number);
+    get height(): number;
+    set height(v: number);
+    get center(): Vector3;
+    set center(v: Vector3);
+    get slopeLimit(): number;
+    set slopeLimit(v: number);
+    get stepOffset(): number;
+    set stepOffset(v: number);
+}
+/** Passed to onControllerColliderHit. */
+export declare class ControllerColliderHit {
+    readonly controller: CharacterController;
+    readonly gameObject: GameObject | null;
+    readonly point: Vector3;
+    readonly normal: Vector3;
+    readonly moveDirection: Vector3;
+    readonly moveLength: number;
+    constructor(controller: CharacterController, gameObject: GameObject | null, point: Vector3, normal: Vector3, moveDirection: Vector3, moveLength: number);
+    get transform(): Transform | null;
+    get collider(): Collider | null;
+    get rigidbody(): Rigidbody | null;
+}
+export declare class ScrollRect extends Component {
+    static readonly typeNames: readonly ["UI Scroll Rect"];
+    get content(): GameObject | null;
+    set content(v: GameObject | null);
+    get horizontal(): boolean;
+    set horizontal(v: boolean);
+    get vertical(): boolean;
+    set vertical(v: boolean);
+}
+export declare class Scrollbar extends Component {
+    static readonly typeNames: readonly ["UI Scrollbar"];
+    get value(): number;
+    set value(v: number);
+    get size(): number;
+    set size(v: number);
+}
+export declare class Dropdown extends Component {
+    static readonly typeNames: readonly ["UI Dropdown"];
+    get value(): number;
+    set value(v: number);
+    get options(): string[];
+    set options(v: string[]);
+    get captionText(): string;
+}
+export declare class CanvasGroup extends Component {
+    static readonly typeNames: readonly ["Canvas Group"];
+    get alpha(): number;
+    set alpha(v: number);
+    get interactable(): boolean;
+    set interactable(v: boolean);
+    get blocksRaycasts(): boolean;
+    set blocksRaycasts(v: boolean);
+}
+export declare class Mask extends Component {
+    static readonly typeNames: readonly ["UI Mask", "UI Rect Mask 2D"];
+}
+export declare class TrailRenderer extends Component {
+    static readonly typeNames: readonly ["Trail Renderer"];
+    get time(): number;
+    set time(v: number);
+    get emitting(): boolean;
+    set emitting(v: boolean);
+    get startWidth(): number;
+    set startWidth(v: number);
+    get endWidth(): number;
+    set endWidth(v: number);
+    get startColor(): Color;
+    set startColor(v: Color);
+    get endColor(): Color;
+    set endColor(v: Color);
+}
+export declare class TextMesh extends Component {
+    static readonly typeNames: readonly ["Text Mesh"];
+    get text(): string;
+    set text(v: string);
+    get color(): Color;
+    set color(v: Color);
+    get fontSize(): number;
+    set fontSize(v: number);
+    get characterSize(): number;
+    set characterSize(v: number);
+}
+export declare class LODGroup extends Component {
+    static readonly typeNames: readonly ["LOD Group"];
+    get lodBias(): number;
+    set lodBias(v: number);
+}
+/** Position/Rotation/Scale/Parent/LookAt/Aim Constraint: weight + constraintActive (= enabled). */
+export declare class Constraint extends Component {
+    static readonly typeNames: readonly string[];
+    get weight(): number;
+    set weight(v: number);
+    get constraintActive(): boolean;
+    set constraintActive(v: boolean);
+}
+export declare class PositionConstraint extends Constraint {
+    static readonly typeNames: string[];
+}
+export declare class RotationConstraint extends Constraint {
+    static readonly typeNames: string[];
+}
+export declare class ScaleConstraint extends Constraint {
+    static readonly typeNames: string[];
+}
+export declare class ParentConstraint extends Constraint {
+    static readonly typeNames: string[];
+}
+export declare class LookAtConstraint extends Constraint {
+    static readonly typeNames: string[];
+}
+export declare class AimConstraint extends Constraint {
+    static readonly typeNames: string[];
 }
 /** A C++ script (GameScripts Behaviour) found by getComponent('ClassName'): its
  *  DUALITY_PROPERTY fields by name. */

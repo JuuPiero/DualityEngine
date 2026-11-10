@@ -11,7 +11,11 @@
 
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AnimationClipLoader.h"
+#include "DualityEngine/Asset/SpriteDatabase.h"
+#include "DualityEngine/Core/Profiler.h"
+#include "DualityEngine/Scene/AnimationPlayback.h"
 #include "DualityEngine/Renderer/UIRenderer.h"
+#include "DualityEngine/Scene/SceneRuntimeSystems.h"
 #include "DualityEngine/Scene/Scene.h"
 
 namespace Duality {
@@ -118,6 +122,9 @@ namespace Duality {
             ApplyUILayoutRecursive(scene, Entity(handle, &scene));
         }
 
+        // Grid Layout Group, Content Size Fitter, Aspect Ratio Fitter, Scroll Rect motion.
+        UpdateUILayoutSystems(scene, deltaTime);
+
         for (auto handle : scene.Registry().view<FollowTargetComponent, TransformComponent>()) {
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
@@ -146,9 +153,12 @@ namespace Duality {
             if (!scene.IsEffectivelyActive(Entity(handle, &scene)))
                 continue;
             auto& anim = scene.Registry().get<SpriteSheetAnimatorComponent>(handle);
-            if (!anim.Enabled || !anim.Playing || anim.Columns <= 0 || anim.Rows <= 0)
+            // A Multiple-mode (sliced) texture animates through its sprites in Sprite Editor
+            // order; otherwise through the Columns x Rows grid as before.
+            const int slicedFrames = SpriteRef::IsSubSprite(anim.Texture.Guid) ? 0 : SpriteDatabase::SpriteCount(anim.Texture.Guid);
+            if (!anim.Enabled || !anim.Playing || (slicedFrames <= 0 && (anim.Columns <= 0 || anim.Rows <= 0)))
                 continue;
-            int frameCount = anim.Columns * anim.Rows;
+            int frameCount = slicedFrames > 0 ? slicedFrames : anim.Columns * anim.Rows;
             anim.ElapsedTime += deltaTime;
             float frameDuration = anim.FrameRate > 0.0f ? (1.0f / anim.FrameRate) : 0.1f;
             while (anim.ElapsedTime >= frameDuration) {
@@ -180,29 +190,27 @@ namespace Duality {
             if (path.empty())
                 continue;
             const AnimationClipData& clip = AnimationClipLoader::Load(path);
-            if (clip.Duration <= 0.0f)
+            // Window-authored clips (property / sprite curves) may hold a single key; they
+            // still apply that pose. Imported clips keep requiring a real duration.
+            const bool hasCurves = !clip.Curves.empty() || !clip.ObjectCurves.empty();
+            const float duration = std::max(clip.Duration, hasCurves ? clip.LastKeyTime() : 0.0f);
+            if (duration <= 0.0f && !hasCurves)
                 continue;
-            animation.Time += std::max(0.0f, deltaTime) * std::max(0.0f, animation.Speed);
-            if (animation.Time >= clip.Duration) {
-                if (animation.Loop)
-                    animation.Time = std::fmod(animation.Time, clip.Duration);
-                else {
-                    animation.Time = clip.Duration;
-                    animation.Playing = false;
+            DUALITY_PROFILE_SCOPE("Animation.Sample");
+            if (duration > 0.0f) {
+                animation.Time += std::max(0.0f, deltaTime) * std::max(0.0f, animation.Speed);
+                if (animation.Time >= duration) {
+                    if (animation.Loop)
+                        animation.Time = std::fmod(animation.Time, duration);
+                    else {
+                        animation.Time = duration;
+                        animation.Playing = false;
+                    }
                 }
             }
-            std::unordered_map<std::string, entt::entity> namedEntities;
-            for (auto candidate : scene.Registry().view<NameComponent>())
-                namedEntities[scene.Registry().get<NameComponent>(candidate).Name] = candidate;
-            for (const AnimationChannel& channel : clip.Channels) {
-                auto found = namedEntities.find(channel.NodeName);
-                if (found == namedEntities.end() || !scene.Registry().all_of<TransformComponent>(found->second)) continue;
-                auto& transform = scene.Registry().get<TransformComponent>(found->second);
-                transform.Translation = AnimationClipLoader::Sample(channel.PositionKeys, animation.Time, transform.Translation);
-                transform.Scale = AnimationClipLoader::Sample(channel.ScaleKeys, animation.Time, transform.Scale);
-                const glm::quat current = glm::quat(glm::radians(transform.Rotation));
-                transform.Rotation = glm::degrees(glm::eulerAngles(AnimationClipLoader::Sample(channel.RotationKeys, animation.Time, current)));
-            }
+            // Node channels (by entity name) + property / sprite curves (by path below this
+            // entity) -- the same code the editor's Animation window previews with.
+            AnimationPlayback::Sample(scene, entity, clip, animation.Time);
         }
 
         for (auto handle : scene.Registry().view<ParticleSystemComponent, TransformComponent>()) {

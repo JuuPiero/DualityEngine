@@ -132,6 +132,27 @@ Mọi field editor, mọi component và các menu Add/Remove Component đều ho
 generic (dựa trên reflection) -- khi thêm một loại component mới vào engine,
 không cần nối thêm logic riêng cho editor.
 
+### Sprite sheet, animation và tilemap (như Unity)
+
+Scene mẫu `SampleProject/Assets/SpriteToolsDemo/SpriteToolsDemo.scene` được làm đúng bằng
+các bước sau:
+
+1. Chọn một sprite sheet trong **Project**, ở Inspector đặt **Sprite Mode = Multiple** và
+   **Pixels Per Unit** (ví dụ 16), bấm **Sprite Editor**.
+2. Trong Sprite Editor: **Slice ▾ -> Grid By Cell Size 16x16** (hoặc Automatic), chỉnh pivot /
+   border nếu cần, bấm **Apply**. Ở Project, texture có mũi tên mở ra các sprite.
+3. Kéo một sprite vào **Scene** (hoặc Hierarchy): editor tạo object có Sprite Renderer với kích
+   thước gốc (pixel / PPU) và pivot của sprite.
+4. Chọn object đó, **Window -> Animation -> Animation** (Ctrl+6) -> **Create**; kéo các sprite
+   (hoặc cả texture) vào timeline để có clip flipbook, **Add Property** để thêm curve
+   (vị trí, màu...), bật **Record** rồi sửa field ở Inspector để đặt key. Play / scrub ngay trong
+   Edit mode để xem trước -- scene không bị đổi.
+5. Tạo **GameObject -> 2D Object -> Tilemap**, gán texture tileset (đã cắt bằng Sprite Editor)
+   vào field **Tileset**, mở **Window -> 2D -> Tile Palette**: chọn tile, phím **B** vẽ, **U**
+   tô hình chữ nhật, **G** tô loang, **D** xoá, **I** lấy mẫu -- vẽ trực tiếp trong Scene view,
+   Ctrl+Z hoàn tác từng nét.
+6. **Window -> Analysis -> Profiler** (Ctrl+7) rồi bấm Play để xem thời gian từng phần mỗi frame.
+
 ## 4. Scene 3D đầu tiên
 
 Pipeline 3D dựng trực tiếp trên devkitPro/citro3d (không qua citro2d) ở phía
@@ -140,10 +161,15 @@ kiểu Unity và ánh sáng thật (Directional/Point/Spot) cho ra cùng một h
 hai nền tảng (bước 2 và 8 bên dưới; chi tiết ở README, mục "Rendering: Materials,
 Shaders & Lighting").
 
-1. **Inspector -> + Add Component -> Mesh Renderer.** Entity hiển thị một
-   khối lập phương trắng (mặc định `Primitive = Cube`; có thể đổi sang `Sphere`
-   hoặc `Plane`). Kích thước thật lấy từ `Transform -> Scale`, không có field
-   `Size` riêng như Sprite Renderer.
+1. **GameObject -> 3D Object -> Cube** (hoặc Sphere / Capsule / Cylinder / Plane /
+   Quad). Giống Unity, entity mới có **Mesh Filter** (field **Mesh** =
+   `builtin:Cube`) + **Mesh Renderer** (Materials) + collider tương ứng. Muốn đổi
+   hình: bấm nút chọn ở field **Mesh** của Mesh Filter -> mục **Built-in** (có
+   thumbnail) hoặc kéo một mesh đã import vào. Thêm tay thì cần cả hai component
+   (**+ Add Component -> Mesh Filter** và **Mesh Renderer**); Mesh Renderer thiếu
+   Mesh Filter không vẽ gì và Inspector hiện nút **Add Mesh Filter**. Kích thước
+   thật lấy từ `Transform -> Scale`, không có field `Size` riêng như Sprite
+   Renderer. Scene cũ (Mesh Renderer có `Primitive`) được tự chuyển khi mở.
 2. **Tạo Material.** Trong Project, chuột phải vào khoảng trống ->
    **Create -> Material** -- tạo ngay `NewMaterial.mat` (shader `Lit/Diffuse`,
    màu trắng, cull mặt sau) và tự đăng ký GUID. Click chọn file đó, Inspector
@@ -157,24 +183,30 @@ Shaders & Lighting").
    **Materials** của Mesh Renderer (mỗi phần tử ứng với một submesh). Material cũ
    (chỉ có Color + Texture) vẫn mở được và hiển thị y như trước (Unlit/Texture
    hoặc Mobile/VertexLit).
-3. **Import mesh riêng (tùy chọn).** Field **Mesh** của Mesh Renderer nhận một
-   file `.obj` (Wavefront) kéo từ Project -- khi được gán, nó thay thế
-   hẳn `Primitive`. Parser tự viết, không phụ thuộc thư viện ngoài (để chắc
+3. **Import mesh riêng (tùy chọn).** Field **Mesh** của Mesh Filter nhận một
+   file `.obj` (Wavefront) kéo từ Project (thả thẳng file mesh vào Scene view
+   cũng tạo Mesh Filter + Mesh Renderer). Parser tự viết, không phụ thuộc thư viện ngoài (để chắc
    chắn build được cho devkitARM): chỉ đọc vị trí/texcoord/mặt (tam giác hoặc
    đa giác lồi, tự động tam giác hóa), không đọc normal/material trong file,
-   không hỗ trợ chỉ số âm (relative index). FBX/glTF chưa được hỗ trợ (xem
-   `ROADMAP.md` để biết lý do chọn OBJ).
+   không hỗ trợ chỉ số âm (relative index). Model đầy đủ (FBX/glTF/GLB, kể cả
+   skinned + animation) thì kéo cả file vào Editor -- xem mục *Import model
+   FBX/glTF* ngay bên dưới.
 4. **Camera 3D.** Chọn entity Camera của screen tương ứng, đổi
    `Camera -> Projection` từ `Orthographic` sang `Perspective` -- lúc này panel
    **Game** của đúng screen đó sẽ render qua pipeline 3D thật, dùng
    `Fov Degrees`/`Near Plane`/`Far Plane` thay vì `Zoom`.
 5. **Xem/điều khiển ở Scene view.** Bấm nút **3D** trên pane tương ứng. Điều
-   khiển chuột theo phong cách Unity: **chuột trái** chọn mesh hoặc kéo tay
-   nắm gizmo, **chuột phải kéo** xoay camera quanh điểm nhìn (orbit -- dùng
-   quaternion thật, không giới hạn ±89° kiểu gimbal lock, nên kéo liên tục sẽ
-   lật qua đỉnh/đáy mượt mà như Unity/Blender), **chuột giữa kéo** để pan,
-   **lăn chuột** để zoom. Camera này độc lập với `CameraComponent` thật --
-   pan/orbit/zoom ở đây không đụng đến gameplay.
+   khiển giống PiaEngine / Unity: **chuột trái** chọn mesh (kéo = khung chọn)
+   hoặc kéo tay nắm gizmo; **chuột phải giữ** để nhìn quanh và bay bằng
+   **W A S D Q E** (Shift nhanh x3, lăn chuột trong lúc bay đổi tốc độ bay);
+   **Alt + chuột trái** orbit quanh pivot; **Alt + chuột phải** dolly; **chuột
+   giữa** pan (điểm dưới con trỏ đi theo con trỏ); **lăn chuột** zoom; **F**
+   đưa camera tới object đang chọn (có animation). Axis gizmo ở góc phải trên:
+   click một trục để nhìn thẳng theo trục đó (orthographic), click ô giữa / nhãn
+   "Persp" để đổi Perspective <-> Iso, kéo để orbit. Thanh công cụ của pane có
+   nút **Grid** / **Gizmos**; cột công cụ nổi ở góc trái trên đổi Hand / Move /
+   Rotate / Scale / Rect. Camera này độc lập với `CameraComponent` thật (không
+   đụng gameplay) và được nhớ riêng cho từng scene.
 6. **Gizmo 3D.** Cùng ba nút Translate/Rotate/Scale ở trên dùng chung với pane
    2D, chỉ khác là có thêm trục Z (xanh dương) bên cạnh X (đỏ)/Y (xanh lá).
    Field Transform trong Inspector luôn chỉnh được trực tiếp như một cách
@@ -195,6 +227,51 @@ Shaders & Lighting").
    mỗi object của GPU 3DS (PICA200). Chỉ shader `Lit/*`, `Toon/Lit` (và
    `Mobile/VertexLit`, chỉ với Directional Light chính) nhận ánh sáng; `Unlit/*`
    thì không. Xem scene mẫu `Assets/LightingDemo/LightingDemo.scene`.
+
+### Import model FBX/glTF (như Unity)
+
+Thử với model mẫu `Assets/Models/DualityBot.gltf` (thân tĩnh có texture + cánh tay
+skinned 4 xương, 2 animation) hoặc một FBX của bạn (Mixamo, Blender...).
+
+1. **Kéo file từ Windows Explorer thả vào cửa sổ Editor** (hoặc copy thẳng vào
+   thư mục `Assets/`, hoặc sửa file đang có -- Editor tự phát hiện sau ~2 giây). File
+   được copy vào thư mục đang mở ở cửa sổ **Project** (thả cả thư mục = copy cả thư
+   mục, tiện cho model có texture đi kèm). Import chạy **nền** trên một thread riêng:
+   tile của model hiện *Importing* + thanh tiến độ, góc phải dưới có cửa sổ nhỏ
+   "Importing <tên>"; UI không bị đứng.
+2. **Xong là model đã được bake sẵn cho 3DS.** Bấm mũi tên trên tile để mở các
+   sub-asset: **Mesh** (`.dmesh` v4: tách draw khi > 24 xương hoặc > 65535 vertex,
+   tối đa 4 weight/vertex đã chuẩn hóa), **Material** (`.mat` sinh ra, mặc định
+   Lit/Diffuse, chỉ đọc), **Texture** (PNG power-of-two ≤ Max Texture Size, tex3ds
+   cook khi build), **Animation** (`.anim` lấy mẫu theo Sample Rate + keyframe
+   reduction), **Avatar** (số xương). Tất cả nằm trong
+   `Assets/.duality-import/<guid của model>/` (ẩn khỏi Project, giống thư mục Library
+   của Unity) và có **GUID ổn định** -- import lại, đổi setting, thậm chí xóa thư mục
+   đó đi, scene vẫn trỏ đúng.
+3. **Chọn model → Inspector "Model Import Settings"** với 4 tab như Unity:
+   - *Model*: Scale Factor, Convert Units (FBX cm → m), Mesh Compression, Read/Write,
+     Optimize Mesh, Normals (Import/Calculate + Smoothing Angle/None), Tangents,
+     Import Vertex Colors, Max Texture Size, 3DS Format (RGBA8/RGB565/ETC1...).
+   - *Rig*: Animation Type None/Generic, Max Bones/Vertex (1-4).
+   - *Animation*: Import Animation, Sample Rate, Keyframe Reduction (sai số
+     rotation/position/scale), Remove Root Motion (clip tại chỗ), danh sách clip
+     (Edit Clip List: tên, take, Start/End giây, Loop).
+   - *Materials*: Material Creation (Import/None), bảng *Remapped Materials* (kéo
+     `.mat` của bạn vào thay material sinh ra), **Extract Materials...** /
+     **Extract Textures...** (chuyển ra `Materials/`, `Textures/` cạnh model thành
+     asset sửa được, giữ nguyên GUID nên mọi tham chiếu đi theo).
+   Sửa xong bấm **Apply** (hoặc **Revert**); model được import lại ngay. Mục
+   **3DS Budget** bên dưới: số tam giác, draw call, xương/draw (≤ 24), bộ nhớ vertex
+   (linear heap), VRAM texture, và cảnh báo vàng khi vượt ngân sách 3DS.
+4. **Kéo model từ Project vào Scene view hoặc Hierarchy** → tạo một prefab instance
+   (màu xanh prefab) gồm một entity cho mỗi node của file: Mesh Filter + Mesh Renderer
+   cho mesh tĩnh, Skinned Mesh Renderer gắn sẵn các entity xương, và component
+   **Animation** ở root phát clip đầu tiên (Loop). Bấm Play để xem animation (Scene,
+   Game, desktop player và 3DS dùng cùng dữ liệu đã cook). Prefab của model là chỉ
+   đọc như Unity: muốn đổi cấu trúc thì *Unpack*, muốn đổi dữ liệu thì sửa import
+   setting.
+5. **Build for 3DS** chỉ đóng gói những gì scene dùng (`.dmesh`, `.mat`, `.anim`,
+   texture → `.t3x`); file `.fbx/.gltf/.glb` gốc không bao giờ vào romfs.
 
 ## 5. Tạo (hoặc mở) project
 

@@ -5,29 +5,42 @@
 
 namespace Duality {
 
-    // Per-pane free-roam orbit camera for the split Scene view's 3D mode (one instance per
-    // screen -- see EditorContext::TopSceneView3D/BottomSceneView3D), the 3D analog of
-    // SceneViewCamera. Deliberately separate from CameraComponent for the same reason
-    // SceneViewCamera is: panning/orbiting while placing meshes should never mutate the actual
-    // gameplay camera. Seeded once from that screen's real primary CameraComponent (if any and
-    // if Perspective) so the initial view still looks WYSIWYG -- see ScenePanel.cpp.
+    // Per-pane editor camera of the Scene view's 3D mode (one per screen -- see
+    // EditorContext::TopSceneView3D/BottomSceneView3D), the 3D analog of SceneViewCamera.
+    // Deliberately separate from CameraComponent: navigating never moves the gameplay camera.
+    // Seeded once from that screen's primary CameraComponent (if Perspective) so the first view
+    // is WYSIWYG -- see ScenePanel.cpp.
     //
-    // Orientation is a quaternion, not separate Pitch/Yaw floats -- a pitch/yaw pair needs
-    // right = cross(forward, worldUp) to derive the camera's other two axes, which degenerates
-    // (near-zero-length cross product) as forward approaches worldUp, forcing an artificial
-    // +-89 degree pitch clamp to avoid it. A quaternion has no such singularity: right/up are
-    // always Rotation * localAxis, well-defined at any orientation, so the orbit camera can
-    // flip smoothly through the poles like Unity/Blender's Scene view instead of stopping short.
-    // Default matches the old Pitch=20/Yaw=0 starting angle (used only when there's no
-    // Perspective primary camera on this screen to seed from).
+    // Orbit model of the PiaEngine / Unity Scene view: a pivot (Target), a Distance, Yaw about
+    // world +Y and Pitch (radians, clamped to +-90 degrees). Rotation = Ry(Yaw) * Rx(Pitch) is
+    // derived from them (SceneViewNavigation keeps it in sync) and is what rendering, picking
+    // and gizmos read: forward = Rotation * (0,0,-1).
     struct SceneViewCamera3D {
         glm::vec3 Target{ 0.0f, 0.0f, 0.0f };
+        float Yaw = 0.0f;
+        float Pitch = glm::radians(20.0f);
         glm::quat Rotation = glm::angleAxis(glm::radians(20.0f), glm::vec3(1.0f, 0.0f, 0.0f));
-        // 2D assets use world units (typically 1-3 units at PPU 100), so a
-        // 300-unit startup distance made every SpriteRenderer effectively
-        // invisible in Scene 3D. F still frames any selected object exactly.
+        // 2D assets use world units (typically 1-3 units at PPU 100), so a large startup
+        // distance made every SpriteRenderer invisible in Scene 3D. F frames any selection.
         float Distance = 10.0f;
+        bool Orthographic = false;
+        // Fly mode (RMB + WASD/QE): speed multiplier, changed by the wheel while flying.
+        float FlySpeed = 1.0f;
         bool Seeded = false;
+
+        // Frame Selected / axis-snap animation (0.25 s ease-out); Anim < 0 = idle.
+        float Anim = -1.0f;
+        glm::vec3 AnimFromTarget{ 0.0f }, AnimToTarget{ 0.0f };
+        float AnimFromDistance = 0.0f, AnimToDistance = 0.0f;
+        float AnimFromYaw = 0.0f, AnimToYaw = 0.0f, AnimFromPitch = 0.0f, AnimToPitch = 0.0f;
+
+        glm::vec3 Forward() const { return Rotation * glm::vec3(0.0f, 0.0f, -1.0f); }
+        glm::vec3 Right() const { return Rotation * glm::vec3(1.0f, 0.0f, 0.0f); }
+        glm::vec3 Up() const { return Rotation * glm::vec3(0.0f, 1.0f, 0.0f); }
+        glm::vec3 Position() const { return Target - Forward() * Distance; }
+        void SyncRotation() {
+            Rotation = glm::normalize(glm::angleAxis(Yaw, glm::vec3(0.0f, 1.0f, 0.0f)) * glm::angleAxis(Pitch, glm::vec3(1.0f, 0.0f, 0.0f)));
+        }
     };
 
 }

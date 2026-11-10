@@ -532,6 +532,7 @@ namespace Duality::Js {
         take(s.HookContact, "contact");
         take(s.HookSceneStopped, "sceneStopped");
         take(s.HookTick, "tick");
+        take(s.HookEvent, "event");
 
         size_t offset = 0, length = 0, bytesPerElement = 0;
         JSValue buffer = JS_GetTypedArrayBuffer(ctx, argv[1], &offset, &length, &bytesPerElement);
@@ -696,12 +697,53 @@ namespace Duality::Js {
             return;
         const bool is2D = other.HasComponent<Rigidbody2DComponent>() || other.HasComponent<BoxCollider2DComponent>() ||
             other.HasComponent<CircleCollider2DComponent>() || other.HasComponent<CapsuleCollider2DComponent>() ||
-            other.HasComponent<PolygonCollider2DComponent>();
+            other.HasComponent<PolygonCollider2DComponent>() || other.HasComponent<EdgeCollider2DComponent>();
         JSContext* ctx = s.Context;
         JSValue args[4] = { m_Object, JS_NewInt32(ctx, type), JS_NewFloat64(ctx, MakeEntityId(other)), JS_NewBool(ctx, is2D) };
         static const char* const names[] = { "onCollisionEnter", "onCollisionExit", "onTriggerEnter", "onTriggerExit" };
         if (!CallJs(s.HookContact, JS_UNDEFINED, 4, args, m_Class->Name + "." + names[type & 3] + (is2D ? "2D" : "")))
             Fault();
+    }
+
+    // Engine events with arguments: only dispatched when the script class defines `name`, so a
+    // class without the handler costs one property lookup (no JS call).
+    void JsBehaviour::Event(const char* name, Entity other, const double* numbers, int count) {
+        State& s = S();
+        if (!m_Live || m_Faulted || !JS_IsFunction(s.Context, s.HookEvent))
+            return;
+        JSContext* ctx = s.Context;
+        JSValue handler = JS_GetPropertyStr(ctx, m_Object, name);
+        const bool defined = JS_IsFunction(ctx, handler);
+        JS_FreeValue(ctx, handler);
+        if (!defined)
+            return;
+        JSValue args[14];
+        int argc = 0;
+        args[argc++] = m_Object;
+        args[argc++] = JS_NewString(ctx, name);
+        args[argc++] = JS_NewFloat64(ctx, other ? MakeEntityId(other) : -1.0);
+        for (int i = 0; i < count && argc < 14; ++i)
+            args[argc++] = JS_NewFloat64(ctx, numbers[i]);
+        const bool ok = CallJs(s.HookEvent, JS_UNDEFINED, argc, args, m_Class->Name + "." + name);
+        JS_FreeValue(ctx, args[1]);
+        if (!ok)
+            Fault();
+    }
+
+    void JsBehaviour::OnJointBreak2D(Entity joint, float breakForce) {
+        const double value = breakForce;
+        Event("onJointBreak2D", joint, &value, 1);
+    }
+
+    void JsBehaviour::OnJointBreak(Entity joint, float breakForce) {
+        const double value = breakForce;
+        Event("onJointBreak", joint, &value, 1);
+    }
+
+    void JsBehaviour::OnControllerColliderHit(const ControllerColliderHit& hit) {
+        const double values[] = { hit.Point.x, hit.Point.y, hit.Point.z, hit.Normal.x, hit.Normal.y, hit.Normal.z,
+                                  hit.MoveDirection.x, hit.MoveDirection.y, hit.MoveDirection.z, hit.MoveLength };
+        Event("onControllerColliderHit", hit.Other, values, 10);
     }
 
     bool JsBehaviour::CallNamed(const char* method) {
@@ -793,10 +835,11 @@ namespace Duality {
             JS_FreeValue(s.Context, s.HookContact);
             JS_FreeValue(s.Context, s.HookSceneStopped);
             JS_FreeValue(s.Context, s.HookTick);
+            JS_FreeValue(s.Context, s.HookEvent);
             JS_FreeValue(s.Context, s.ScratchArray);
         }
         s.Classes.clear();
-        s.HookCreate = s.HookReadField = s.HookWriteField = s.HookContact = s.HookSceneStopped = s.HookTick = JS_UNDEFINED;
+        s.HookCreate = s.HookReadField = s.HookWriteField = s.HookContact = s.HookSceneStopped = s.HookTick = s.HookEvent = JS_UNDEFINED;
         s.ScratchArray = JS_UNDEFINED;
         s.Scratch = nullptr;
         s.ScratchCount = 0;

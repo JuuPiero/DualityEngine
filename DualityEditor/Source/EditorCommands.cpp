@@ -12,11 +12,14 @@
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/SceneOps.h"
+#include "DualityEditor/Windows/AnimationWindow.h"
+#include "DualityEditor/Windows/ProfilerWindow.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
 #include "DualityEngine/Core/Log.h"
 #include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Reflection/TypeRegistry.h"
+#include "DualityEngine/Renderer/BuiltinMeshes.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/PrefabSerializer.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
@@ -382,9 +385,33 @@ namespace Duality::EditorCommands {
             return Finish(ctx, entity, parent, label);
         }
 
-        Entity CreatePrimitive(EditorContext& ctx, const char* name, MeshPrimitive primitive, Entity parent) {
+        // Unity's GameObject > 3D Object: Mesh Filter (built-in mesh) + Mesh Renderer + the
+        // collider Unity gives that primitive, sized to the unit mesh (PrimitiveMeshes.cpp).
+        Entity CreatePrimitive(EditorContext& ctx, MeshPrimitive primitive, Entity parent) {
+            const char* name = BuiltinMeshes::NameOf(primitive);
             Entity mesh = ctx.SceneRef.CreateEntity(name);
-            mesh.AddComponent<MeshRendererComponent>().Primitive = primitive;
+            mesh.AddComponent<MeshFilterComponent>().Mesh = BuiltinMeshes::Ref(primitive);
+            mesh.AddComponent<MeshRendererComponent>();
+            switch (primitive) {
+                case MeshPrimitive::Cube:
+                    mesh.AddComponent<BoxCollider3DComponent>().Size = { 0.5f, 0.5f, 0.5f }; // half-extents
+                    break;
+                case MeshPrimitive::Sphere:
+                    mesh.AddComponent<SphereCollider3DComponent>().Radius = 0.5f;
+                    break;
+                case MeshPrimitive::Capsule:
+                case MeshPrimitive::Cylinder: { // Unity's Cylinder also gets a Capsule Collider
+                    auto& capsule = mesh.AddComponent<CapsuleCollider3DComponent>();
+                    capsule.Radius = 0.25f;
+                    capsule.Height = 1.0f;
+                    break;
+                }
+                case MeshPrimitive::Plane:
+                case MeshPrimitive::Quad:
+                default:
+                    mesh.AddComponent<MeshColliderComponent>(); // empty Mesh = the Mesh Filter's
+                    break;
+            }
             return Finish(ctx, mesh, parent, (std::string("Create ") + name).c_str());
         }
 
@@ -440,6 +467,44 @@ namespace Duality::EditorCommands {
                 field.GetComponent<UIRectComponent>().SizeDelta = { 160.0f, 28.0f };
                 field.AddComponent<UIInputFieldComponent>();
             }
+            if (ImGui::MenuItem("Dropdown")) {
+                Entity dropdown = CreateUIElement(ctx, "Dropdown", screen, parent, true);
+                dropdown.GetComponent<UIRectComponent>().SizeDelta = { 160.0f, 26.0f };
+                dropdown.AddComponent<UIDropdownComponent>();
+            }
+            if (ImGui::MenuItem("Scrollbar")) {
+                Entity bar = CreateUIElement(ctx, "Scrollbar", screen, parent, true);
+                bar.GetComponent<UIRectComponent>().SizeDelta = { 160.0f, 16.0f };
+                bar.GetComponent<UIImageComponent>().Color = { 0.25f, 0.25f, 0.25f, 1.0f };
+                bar.AddComponent<UIScrollbarComponent>();
+            }
+            if (ImGui::MenuItem("Scroll View")) {
+                // Unity's Scroll View: Scroll Rect + Rect Mask 2D on the view, a Content child
+                // taller than the view with a vertical layout, and a vertical Scrollbar.
+                Entity view = CreateUIElement(ctx, "Scroll View", screen, parent, true);
+                view.GetComponent<UIRectComponent>().SizeDelta = { 200.0f, 140.0f };
+                view.GetComponent<UIImageComponent>().Color = { 0.15f, 0.15f, 0.18f, 1.0f };
+                view.AddComponent<UIRectMask2DComponent>();
+                Entity content = ctx.SceneRef.CreateEntity("Content");
+                auto& contentRect = content.AddComponent<UIRectComponent>();
+                contentRect.AnchorMin = contentRect.AnchorMax = contentRect.Pivot = { 0.0f, 0.0f };
+                contentRect.SizeDelta = { 184.0f, 300.0f };
+                content.AddComponent<UILayoutGroupComponent>();
+                ctx.SceneRef.SetParent(content, view, Entity{}, false);
+                Entity bar = ctx.SceneRef.CreateEntity("Scrollbar Vertical");
+                auto& barRect = bar.AddComponent<UIRectComponent>();
+                barRect.AnchorMin = { 1.0f, 0.0f };
+                barRect.AnchorMax = { 1.0f, 1.0f };
+                barRect.Pivot = { 1.0f, 0.5f };
+                barRect.SizeDelta = { 12.0f, 0.0f };
+                bar.AddComponent<UIImageComponent>().Color = { 0.25f, 0.25f, 0.25f, 1.0f };
+                bar.AddComponent<UIScrollbarComponent>().Direction = ScrollbarDirection::BottomToTop;
+                ctx.SceneRef.SetParent(bar, view, content, false);
+                auto& scroll = view.AddComponent<UIScrollRectComponent>();
+                scroll.Content = EntityRef{ static_cast<uint32_t>(content.Handle()) };
+                scroll.VerticalScrollbar = EntityRef{ static_cast<uint32_t>(bar.Handle()) };
+                scroll.Horizontal = false;
+            }
         }
 
         void Bootstrap3DSScene(EditorContext& ctx) {
@@ -458,6 +523,13 @@ namespace Duality::EditorCommands {
         }
     }
 
+    Entity Create3DObject(EditorContext& ctx, const std::string& builtinMeshName, Entity parent) {
+        MeshPrimitive primitive;
+        if (!BuiltinMeshes::FromName(builtinMeshName, primitive))
+            return Entity{};
+        return CreatePrimitive(ctx, primitive, IsLive(ctx, parent) ? parent : Entity{});
+    }
+
     void DrawCreateObjectMenu(EditorContext& ctx, Entity parent) {
         if (!IsLive(ctx, parent))
             parent = Entity{};
@@ -467,10 +539,11 @@ namespace Duality::EditorCommands {
             CreateEmptyParent(ctx);
         ImGui::Separator();
         if (ImGui::BeginMenu("3D Object")) {
-            if (ImGui::MenuItem("Cube")) CreatePrimitive(ctx, "Cube", MeshPrimitive::Cube, parent);
-            if (ImGui::MenuItem("Sphere")) CreatePrimitive(ctx, "Sphere", MeshPrimitive::Sphere, parent);
-            if (ImGui::MenuItem("Capsule")) CreatePrimitive(ctx, "Capsule", MeshPrimitive::Capsule, parent);
-            if (ImGui::MenuItem("Plane")) CreatePrimitive(ctx, "Plane", MeshPrimitive::Plane, parent);
+            for (const BuiltinMeshes::Info& mesh : BuiltinMeshes::All)
+                if (ImGui::MenuItem(mesh.Name))
+                    CreatePrimitive(ctx, mesh.Primitive, parent);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Text - TextMesh")) CreateWith<TextMeshComponent>(ctx, "New Text", parent, "Create Text Mesh");
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("2D Object")) {
@@ -481,6 +554,7 @@ namespace Duality::EditorCommands {
         if (ImGui::BeginMenu("Effects")) {
             if (ImGui::MenuItem("Particle System")) CreateWith<ParticleSystemComponent>(ctx, "Particle System", parent, "Create Particle System");
             if (ImGui::MenuItem("Line")) CreateWith<LineRendererComponent>(ctx, "Line", parent, "Create Line");
+            if (ImGui::MenuItem("Trail")) CreateWith<TrailRendererComponent>(ctx, "Trail", parent, "Create Trail");
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Light")) {
@@ -554,25 +628,14 @@ namespace Duality::EditorCommands {
     // ------------------------------------------------------------------------------ Components
 
     const std::vector<const char*>& ComponentCategories() {
-        static const std::vector<const char*> categories = {
-            "Rendering", "Effects", "Animation", "Physics 2D", "Physics", "Audio", "UI", "Camera", "Miscellaneous"
-        };
-        return categories;
+        return ComponentCategory::All();
     }
 
+    // The category is chosen where the component is registered
+    // (DualityEngine/Source/Scene/Components/<Domain>Components.cpp).
     const char* ComponentCategoryOf(const std::string& name) {
-        auto has = [&](const char* text) { return name.find(text) != std::string::npos; };
-        if (has("Raycaster 2D")) return "Physics 2D";
-        if (has("Raycaster 3D")) return "Physics";
-        if (has("2D") && (has("Rigidbody") || has("Collider"))) return "Physics 2D";
-        if (has("3D") && (has("Rigidbody") || has("Collider"))) return "Physics";
-        if (has("Audio")) return "Audio";
-        if (name.rfind("UI ", 0) == 0 || name == "Canvas") return "UI";
-        if (has("Animation") || has("Animator") || has("Flipbook")) return "Animation";
-        if (has("Particle") || has("Line Renderer")) return "Effects";
-        if (name == "Camera") return "Camera";
-        if (has("Renderer") || has("Light") || name == "Tilemap") return "Rendering";
-        return "Miscellaneous";
+        const ComponentTypeInfo* type = TypeRegistry::Find(name);
+        return type ? type->Category.c_str() : "";
     }
 
     void AddComponentToSelection(EditorContext& ctx, ComponentTypeInfo& type) {
@@ -594,6 +657,12 @@ namespace Duality::EditorCommands {
             return;
         if (!ValidateSceneForRuntime(ctx, "Play"))
             return;
+        // An Animation-window preview ends when Play starts: authored values back first, so
+        // neither the history nor the Play snapshot contain previewed poses.
+        if (ctx.Session.ScenePreviewHook) {
+            ctx.Session.ScenePreviewHook(true);
+            ctx.Session.ScenePreviewHook = nullptr;
+        }
         // Commit any edit still being recorded so it is undoable after Stop.
         if (ctx.Session.ChangeGroupOpen) {
             ctx.History.Capture(ctx.SceneRef, ctx.Session.Ids, ctx.Session.PendingUndoLabel,
@@ -668,12 +737,27 @@ namespace Duality::EditorCommands {
         auto pressed = [](ImGuiKey key) { return ImGui::IsKeyPressed(key, false); };
 
         if (ctrl && !alt) {
+            // A focused tool window with its own undo stack (Sprite Editor) takes Ctrl+Z / Ctrl+Y.
+            const bool windowUndo = ctx.Session.FocusedPanel == EditorPanel::Other && ctx.Session.FocusedWindowUndo;
             if (pressed(ImGuiKey_Z)) {
-                if (shift) RedoScene(ctx); else UndoScene(ctx);
+                if (windowUndo) ctx.Session.FocusedWindowUndo(shift);
+                else if (shift) RedoScene(ctx); else UndoScene(ctx);
                 return;
             }
             if (pressed(ImGuiKey_Y)) {
-                RedoScene(ctx);
+                if (windowUndo) ctx.Session.FocusedWindowUndo(true);
+                else RedoScene(ctx);
+                return;
+            }
+            // Unity: Ctrl+6 Animation window, Ctrl+7 Profiler.
+            if (!shift && pressed(ImGuiKey_6)) {
+                AnimationWindow::IsOpen() = true;
+                ImGui::SetWindowFocus("Animation");
+                return;
+            }
+            if (!shift && pressed(ImGuiKey_7)) {
+                ProfilerWindow::IsOpen() = true;
+                ImGui::SetWindowFocus("Profiler");
                 return;
             }
             if (pressed(ImGuiKey_S)) {

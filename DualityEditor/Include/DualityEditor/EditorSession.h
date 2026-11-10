@@ -11,6 +11,12 @@
 
 namespace Duality {
 
+    // Scene view pane toolbar toggles (PiaEngine: Grid / Gizmos).
+    struct SceneViewPaneOptions {
+        bool ShowGrid = true;
+        bool ShowGizmos = true;
+    };
+
     struct EditorContext;
 
     // Which editor window last had keyboard focus -- scene-object shortcuts (Ctrl+D, Delete,
@@ -77,6 +83,16 @@ namespace Duality {
         bool ShowConsole = true;
 
         EditorPanel FocusedPanel = EditorPanel::None;
+        // A tool window with its own undo stack (Sprite Editor: unapplied import edits) installs
+        // this while it is the focused window (FocusedPanel == Other); Ctrl+Z / Ctrl+Y /
+        // Ctrl+Shift+Z then go to it instead of the scene history. Argument: true = redo.
+        std::function<void(bool)> FocusedWindowUndo;
+        // The Animation window's edit-mode preview writes sampled values into the live scene
+        // without dirtying it (Unity's Animation preview). Everything that serializes or
+        // snapshots the scene (Save, Undo/Redo, history capture, entering Play) brackets
+        // itself with ScenePreviewHook(true) = put the authored values back, and
+        // ScenePreviewHook(false) = re-apply the preview. Empty when nothing previews.
+        std::function<void(bool)> ScenePreviewHook;
 
         // ---- Scene view tools ----------------------------------------------------------------
         HandlePosition ToolHandlePosition = HandlePosition::Pivot;
@@ -85,8 +101,11 @@ namespace Duality {
         float SnapMove = 0.25f;
         float SnapRotate = 15.0f;
         float SnapScale = 0.1f;
-        // RMB fly-through speed (wheel while flying changes it, like Unity's camera speed).
-        float FlySpeed = 5.0f;
+        // Per Scene pane (0 = Top, 1 = Bottom) toolbar toggles: Grid, Gizmos.
+        SceneViewPaneOptions ScenePaneOptions[2];
+        // Set when a pane camera moved; ScenePanel saves the per-scene view state when the
+        // navigation ends (SceneViewState.h).
+        bool SceneViewStateDirty = false;
 
         // ---- Unsaved changes ----------------------------------------------------------------
         // Runs `action` after asking Save / Don't Save / Cancel when the scene is dirty (runs it

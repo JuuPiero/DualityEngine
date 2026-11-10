@@ -95,7 +95,8 @@ TEST_CASE("MeshLoader returns empty Vertices for a nonexistent file") {
 
 TEST_CASE("Every procedural mesh supplies usable object-space normals") {
     const MeshPrimitive primitives[] = {
-        MeshPrimitive::Cube, MeshPrimitive::Sphere, MeshPrimitive::Plane, MeshPrimitive::Capsule
+        MeshPrimitive::Cube, MeshPrimitive::Sphere, MeshPrimitive::Plane, MeshPrimitive::Capsule,
+        MeshPrimitive::Cylinder, MeshPrimitive::Quad
     };
     for (MeshPrimitive primitive : primitives) {
         const std::vector<MeshVertex>& vertices = GetPrimitiveMesh(primitive);
