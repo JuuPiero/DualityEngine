@@ -10,6 +10,10 @@ add_executable(DualityEditor
     Source/BuildPipeline.cpp
     Source/SceneGizmo.cpp
     Source/SceneHistory.cpp
+    Source/EntityIdRegistry.cpp
+    Source/EditorCommands.cpp
+    Source/EditorAutomation.cpp
+    Source/MultiEdit.cpp
     Source/FieldEditorWidget.cpp
     Source/AssetInspectorRegistry.cpp
     Source/AssetInspectors.cpp

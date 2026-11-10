@@ -8,6 +8,7 @@
 #include <imgui.h>
 
 #include "DualityEditor/EditorIcons.h"
+#include "DualityEditor/EditorCommands.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
@@ -114,13 +115,17 @@ namespace Duality {
                 ImGui::PushID(static_cast<int>(static_cast<uint32_t>(item.E.Handle())));
                 ImGui::SetCursorScreenPos(min);
                 ImGui::InvisibleButton("##UIRectBody", ImVec2(max.x - min.x, max.y - min.y));
-                if (ImGui::IsItemActivated())
-                    ctx.Selected = item.E;
+                if (ImGui::IsItemActivated()) {
+                    EditorCommands::SelectOnly(ctx, item.E);
+                    ctx.Session.RequestRevealSelection = true;
+                }
                 if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
                     ImVec2 delta = ImGui::GetIO().MouseDelta;
                     auto& rect = item.E.GetComponent<UIRectComponent>();
                     rect.AnchoredPosition.x += delta.x / scale;
                     rect.AnchoredPosition.y += delta.y / scale;
+                    if (delta.x != 0.0f || delta.y != 0.0f)
+                        MarkSceneDirty(ctx, "Move UI Element");
                 }
                 ImGui::PopID();
 
@@ -174,6 +179,7 @@ namespace Duality {
                         EffectivePivot(selectedRect, 0), delta.x / scale, corners[i].IsMaxX);
                     ApplyUIResizeAxis(selectedRect.AnchoredPosition.y, selectedRect.SizeDelta.y,
                         EffectivePivot(selectedRect, 1), delta.y / scale, corners[i].IsMaxY);
+                    MarkSceneDirty(ctx, "Resize UI Element");
                 }
                 drawList->AddRectFilled(ImVec2(corners[i].Pos.x - UIRectHandleHalfSize, corners[i].Pos.y - UIRectHandleHalfSize),
                     ImVec2(corners[i].Pos.x + UIRectHandleHalfSize, corners[i].Pos.y + UIRectHandleHalfSize), IM_COL32(80, 180, 255, 255));
@@ -181,41 +187,20 @@ namespace Duality {
             }
         }
 
-        // Stops Play and reverts every change it made -- script-driven Transform edits,
-        // physics results, runtime-spawned/destroyed entities -- back to whatever ctx.SceneRef
-        // looked like the instant "Play" was pressed (ctx.PlaySnapshot, captured below).
-        // Matches Unity's own Play/Stop guarantee: nothing done while Playing survives Stop.
-        // Shared by the "Stop" button and "Reload Scripts"' own mid-Play stop, since both need
-        // the exact same teardown-then-restore, in that order (OnRuntimeStop first -- it does
-        // real cleanup, firing final OnDisable/OnDestroy and freeing the physics worlds, on the
-        // scene that was actually playing -- only then is it safe to clear and reload).
-        void StopPlaying(EditorContext& ctx) {
-            if (ctx.StopAdditiveRuntimeScenes)
-                ctx.StopAdditiveRuntimeScenes();
-            ctx.SceneRef.OnRuntimeStop();
-            ctx.SceneRef.Clear();
-            SceneSerializer(ctx.SceneRef).DeserializeFromJson(nlohmann::json::parse(ctx.PlaySnapshot));
-            ctx.Selected = Entity(); // old handles don't survive Clear()
-            ctx.IsPlaying = false;
-        }
     }
 
     void GamePanel::OnImGuiRender(EditorContext& ctx) {
-        ImGui::Begin("Game");
-
-        if (!ctx.IsPlaying) {
-            if (ImGui::Button((std::string(EditorIcons::Play) + " Play").c_str())) {
-                if (ValidateSceneForRuntime(ctx, "Play")) {
-                    ctx.PlaySnapshot = SceneSerializer(ctx.SceneRef).SerializeToJson().dump();
-                    ctx.IsPlaying = true;
-                    ctx.SceneRef.OnRuntimeStart();
-                }
-            }
-        } else {
-            if (ImGui::Button((std::string(EditorIcons::Stop) + " Stop").c_str()))
-                StopPlaying(ctx);
+        if (!ctx.Session.ShowGame)
+            return;
+        if (!ImGui::Begin("Game", &ctx.Session.ShowGame)) {
+            ImGui::End();
+            return;
         }
-        ImGui::SameLine();
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+            ctx.Session.FocusedPanel = EditorPanel::Game;
+
+        // Play / Pause / Step live in the main toolbar (Unity); the Game view keeps the
+        // script tools and the Stats overlay.
         bool reloading = (ScriptEngine::GetStatus() == ReloadStatus::Running);
         ImGui::BeginDisabled(reloading);
         if (ImGui::Button(reloading ? "Reload Scripts (reloading...)" : "Reload Scripts")) {
@@ -228,7 +213,7 @@ namespace Duality {
             // stays synchronous, on the main thread, BEFORE the async reload kicks off below --
             // see ScriptEngine::ReloadAsync's own comment on why that ordering matters.
             if (ctx.IsPlaying)
-                StopPlaying(ctx);
+                EditorCommands::StopPlay(ctx);
             ScriptEngine::ReloadAsync(ctx.BuildDirectory);
             // TypeScript scripts rebuild too (they also hot-reload on save by themselves).
             if (auto project = Project::GetActive())

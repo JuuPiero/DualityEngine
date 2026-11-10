@@ -29,6 +29,16 @@ add_executable(DualityEngineTests
 )
 target_link_libraries(DualityEngineTests PRIVATE DualityEngine)
 
+# Editor logic without UI (Undo history, stable entity ids, Inspector multi-edit): those editor
+# sources only depend on DualityEngine, so they are compiled straight into the test binary.
+target_sources(DualityEngineTests PRIVATE
+    EditorLogicTests.cpp
+    ${CMAKE_SOURCE_DIR}/DualityEditor/Source/SceneHistory.cpp
+    ${CMAKE_SOURCE_DIR}/DualityEditor/Source/EntityIdRegistry.cpp
+    ${CMAKE_SOURCE_DIR}/DualityEditor/Source/MultiEdit.cpp
+)
+target_include_directories(DualityEngineTests PRIVATE ${CMAKE_SOURCE_DIR}/DualityEditor/Include)
+
 # TypeScript scripting (QuickJS) bridge tests. The fixture project's .ts files are bundled by the
 # same toolchain the Editor uses (Tools/TypeScript/build-scripts.mjs, needs node); without node the
 # JsScriptingTests cases report "skipped" instead of failing.

@@ -9,6 +9,7 @@
 
 #include "DualityEditor/Framebuffer.h"
 #include "DualityEditor/SceneGizmo.h"
+#include "DualityEditor/EditorSession.h"
 #include "DualityEditor/SceneHistory.h"
 #include "DualityEditor/SceneViewCamera.h"
 #include "DualityEditor/SceneViewCamera3D.h"
@@ -159,6 +160,10 @@ namespace Duality {
         bool& ShowProjectSettings;
         bool& ShowPackageManager;
         bool& ShowPreferences;
+
+        // Shared long-lived editor state (stable ids, play pause/step, clipboard, tool settings,
+        // window visibility, ping requests...) -- see EditorSession.h.
+        EditorSession& Session;
     };
 
 }

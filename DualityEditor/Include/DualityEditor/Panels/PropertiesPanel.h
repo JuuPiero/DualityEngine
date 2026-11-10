@@ -1,38 +1,63 @@
 #pragma once
 
+#include <cstdint>
+#include <filesystem>
 #include <string>
+#include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "DualityEngine/ECS/Entity.h"
 
 namespace Duality {
 
     struct EditorContext;
+    struct ComponentTypeInfo;
+    struct ScriptInstance;
 
-    // Reflection-driven field editor for every component on the selected
-    // entity (unchanged from before this panel was extracted), plus:
-    // "..." per non-mandatory component header opens a small popup to
-    // remove it (Transform/Name/Tag have no such option -- they're
-    // mandatory), and a "+ Add Component" popup at the bottom lists every
-    // registered component type not already present.
+    // Unity's Inspector. For entities: the GameObject header (active toggle, name, Tag, Layer,
+    // prefab row with Open / Select / Overrides), one card per component (foldout, enable
+    // checkbox, kebab menu with Reset / Remove / Move / Copy / Paste / Edit Script), the
+    // categorized searchable Add Component popup (built-in components, C++ and TypeScript
+    // scripts, New Script). Several selected entities are edited together: only the components
+    // all of them share are shown, differing values display as "-", and an edit applies to every
+    // object as one Undo step. Prefab instance values that differ from the prefab asset are bold
+    // with Unity's blue margin bar (right-click > Revert). For assets: the registered asset
+    // inspector (AssetInspectorRegistry).
     class PropertiesPanel {
     public:
         void OnImGuiRender(EditorContext& ctx);
 
     private:
-        // Unity-style Inspector filters. The first narrows components already attached to the
-        // selected entity; the second turns Add Component into a searchable command palette.
-        char m_ComponentFilter[128] = "";
+        void DrawEntityHeader(EditorContext& ctx, const std::vector<Entity>& targets);
+        void DrawPrefabRow(EditorContext& ctx, Entity primary);
+        void DrawComponentCard(EditorContext& ctx, ComponentTypeInfo& type, const std::vector<Entity>& targets);
+        void DrawScriptCards(EditorContext& ctx, Entity entity);
+        void DrawAddComponent(EditorContext& ctx, const std::vector<Entity>& targets);
+        bool DrawComponentMenu(EditorContext& ctx, ComponentTypeInfo& type, const std::vector<Entity>& targets);
+
+        // Prefab overrides: the prefab asset's JSON (cached by path + write time) and the value a
+        // field of `entity` has in it (null when the entity / field cannot be matched).
+        const nlohmann::json* PrefabEntityJson(EditorContext& ctx, Entity entity, bool& isRoot);
+        int CountPrefabOverrides(EditorContext& ctx, Entity root);
+
         char m_AddComponentFilter[128] = "";
-        // Unity-Inspector-style "Lock" toggle -- while true, this panel keeps showing whatever
-        // was selected at the moment it was locked (m_LockedEntity/m_LockedAssetPath) instead of
-        // following ctx.Selected/ctx.SelectedAssetPath live. Needed because ContentBrowserPanel's
-        // click-to-select fires on mouse-DOWN, the same frame a drag-and-drop onto an AssetRef
-        // field begins -- without a way to pin the target entity's fields in view, starting a
-        // drag from the Content Browser immediately swaps Properties away from the very field
-        // being dragged onto.
+        std::string m_AddComponentCategory; // "" = category list (Unity's drill-down)
+        bool m_NewScriptPage = false;
+        char m_NewScriptName[64] = "NewBehaviour";
+        int m_NewScriptLanguage = 1; // 1 = TypeScript, 0 = C++
+
         bool m_Locked = false;
-        Entity m_LockedEntity;
+        std::vector<uint64_t> m_LockedIds;
         std::string m_LockedAssetPath;
+
+        // Copy Component / Paste Component Values / Paste Component As New.
+        std::string m_CopiedComponentType;
+        nlohmann::json m_CopiedComponent;
+
+        std::string m_PrefabCachePath;
+        std::filesystem::file_time_type m_PrefabCacheTime{};
+        nlohmann::json m_PrefabCache;
     };
 
 }

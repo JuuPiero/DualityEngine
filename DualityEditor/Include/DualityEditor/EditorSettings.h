@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace Duality {
 
@@ -22,9 +23,13 @@ namespace Duality {
         // Empty until the user picks one.
         std::string ExternalEditorPath;
 
-        // One of Blue, Pink, Dark. This is editor-wide rather than project-wide: a project
-        // should never force a collaborator's desktop UI colors.
-        std::string ColorTheme = "Blue";
+        // One of Unity (default), Blue, Pink, Dark. This is editor-wide rather than
+        // project-wide: a project should never force a collaborator's desktop UI colors.
+        std::string ColorTheme = "Unity";
+
+        // Most recently opened .dproj paths, newest first (Project Hub / File > Open Recent).
+        std::vector<std::string> RecentProjects;
+        void AddRecentProject(const std::string& path);
     };
 
 }

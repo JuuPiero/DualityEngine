@@ -86,7 +86,10 @@ namespace Duality {
             enabledPackages = project->GetEnabledPackagesCsv();
             scriptingDefines = project->GetScriptingDefinesCsv();
         }
-        std::string configureCommand = "cmake -B \"" + buildDirectory + "\" -DDUALITY_PROJECT_SCRIPTS_DIR=\"" + projectScriptsDir +
+        // -S explicitly (the build tree lives directly in the repository root): without it CMake
+        // takes the editor's current working directory as the source tree.
+        const std::string sourceDirectory = std::filesystem::path(buildDirectory).parent_path().generic_string();
+        std::string configureCommand = "cmake -S \"" + sourceDirectory + "\" -B \"" + buildDirectory + "\" -DDUALITY_PROJECT_SCRIPTS_DIR=\"" + projectScriptsDir +
             "\" -DDUALITY_PROJECT_PACKAGES_DIR=\"" + projectPackagesDir + "\" -DDUALITY_ENABLED_PACKAGES=\"" + enabledPackages +
             "\" -DDUALITY_SCRIPTING_DEFINES=\"" + scriptingDefines + "\"";
         if (std::system(configureCommand.c_str()) != 0) {

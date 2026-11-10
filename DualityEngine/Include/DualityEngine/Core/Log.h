@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -16,6 +17,9 @@ namespace Duality {
     struct LogEntry {
         LogLevel Level;
         std::string Message;
+        // Monotonic id (1, 2, 3...) -- lets the Console track "new since" (Error Pause, selection)
+        // even after the bounded buffer drops its oldest entries.
+        uint64_t Serial = 0;
     };
 
     // Minimal in-memory log, mirroring MyGameEngine's Core/Log.h -- spdlog
@@ -47,12 +51,20 @@ namespace Duality {
             std::lock_guard<std::mutex> lock(s_Mutex);
             s_Entries.clear();
         }
+        // Number of messages ever logged at `level` (not reset by Clear) -- the editor compares
+        // successive values to react to new errors (Console "Error Pause").
+        static uint64_t GetTotalCount(LogLevel level) {
+            std::lock_guard<std::mutex> lock(s_Mutex);
+            return s_TotalByLevel[static_cast<int>(level)];
+        }
 
     private:
         static void Push(LogLevel level, const std::string& message);
 
         static std::mutex s_Mutex;
         static std::deque<LogEntry> s_Entries;
+        static uint64_t s_Serial;
+        static uint64_t s_TotalByLevel[4];
         static const size_t s_MaxEntries = 500;
     };
 

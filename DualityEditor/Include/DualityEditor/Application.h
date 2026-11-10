@@ -7,7 +7,11 @@
 
 #include <glm/glm.hpp>
 
-#include "DualityEditor/EditorContext.h" // for RenderMode -- an m_Top/BottomRenderMode member needs its full definition, not just a forward declaration
+#include <functional>
+
+#include "DualityEditor/EditorAutomation.h"
+#include "DualityEditor/EditorContext.h" // for RenderMode -- an m_Top/BottomRenderMode member needs its full definition
+#include "DualityEditor/EditorSession.h"
 #include "DualityEditor/Event.h"
 #include "DualityEditor/Framebuffer.h"
 #include "DualityEditor/Panels/BuildSettingsPanel.h"
@@ -42,14 +46,31 @@ namespace Duality {
     // one concrete app here (the Editor itself), so a subclassing point
     // would be indirection with no second caller. If a real second use
     // case ever needs it, that's the point to add it, not before.
+    // Command-line options (see Main.cpp): `--project <file.dproj>`, `--editor-test <script>`,
+    // `--size <W>x<H>`.
+    struct ApplicationOptions {
+        std::string ProjectPath;
+        std::string TestScript;
+        int Width = 1280;
+        int Height = 800;
+    };
+
     class Application {
     public:
-        Application();
+        explicit Application(const ApplicationOptions& options = {});
 
-        void Run();
+        // Returns the process exit code (number of failed checks in --editor-test mode).
+        int Run();
 
     private:
         void OnEvent(Event& e);
+        void BuildDefaultDockLayout(unsigned int dockspaceId);
+        void DrawToolbar(EditorContext& ctx);
+        void DrawSaveChangesPrompt(EditorContext& ctx);
+        void CommitPendingChange(EditorContext& ctx);
+        void UpdateWindowTitle();
+        void RunAfterSavePrompt(std::function<void(EditorContext&)> action);
+        void RecordRecentProject();
         void SetupDemoScene();
         void OpenProjectFromDialog();
         void NewProjectFromDialog();
@@ -57,6 +78,7 @@ namespace Duality {
         void EnterPrefabMode(const std::string& prefabPath);
         void ExitPrefabMode();
         void StopAdditiveRuntimeScenes();
+        void SwitchProject(const std::shared_ptr<Project>& project);
 
         // Declaration order matters here: m_Window must exist before any
         // GL-dependent member (m_Renderer, the Framebuffers) is
@@ -154,6 +176,18 @@ namespace Duality {
         GizmoMode m_ActiveGizmoMode = GizmoMode::Translate;
         GizmoAxis m_DraggingGizmoAxis = GizmoAxis::None;
         Screen m_DraggingGizmoScreen = Screen::Top;
+
+        // Shared editor UI state (stable ids, play pause/step, clipboard, tools, windows...).
+        EditorSession m_Session;
+        EditorAutomation m_Automation;
+        ApplicationOptions m_Options;
+        // Unity-style "save changes?" prompt: the action waiting for the answer.
+        std::function<void(EditorContext&)> m_PendingSavePromptAction;
+        bool m_OpenSavePrompt = false;
+        bool m_QuitAfterPrompt = false;
+        std::vector<uint64_t> m_PrefabModeIds;
+        std::string m_LastWindowTitle;
+        bool m_IniMigrated = false;
 
         MenuBarPanel m_MenuBarPanel;
         HierarchyPanel m_HierarchyPanel;

@@ -7,10 +7,17 @@
 #include <fstream>
 #include <string>
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
+
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/EditorTheme.h"
 #include "DualityEditor/ModelImporter.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
@@ -131,7 +138,7 @@ namespace Duality {
     // Writes a TypeScript MonoBehaviour ("<directory>/<Name>.ts"). The Editor's
     // TypeScriptCompiler notices the new file within a second, bundles the project and the class
     // appears under Add Component -- no Reload Scripts click needed (unlike C++).
-    static bool CreateTypeScriptAsset(const std::filesystem::path& directory, const std::string& className) {
+    bool CreateTypeScriptAsset(const std::filesystem::path& directory, const std::string& className) {
         if (!IsCppIdentifier(className))
             return false;
         std::filesystem::path path = directory / (className + ".ts");
@@ -168,7 +175,7 @@ namespace Duality {
     // class name (a plain string), never referenced by GUID like a real asset. Does NOT trigger
     // a rebuild -- matches every other "add a script" flow already documented (README.md/
     // GETTING_STARTED.md): click Reload Scripts afterward, same as always.
-    static bool CreateScriptAsset(const std::filesystem::path& directory, const std::string& className) {
+    bool CreateScriptAsset(const std::filesystem::path& directory, const std::string& className) {
         if (!IsCppIdentifier(className))
             return false;
         std::filesystem::path headerPath = directory / (className + ".h");
@@ -226,6 +233,10 @@ namespace Duality {
         }
 
         std::string name = entity.GetComponent<NameComponent>().Name;
+        // Entity names may contain characters a file name cannot ("Cube (Lit/Specular)").
+        for (char& c : name)
+            if (std::string("\\/:*?\"<>|").find(c) != std::string::npos)
+                c = '_';
         if (name.empty())
             name = "NewPrefab";
         std::filesystem::path path = directory / (name + ".prefab");
@@ -446,7 +457,7 @@ namespace Duality {
             }
             if (doubleClicked && child.extension() == ".scene") {
                 if (!ctx.IsEditingPrefab)
-                    OpenScene(ctx, child.string());
+                    OpenSceneWithPrompt(ctx, child.string());
             } else if (doubleClicked && child.extension() == ".prefab") {
                 ctx.RequestOpenPrefabPath = child.string();
             }
@@ -730,13 +741,35 @@ namespace Duality {
     }
 
     void ContentBrowserPanel::OnImGuiRender(EditorContext& ctx) {
-        ImGui::Begin("Content Browser");
+        if (!ctx.Session.ShowProject)
+            return;
+        // Unity calls this window "Project" (it was "Content Browser"; Application migrates the
+        // saved imgui.ini layout entry).
+        if (!ImGui::Begin("Project", &ctx.Session.ShowProject)) {
+            ImGui::End();
+            return;
+        }
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+            ctx.Session.FocusedPanel = EditorPanel::Project;
         NormalizeAssetSelection(ctx);
+
+        // "Ping" (a reference field was clicked / Select Asset): reveal the asset's folder.
+        if (!ctx.Session.PingAssetPath.empty() && ctx.Session.PingStartTime != m_HandledPingTime) {
+            m_HandledPingTime = ctx.Session.PingStartTime;
+            const std::filesystem::path pinged(ctx.Session.PingAssetPath);
+            if (std::filesystem::exists(pinged)) {
+                m_CurrentDirectory = pinged.parent_path();
+                m_SearchBuffer[0] = '\0';
+                m_ScrollToPath = std::filesystem::absolute(pinged).lexically_normal().string();
+            }
+        }
 
         // Unity-style Project tree: Assets and Packages are separate roots. The divider is a
         // real drag handle rather than a fixed-width child, important for deeply nested package
         // IDs and for script filenames that would otherwise be impossible to distinguish.
-        const ImVec2 browserSize = ImGui::GetContentRegionAvail();
+        const float footerHeight = ImGui::GetFrameHeightWithSpacing();
+        ImVec2 browserSize = ImGui::GetContentRegionAvail();
+        browserSize.y = std::max(40.0f, browserSize.y - footerHeight);
         const float minTreeWidth = 140.0f;
         const float splitterWidth = 5.0f;
         const float maxTreeWidth = std::max(minTreeWidth, browserSize.x - 220.0f);
@@ -763,39 +796,61 @@ namespace Duality {
             m_CurrentDirectory = m_RootDirectory;
         const bool readOnlyPackages = IsPackagesView(m_CurrentDirectory);
         const std::filesystem::path contentRoot = CurrentContentRoot();
-        if (m_CurrentDirectory != contentRoot) {
-            if (ImGui::Button((std::string(EditorIcons::Up) + " Up").c_str()))
-                m_CurrentDirectory = m_CurrentDirectory.parent_path();
-            ImGui::SameLine();
+
+        // ---- Toolbar: "+" Create menu, clickable breadcrumb (Assets > Folder > Sub), search.
+        ImGui::BeginDisabled(readOnlyPackages);
+        if (ImGui::Button((std::string(EditorIcons::Add) + " " + EditorIcons::CaretDown).c_str()))
+            ImGui::OpenPopup("ProjectCreateMenu");
+        ImGui::EndDisabled();
+        if (ImGui::BeginPopup("ProjectCreateMenu")) {
+            DrawCreateMenuItems(ctx);
+            ImGui::EndPopup();
         }
-        std::filesystem::path relativePath = m_CurrentDirectory.lexically_relative(contentRoot);
-        const char* rootLabel = readOnlyPackages ? "Packages" : "Assets";
-        if (relativePath.empty() || relativePath == ".")
-            ImGui::TextDisabled("%s", rootLabel);
-        else
-            ImGui::TextDisabled("%s / %s", rootLabel, relativePath.generic_string().c_str());
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(200.0f);
-        const std::string searchHint = std::string(EditorIcons::Search) + " Search...";
-        ImGui::InputTextWithHint("##ContentBrowserSearch", searchHint.c_str(), m_SearchBuffer, sizeof(m_SearchBuffer));
-        if (readOnlyPackages) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("Package files are read-only here");
-        } else {
-            ImGui::SameLine();
-            ImGui::TextDisabled("Drop Entity here → Prefab");
-            if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
-                    if (payload->DataSize == sizeof(entt::entity)) {
-                        const entt::entity handle = *static_cast<const entt::entity*>(payload->Data);
-                        if (ctx.SceneRef.Registry().valid(handle))
-                            CreatePrefabFromDroppedEntity(ctx, Entity(handle, &ctx.SceneRef), m_CurrentDirectory);
-                    }
-                }
-                ImGui::EndDragDropTarget();
+        {
+            std::vector<std::filesystem::path> crumbs;
+            for (std::filesystem::path current = m_CurrentDirectory; ; current = current.parent_path()) {
+                crumbs.push_back(current);
+                if (current == contentRoot || current == current.parent_path() || current.string().size() <= contentRoot.string().size())
+                    break;
             }
+            std::reverse(crumbs.begin(), crumbs.end());
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, ImGui::GetStyle().ItemSpacing.y));
+            for (size_t i = 0; i < crumbs.size(); ++i) {
+                if (i > 0) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%s", EditorIcons::ChevronRight);
+                    ImGui::SameLine();
+                }
+                const std::string label = (i == 0 ? std::string(readOnlyPackages ? "Packages" : "Assets") : crumbs[i].filename().string()) + "##crumb" + std::to_string(i);
+                if (ImGui::Button(label.c_str()))
+                    m_CurrentDirectory = crumbs[i];
+                // Breadcrumbs accept assets (move) like folders do.
+                if (!readOnlyPackages && ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID"))
+                        MoveAssetInto(std::string(static_cast<const char*>(payload->Data)), crumbs[i]);
+                    ImGui::EndDragDropTarget();
+                }
+            }
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor();
         }
+        const float searchWidth = std::clamp(ImGui::GetContentRegionAvail().x * 0.35f, 120.0f, 260.0f);
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 8.0f, ImGui::GetWindowContentRegionMax().x - searchWidth));
+        ImGui::SetNextItemWidth(searchWidth);
+        const std::string searchHint = std::string(EditorIcons::Search) + " Search";
+        ImGui::InputTextWithHint("##ContentBrowserSearch", searchHint.c_str(), m_SearchBuffer, sizeof(m_SearchBuffer));
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            ImGui::SetTooltip("Searches every folder of the current root (Assets or Packages)");
+        if (readOnlyPackages)
+            ImGui::TextDisabled("Package files are read-only here (Package Manager installs and removes them).");
         ImGui::Separator();
+
+        // Unity: Ctrl+wheel over the grid zooms the icons.
+        if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl && ImGui::GetIO().MouseWheel != 0.0f)
+            m_ThumbnailSize = std::clamp(m_ThumbnailSize + ImGui::GetIO().MouseWheel * 8.0f, 32.0f, 160.0f);
 
         if (!std::filesystem::exists(m_CurrentDirectory)) {
             ImGui::TextDisabled("(Folder not found yet)");
@@ -804,15 +859,35 @@ namespace Duality {
             return;
         }
 
-        const float thumbnailSize = 72.0f;
+        const float thumbnailSize = m_ThumbnailSize;
         const float cellPadding = 16.0f;
         const float cellSize = thumbnailSize + cellPadding;
         int columnCount = std::max(1, static_cast<int>(ImGui::GetContentRegionAvail().x / cellSize));
         ImGui::Columns(columnCount, nullptr, false);
 
+        // Searching lists matching files from every folder under the current root (Unity's
+        // Project search); otherwise just the current folder.
+        const bool searching = m_SearchBuffer[0] != '\0';
         std::vector<std::filesystem::directory_entry> entries;
-        for (const auto& entry : std::filesystem::directory_iterator(m_CurrentDirectory))
-            entries.push_back(entry);
+        if (searching) {
+            // The recursive walk is cached per query/root and refreshed twice a second.
+            const std::string searchKey = contentRoot.string() + "|" + m_SearchBuffer;
+            if (searchKey != m_SearchCacheKey || ImGui::GetTime() - m_SearchCacheTime > 0.5) {
+                m_SearchCacheKey = searchKey;
+                m_SearchCacheTime = ImGui::GetTime();
+                m_SearchCache.clear();
+                std::error_code error;
+                for (auto it = std::filesystem::recursive_directory_iterator(contentRoot, error);
+                     !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error)) {
+                    if (it->is_regular_file() && ContainsCaseInsensitive(it->path().filename().string(), m_SearchBuffer))
+                        m_SearchCache.push_back(*it);
+                }
+            }
+            entries = m_SearchCache;
+        } else {
+            for (const auto& entry : std::filesystem::directory_iterator(m_CurrentDirectory))
+                entries.push_back(entry);
+        }
         std::sort(entries.begin(), entries.end(), [](const auto& left, const auto& right) {
             const bool leftDirectory = left.is_directory();
             const bool rightDirectory = right.is_directory();
@@ -937,6 +1012,22 @@ namespace Duality {
             // drawing the icon, which BeginGroup/EndGroup's own layout doesn't provide.
             const bool selected = !isDirectory &&
                 std::find(ctx.SelectedAssetPaths.begin(), ctx.SelectedAssetPaths.end(), path.string()) != ctx.SelectedAssetPaths.end();
+            // Ping highlight (fades out) + scroll the pinged asset into view.
+            const std::string normalizedPath = std::filesystem::absolute(path).lexically_normal().string();
+            if (!m_ScrollToPath.empty() && normalizedPath == m_ScrollToPath) {
+                ImGui::SetScrollHereY(0.5f);
+                m_ScrollToPath.clear();
+            }
+            const double pingAge = ImGui::GetTime() - ctx.Session.PingStartTime;
+            if (pingAge < 1.5 && !ctx.Session.PingAssetPath.empty() &&
+                std::filesystem::absolute(ctx.Session.PingAssetPath).lexically_normal().string() == normalizedPath) {
+                ImDrawList* pingDrawList = ImGui::GetWindowDrawList();
+                pingDrawList->PushClipRectFullScreen();
+                const ImU32 alpha = static_cast<ImU32>((1.0 - pingAge / 1.5) * 255.0);
+                pingDrawList->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), (EditorColors::Ping() & 0x00FFFFFF) | (alpha << 24), 3.0f, 0, 3.0f);
+                pingDrawList->PopClipRect();
+            }
+
             if (selected) {
                 // Columns installs a per-column clip rectangle. The asset group's label can be
                 // wider/taller than that temporary clip, which used to cut the selection outline
@@ -953,7 +1044,7 @@ namespace Duality {
                 m_CurrentDirectory = path;
             } else if (doubleClicked && !isDirectory && path.extension() == ".scene") {
                 if (!ctx.IsEditingPrefab)
-                    OpenScene(ctx, path.string());
+                    OpenSceneWithPrompt(ctx, path.string());
             } else if (doubleClicked && !isDirectory && path.extension() == ".prefab") {
                 ctx.RequestOpenPrefabPath = path.string();
             } else if (pressed && !isDirectory && !renamingThis) {
@@ -965,14 +1056,22 @@ namespace Duality {
 
             // Per-item context menu -- takes precedence over the background one below thanks to
             // that popup's own ImGuiPopupFlags_NoOpenOverItems.
-            if (!readOnlyPackages && !renamingThis && ImGui::BeginPopupContextItem("ItemContextMenu")) {
-                if (ImGui::MenuItem("Rename"))
-                    BeginRename(path);
-                if (!isDirectory && ImGui::MenuItem("Duplicate", "Ctrl+D")) {
-                    DuplicateSelectedAsset(ctx);
+            if (!renamingThis && ImGui::BeginPopupContextItem("ItemContextMenu")) {
+                if (ImGui::MenuItem("Open"))
+                    OpenWithShell(path, false);
+                if (ImGui::MenuItem("Show in Explorer"))
+                    OpenWithShell(path, true);
+                if (ImGui::MenuItem("Copy Path"))
+                    ImGui::SetClipboardText(path.generic_string().c_str());
+                if (!readOnlyPackages) {
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Rename", "F2"))
+                        BeginRename(path);
+                    if (!isDirectory && ImGui::MenuItem("Duplicate", "Ctrl+D"))
+                        DuplicateSelectedAsset(ctx);
+                    if (ImGui::MenuItem("Delete", "Delete"))
+                        RequestDelete(path, isDirectory);
                 }
-                if (ImGui::MenuItem("Delete"))
-                    RequestDelete(path, isDirectory);
                 ImGui::EndPopup();
             }
 
@@ -1029,30 +1128,43 @@ namespace Duality {
         // precedence over a row) for Unity's "Create > ScriptableObject > <Type>" -- lists
         // whatever GameScripts currently has REGISTER_SCRIPTABLE_OBJECT'd; empty until GameScripts
         // has been (re)loaded at least once.
-        if (!readOnlyPackages && ImGui::BeginPopupContextWindow("ContentBrowserContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-            if (ImGui::BeginMenu("Create")) {
-                if (ImGui::MenuItem("Folder"))
-                    CreateFolder(m_CurrentDirectory);
-                if (ImGui::MenuItem("Scene"))
-                    CreateSceneAsset(m_CurrentDirectory);
-                if (ImGui::MenuItem("C++ Script"))
-                    BeginCreateScript(false);
-                if (ImGui::MenuItem("TypeScript Script"))
-                    BeginCreateScript(true);
-                ImGui::Separator();
-                if (ImGui::MenuItem("Material"))
-                    CreateMaterialAsset(m_CurrentDirectory);
-                if (ImGui::BeginMenu("ScriptableObject")) {
-                    const auto& types = ScriptableObjectRegistry::All();
-                    if (types.empty())
-                        ImGui::TextDisabled("(none -- load GameScripts first)");
-                    for (auto& type : types) {
-                        if (ImGui::MenuItem(type.Name))
-                            CreateScriptableObjectAsset(m_CurrentDirectory, type.Name);
+        // Blank space below the tiles: Unity's drop target for "drag a GameObject from the
+        // Hierarchy to make a prefab", and a click that clears the asset selection.
+        {
+            ImVec2 blank = ImGui::GetContentRegionAvail();
+            blank.x = std::max(blank.x, 1.0f);
+            blank.y = std::max(blank.y, ImGui::GetFrameHeight());
+            ImGui::InvisibleButton("##ProjectBlank", blank);
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift) {
+                ctx.SelectedAssetPath.clear();
+                ctx.SelectedAssetPaths.clear();
+            }
+        }
+        if (!readOnlyPackages) {
+            // The whole grid accepts Hierarchy objects (-> prefab in the current folder).
+            const ImRect gridRect(ImGui::GetWindowPos(), ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x, ImGui::GetWindowPos().y + ImGui::GetWindowSize().y));
+            if (ImGui::BeginDragDropTargetCustom(gridRect, ImGui::GetID("##ProjectGridDrop"))) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
+                    if (payload->DataSize == sizeof(entt::entity)) {
+                        const entt::entity handle = *static_cast<const entt::entity*>(payload->Data);
+                        if (ctx.SceneRef.Registry().valid(handle))
+                            CreatePrefabFromDroppedEntity(ctx, Entity(handle, &ctx.SceneRef), m_CurrentDirectory);
                     }
-                    ImGui::EndMenu();
                 }
+                ImGui::EndDragDropTarget();
+            }
+        }
+
+        if (ImGui::BeginPopupContextWindow("ContentBrowserContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+            if (!readOnlyPackages && ImGui::BeginMenu("Create")) {
+                DrawCreateMenuItems(ctx);
                 ImGui::EndMenu();
+            }
+            if (ImGui::MenuItem("Show in Explorer"))
+                OpenWithShell(m_CurrentDirectory, false);
+            if (ImGui::MenuItem("Refresh")) {
+                if (auto project = Project::GetActive())
+                    AssetDatabase::Refresh(project->GetAssetsDirectory());
             }
             ImGui::EndPopup();
         }
@@ -1150,9 +1262,67 @@ namespace Duality {
             ImGui::IsKeyPressed(ImGuiKey_D, false)) {
             DuplicateSelectedAsset(ctx);
         }
+        // Unity's Project shortcuts: F2 rename, Delete (asks first).
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
+            !ctx.SelectedAssetPath.empty() && !IsPackagesView(ctx.SelectedAssetPath) && m_RenamingPath.empty()) {
+            if (ImGui::IsKeyPressed(ImGuiKey_F2, false))
+                BeginRename(ctx.SelectedAssetPath);
+            else if (ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+                RequestDelete(ctx.SelectedAssetPath, std::filesystem::is_directory(ctx.SelectedAssetPath));
+        }
 
         ImGui::EndChild();
+
+        // ---- Footer: selected asset path (left), icon size slider (right) -- Unity.
+        ImGui::AlignTextToFramePadding();
+        if (!ctx.SelectedAssetPath.empty()) {
+            const std::filesystem::path selectedPath(ctx.SelectedAssetPath);
+            const std::string shown = (std::string(EditorIcons::File) + "  " + selectedPath.lexically_relative(m_RootDirectory.parent_path()).generic_string());
+            ImGui::TextDisabled("%s", shown.c_str());
+        } else {
+            ImGui::TextDisabled(" ");
+        }
+        const float sliderWidth = 120.0f;
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 8.0f, ImGui::GetWindowContentRegionMax().x - sliderWidth));
+        ImGui::SetNextItemWidth(sliderWidth);
+        ImGui::SliderFloat("##ProjectIconSize", &m_ThumbnailSize, 32.0f, 160.0f, "");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            ImGui::SetTooltip("Icon size (Ctrl+mouse wheel over the grid)");
         ImGui::End();
+    }
+
+    void ContentBrowserPanel::DrawCreateMenuItems(EditorContext& ctx) {
+        (void)ctx;
+        if (ImGui::MenuItem("Folder"))
+            CreateFolder(m_CurrentDirectory);
+        ImGui::Separator();
+        if (ImGui::MenuItem("C++ Script"))
+            BeginCreateScript(false);
+        if (ImGui::MenuItem("TypeScript Script"))
+            BeginCreateScript(true);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Scene"))
+            CreateSceneAsset(m_CurrentDirectory);
+        if (ImGui::MenuItem("Material"))
+            CreateMaterialAsset(m_CurrentDirectory);
+        if (ImGui::BeginMenu("ScriptableObject")) {
+            const auto& types = ScriptableObjectRegistry::All();
+            if (types.empty())
+                ImGui::TextDisabled("(none -- load GameScripts first)");
+            for (auto& type : types) {
+                if (ImGui::MenuItem(type.Name))
+                    CreateScriptableObjectAsset(m_CurrentDirectory, type.Name);
+            }
+            ImGui::EndMenu();
+        }
+    }
+
+    void ContentBrowserPanel::OpenWithShell(const std::filesystem::path& path, bool revealInExplorer) {
+        const std::string absolute = std::filesystem::absolute(path).lexically_normal().string();
+        if (revealInExplorer)
+            ShellExecuteA(nullptr, "open", "explorer.exe", ("/select,\"" + absolute + "\"").c_str(), nullptr, SW_SHOWNORMAL);
+        else
+            ShellExecuteA(nullptr, "open", absolute.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     }
 
 }

@@ -165,6 +165,71 @@ namespace Duality {
             }
         }
 
+        void DropRawEntityHandles(json& value) {
+            if (value.is_object()) {
+                if (value.contains("$entity")) {
+                    value = nullptr;
+                    return;
+                }
+                for (auto& item : value.items())
+                    DropRawEntityHandles(item.value());
+            } else if (value.is_array()) {
+                for (json& item : value)
+                    DropRawEntityHandles(item);
+            }
+        }
+
+        // Clipboard encoding of references that point outside the copied subtrees: they are
+        // kept as {"$external": rawHandle} so Paste can reconnect them (Unity keeps references to
+        // other scene objects when pasting into the same scene).
+        void EncodeClipboardReferences(json& value, const std::unordered_map<entt::entity, int>& indexOf) {
+            if (value.is_object()) {
+                if (value.size() == 1 && value.contains("$entity")) {
+                    const entt::entity handle = static_cast<entt::entity>(value["$entity"].get<uint32_t>());
+                    auto it = indexOf.find(handle);
+                    if (it != indexOf.end())
+                        value = it->second;
+                    else
+                        value = json{ { "$external", static_cast<uint32_t>(handle) } };
+                    return;
+                }
+                for (auto& item : value.items())
+                    EncodeClipboardReferences(item.value(), indexOf);
+            } else if (value.is_array()) {
+                for (json& item : value)
+                    EncodeClipboardReferences(item, indexOf);
+            }
+        }
+
+        // Rewrites {"$external": h} into an index into `table` (appending the resolved target),
+        // so the regular index resolver handles internal and external references uniformly.
+        void DecodeClipboardExternals(json& value, Scene& scene, const std::unordered_map<uint32_t, uint32_t>* remap,
+            std::vector<Entity>& table, std::unordered_map<uint32_t, int>& tableIndex) {
+            if (value.is_object()) {
+                if (value.size() == 1 && value.contains("$external")) {
+                    uint32_t handle = value["$external"].get<uint32_t>();
+                    if (remap) {
+                        auto mapped = remap->find(handle);
+                        handle = mapped == remap->end() ? EntityRef::Invalid : mapped->second;
+                    }
+                    auto known = tableIndex.find(handle);
+                    if (known == tableIndex.end()) {
+                        const entt::entity target = static_cast<entt::entity>(handle);
+                        Entity resolved = (handle != EntityRef::Invalid && scene.Registry().valid(target)) ? Entity(target, &scene) : Entity{};
+                        known = tableIndex.emplace(handle, static_cast<int>(table.size())).first;
+                        table.push_back(resolved);
+                    }
+                    value = known->second;
+                    return;
+                }
+                for (auto& item : value.items())
+                    DecodeClipboardExternals(item.value(), scene, remap, table, tableIndex);
+            } else if (value.is_array()) {
+                for (json& item : value)
+                    DecodeClipboardExternals(item, scene, remap, table, tableIndex);
+            }
+        }
+
         std::string MakeDuplicateName(Scene& scene, Entity source) {
             std::string baseName = source.GetComponent<NameComponent>().Name;
             // Repeating Unity's naming rule is friendlier than producing
@@ -216,6 +281,10 @@ namespace Duality {
         for (Entity entity : orderedEntities) {
             json entityJson;
             SerializeEntityComponents(entity, entityJson);
+            // Store EntityRefs as indices into this prefab (references to entities outside the
+            // saved subtree become "none", exactly like Unity prefab assets cannot reference
+            // scene objects).
+            EncodeEntityReferenceIndices(entityJson, indexOf);
 
             // A prefab asset is its own source of truth; serializing an instance link into
             // it would make every newly-created root point back at itself.
@@ -275,6 +344,11 @@ namespace Duality {
         // Same two-pass shape as SceneSerializer::Deserialize -- create every entity in
         // file order first (index-aligned with root["Entities"]), then resolve "Parent"
         // indices once every entity actually exists.
+        // Prefabs written before EntityRefs were index-encoded stored the raw EnTT handle of the
+        // editing session ({"$entity": handle}); that number means nothing in another Scene, so
+        // treat it as "none" instead of letting it alias an arbitrary entity.
+        DropRawEntityHandles(root["Entities"]);
+
         std::vector<Entity> orderedEntities;
         for (auto& entityJson : root["Entities"]) {
             Entity entity = scene.CreateEntity();
@@ -287,6 +361,8 @@ namespace Duality {
             if (parentIndex >= 0 && parentIndex < static_cast<int>(orderedEntities.size()))
                 scene.SetParent(orderedEntities[i], orderedEntities[parentIndex], {}, /*preserveWorldPosition=*/false);
         }
+        // EntityRefs now hold prefab-local indices -> this instance's own entities.
+        ResolveLoadedEntityReferences(scene, orderedEntities);
 
         // Index 0 is always the prefab's own root -- Save's collect() visits it first,
         // before any descendant.
@@ -400,6 +476,113 @@ namespace Duality {
         copyRoot.GetComponent<NameComponent>().Name = MakeDuplicateName(scene, source);
         Log::Info("Duplicated entity '" + source.GetComponent<NameComponent>().Name + "'");
         return copyRoot;
+    }
+
+    json PrefabSerializer::CopyToJson(Scene& scene, const std::vector<Entity>& roots) {
+        std::vector<Entity> ordered;
+        std::unordered_map<entt::entity, int> indexOf;
+        std::vector<int> rootIndices;
+        std::function<void(Entity)> collect = [&](Entity entity) {
+            if (indexOf.count(entity.Handle()))
+                return;
+            indexOf[entity.Handle()] = static_cast<int>(ordered.size());
+            ordered.push_back(entity);
+            for (Entity child : entity.GetComponent<HierarchyComponent>().Children)
+                collect(child);
+        };
+        for (Entity root : roots) {
+            if (!root || root.GetScene() != &scene || indexOf.count(root.Handle()))
+                continue;
+            rootIndices.push_back(static_cast<int>(ordered.size()));
+            collect(root);
+        }
+
+        json entities = json::array();
+        for (Entity entity : ordered) {
+            json entityJson;
+            SerializeEntityComponents(entity, entityJson);
+            EncodeClipboardReferences(entityJson, indexOf);
+            const Entity parent = entity.GetComponent<HierarchyComponent>().Parent;
+            auto parentIndex = parent ? indexOf.find(parent.Handle()) : indexOf.end();
+            entityJson["Parent"] = parentIndex == indexOf.end() ? -1 : parentIndex->second;
+            entities.push_back(std::move(entityJson));
+        }
+
+        json rootsJson = json::array();
+        for (int index : rootIndices) {
+            Entity root = ordered[static_cast<size_t>(index)];
+            const TransformComponent world = scene.GetWorldTransform(root);
+            const Entity parent = root.GetComponent<HierarchyComponent>().Parent;
+            rootsJson.push_back({
+                { "Index", index },
+                { "SourceParent", parent ? static_cast<uint32_t>(parent.Handle()) : EntityRef::Invalid },
+                { "WorldTranslation", { world.Translation.x, world.Translation.y, world.Translation.z } },
+                { "WorldRotation", { world.Rotation.x, world.Rotation.y, world.Rotation.z } },
+                { "WorldScale", { world.Scale.x, world.Scale.y, world.Scale.z } },
+            });
+        }
+
+        json clipboard;
+        clipboard["DualityClipboard"] = 1;
+        clipboard["WorldUnitsVersion"] = WorldUnitsVersion;
+        clipboard["CanvasUIVersion"] = CanvasUIVersion;
+        clipboard["Entities"] = std::move(entities);
+        clipboard["Roots"] = std::move(rootsJson);
+        return clipboard;
+    }
+
+    std::vector<Entity> PrefabSerializer::PasteFromJson(Scene& scene, const json& clipboard, Entity parent,
+        const std::unordered_map<uint32_t, uint32_t>* externalRemap) {
+        std::vector<Entity> pastedRoots;
+        if (!clipboard.is_object() || !clipboard.contains("Entities") || !clipboard["Entities"].is_array() ||
+            clipboard["Entities"].empty())
+            return pastedRoots;
+
+        json entities = clipboard["Entities"];
+        std::vector<Entity> created;
+        created.reserve(entities.size());
+        for (size_t i = 0; i < entities.size(); ++i)
+            created.push_back(scene.CreateEntity());
+
+        // Index table = the pasted entities followed by every external reference target.
+        std::vector<Entity> table = created;
+        std::unordered_map<uint32_t, int> externalIndex;
+        for (json& entityJson : entities)
+            DecodeClipboardExternals(entityJson, scene, externalRemap, table, externalIndex);
+
+        for (size_t i = 0; i < entities.size(); ++i)
+            DeserializeEntityComponents(created[i], entities[i]);
+        for (size_t i = 0; i < entities.size(); ++i) {
+            const int parentIndex = entities[i].value("Parent", -1);
+            if (parentIndex >= 0 && parentIndex < static_cast<int>(created.size()))
+                scene.SetParent(created[i], created[static_cast<size_t>(parentIndex)], {}, /*preserveWorldPosition=*/false);
+        }
+        ResolveLoadedEntityReferences(scene, created, table);
+
+        auto readVec3 = [](const json& value, glm::vec3 fallback) {
+            if (!value.is_array() || value.size() != 3)
+                return fallback;
+            return glm::vec3(value[0].get<float>(), value[1].get<float>(), value[2].get<float>());
+        };
+        const json roots = clipboard.value("Roots", json::array());
+        for (const json& rootJson : roots) {
+            const int index = rootJson.value("Index", -1);
+            if (index < 0 || index >= static_cast<int>(created.size()))
+                continue;
+            Entity root = created[static_cast<size_t>(index)];
+            // Keep the copied object exactly where it was in the world, whatever parent it is
+            // pasted under (Unity's Paste / Paste As Child behaviour).
+            auto& transform = root.GetComponent<TransformComponent>();
+            if (rootJson.contains("WorldTranslation")) {
+                transform.Translation = readVec3(rootJson["WorldTranslation"], transform.Translation);
+                transform.Rotation = readVec3(rootJson["WorldRotation"], transform.Rotation);
+                transform.Scale = readVec3(rootJson["WorldScale"], transform.Scale);
+            }
+            if (parent && parent.GetScene() == &scene)
+                scene.SetParent(root, parent, {}, /*preserveWorldPosition=*/true);
+            pastedRoots.push_back(root);
+        }
+        return pastedRoots;
     }
 
 }

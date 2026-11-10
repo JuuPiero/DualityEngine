@@ -7,15 +7,17 @@ namespace Duality {
     EditorTheme EditorThemeFromString(const std::string& name) {
         if (name == "Pink") return EditorTheme::Pink;
         if (name == "Dark") return EditorTheme::Dark;
-        return EditorTheme::Blue;
+        if (name == "Blue") return EditorTheme::Blue;
+        return EditorTheme::Unity;
     }
 
     const char* ToString(EditorTheme theme) {
         switch (theme) {
             case EditorTheme::Pink: return "Pink";
             case EditorTheme::Dark: return "Dark";
-            case EditorTheme::Blue:
-            default: return "Blue";
+            case EditorTheme::Blue: return "Blue";
+            case EditorTheme::Unity:
+            default: return "Unity";
         }
     }
 
@@ -26,6 +28,11 @@ namespace Duality {
             style.FrameRounding = 3.0f;
             style.GrabRounding = 3.0f;
             style.TabRounding = 4.0f;
+            style.WindowBorderSize = 1.0f;
+            style.FrameBorderSize = 0.0f;
+            style.PopupBorderSize = 1.0f;
+            style.TabBorderSize = 0.0f;
+            style.WindowMenuButtonPosition = ImGuiDir_Left;
         }
 
         // ImGui 1.90 split the old tab colors into selected/dimmed/overline variants and
@@ -141,6 +148,98 @@ namespace Duality {
         }
     }
 
+    namespace {
+        // Unity's dark editor skin: mid-grey panels (#383838), darker tab strip / toolbars
+        // (#282828), recessed input fields (#2A2A2A), raised buttons (#585858), the blue
+        // selection (#2C5D87), light grey text (#D2D2D2) and almost square corners.
+        void ApplyUnity(ImGuiStyle& style) {
+            auto rgb = [](int r, int g, int b, float a = 1.0f) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a); };
+            auto& c = style.Colors;
+            const ImVec4 panel = rgb(56, 56, 56);
+            const ImVec4 dark = rgb(40, 40, 40);
+            const ImVec4 darker = rgb(25, 25, 25);
+            const ImVec4 field = rgb(42, 42, 42);
+            const ImVec4 fieldHover = rgb(48, 48, 48);
+            const ImVec4 button = rgb(88, 88, 88);
+            const ImVec4 buttonHover = rgb(103, 103, 103);
+            const ImVec4 buttonActive = rgb(70, 96, 124);
+            const ImVec4 selection = rgb(44, 93, 135);
+            const ImVec4 selectionHover = rgb(58, 114, 160);
+            const ImVec4 border = rgb(26, 26, 26);
+            const ImVec4 accent = rgb(58, 121, 187);
+
+            c[ImGuiCol_Text] = rgb(210, 210, 210);
+            c[ImGuiCol_TextDisabled] = rgb(128, 128, 128);
+            c[ImGuiCol_WindowBg] = panel;
+            c[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
+            c[ImGuiCol_PopupBg] = rgb(48, 48, 48, 0.99f);
+            c[ImGuiCol_Border] = border;
+            c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
+            c[ImGuiCol_FrameBg] = field;
+            c[ImGuiCol_FrameBgHovered] = fieldHover;
+            c[ImGuiCol_FrameBgActive] = rgb(36, 36, 36);
+            c[ImGuiCol_TitleBg] = dark;
+            c[ImGuiCol_TitleBgActive] = dark;
+            c[ImGuiCol_TitleBgCollapsed] = dark;
+            c[ImGuiCol_MenuBarBg] = dark;
+            c[ImGuiCol_ScrollbarBg] = rgb(48, 48, 48);
+            c[ImGuiCol_ScrollbarGrab] = rgb(94, 94, 94);
+            c[ImGuiCol_ScrollbarGrabHovered] = rgb(110, 110, 110);
+            c[ImGuiCol_ScrollbarGrabActive] = rgb(128, 128, 128);
+            c[ImGuiCol_CheckMark] = rgb(220, 220, 220);
+            c[ImGuiCol_SliderGrab] = rgb(150, 150, 150);
+            c[ImGuiCol_SliderGrabActive] = rgb(190, 190, 190);
+            c[ImGuiCol_Button] = button;
+            c[ImGuiCol_ButtonHovered] = buttonHover;
+            c[ImGuiCol_ButtonActive] = buttonActive;
+            c[ImGuiCol_Header] = rgb(62, 62, 62);
+            c[ImGuiCol_HeaderHovered] = rgb(72, 72, 72);
+            c[ImGuiCol_HeaderActive] = selection;
+            c[ImGuiCol_Separator] = border;
+            c[ImGuiCol_SeparatorHovered] = accent;
+            c[ImGuiCol_SeparatorActive] = accent;
+            c[ImGuiCol_ResizeGrip] = ImVec4(0, 0, 0, 0);
+            c[ImGuiCol_ResizeGripHovered] = accent;
+            c[ImGuiCol_ResizeGripActive] = accent;
+            c[ImGuiCol_Tab] = dark;
+            c[ImGuiCol_TabHovered] = rgb(64, 64, 64);
+            c[ImGuiCol_TabSelected] = panel;
+            c[ImGuiCol_TabSelectedOverline] = accent;
+            c[ImGuiCol_TabDimmed] = dark;
+            c[ImGuiCol_TabDimmedSelected] = panel;
+            c[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0, 0, 0, 0);
+            c[ImGuiCol_DockingPreview] = ImVec4(accent.x, accent.y, accent.z, 0.6f);
+            c[ImGuiCol_DockingEmptyBg] = darker;
+            c[ImGuiCol_PlotLines] = rgb(160, 160, 160);
+            c[ImGuiCol_PlotHistogram] = accent;
+            c[ImGuiCol_TableHeaderBg] = dark;
+            c[ImGuiCol_TableBorderStrong] = border;
+            c[ImGuiCol_TableBorderLight] = rgb(48, 48, 48);
+            c[ImGuiCol_TableRowBg] = ImVec4(0, 0, 0, 0);
+            c[ImGuiCol_TableRowBgAlt] = ImVec4(1, 1, 1, 0.025f);
+            c[ImGuiCol_TextLink] = rgb(110, 160, 230);
+            c[ImGuiCol_TextSelectedBg] = ImVec4(selection.x, selection.y, selection.z, 0.8f);
+            c[ImGuiCol_DragDropTarget] = rgb(80, 160, 255);
+            c[ImGuiCol_NavHighlight] = selectionHover;
+            c[ImGuiCol_NavWindowingHighlight] = rgb(255, 255, 255, 0.7f);
+            c[ImGuiCol_NavWindowingDimBg] = rgb(0, 0, 0, 0.4f);
+            c[ImGuiCol_ModalWindowDimBg] = rgb(0, 0, 0, 0.45f);
+
+            style.WindowRounding = 0.0f;
+            style.ChildRounding = 0.0f;
+            style.FrameRounding = 2.0f;
+            style.PopupRounding = 2.0f;
+            style.GrabRounding = 2.0f;
+            style.ScrollbarRounding = 4.0f;
+            style.TabRounding = 2.0f;
+            style.WindowBorderSize = 1.0f;
+            style.FrameBorderSize = 1.0f;
+            style.PopupBorderSize = 1.0f;
+            style.TabBorderSize = 0.0f;
+            style.WindowMenuButtonPosition = ImGuiDir_None;
+        }
+    }
+
     void ApplyEditorTheme(EditorTheme theme) {
         ImGuiStyle& style = ImGui::GetStyle();
         // Start from ImGui's complete readable dark palette. Each preset then changes its
@@ -150,9 +249,35 @@ namespace Duality {
         switch (theme) {
             case EditorTheme::Pink: ApplyPink(style); break;
             case EditorTheme::Dark: ApplyDark(style); break;
-            case EditorTheme::Blue:
-            default: ApplyBlue(style); break;
+            case EditorTheme::Blue: ApplyBlue(style); break;
+            case EditorTheme::Unity:
+            default: ApplyUnity(style); break;
         }
+    }
+
+    namespace {
+        ImFont* s_RegularFont = nullptr;
+        ImFont* s_BoldFont = nullptr;
+    }
+
+    void SetEditorFonts(ImFont* regular, ImFont* bold) {
+        s_RegularFont = regular;
+        s_BoldFont = bold ? bold : regular;
+    }
+
+    ImFont* EditorRegularFont() { return s_RegularFont ? s_RegularFont : ImGui::GetFont(); }
+    ImFont* EditorBoldFont() { return s_BoldFont ? s_BoldFont : ImGui::GetFont(); }
+
+    namespace EditorColors {
+        unsigned int Selection() { return IM_COL32(44, 93, 135, 255); }
+        unsigned int SelectionInactive() { return IM_COL32(77, 77, 77, 255); }
+        unsigned int PrefabText() { return IM_COL32(124, 178, 238, 255); }
+        unsigned int PrefabMissing() { return IM_COL32(235, 100, 90, 255); }
+        unsigned int InactiveText() { return IM_COL32(128, 128, 128, 255); }
+        unsigned int Ping() { return IM_COL32(250, 200, 60, 255); }
+        unsigned int AxisX() { return IM_COL32(219, 62, 29, 255); }
+        unsigned int AxisY() { return IM_COL32(139, 220, 0, 255); }
+        unsigned int AxisZ() { return IM_COL32(58, 122, 248, 255); }
     }
 
 }

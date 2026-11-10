@@ -5,124 +5,192 @@
 #include <imgui.h>
 
 #include "DualityEditor/BuildPipeline.h"
+#include "DualityEditor/EditorCommands.h"
 #include "DualityEditor/EditorIcons.h"
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/EditorSettings.h"
 #include "DualityEditor/Panels/LightingPanel.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
+#include "DualityEngine/Reflection/TypeRegistry.h"
 #include "DualityEngine/Scene/SceneSerializer.h"
 
 namespace Duality {
 
-    void MenuBarPanel::OnImGuiRender(EditorContext& ctx) {
-        ImGuiIO& io = ImGui::GetIO();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S) && !io.WantTextInput)
-            SaveScene(ctx);
-
-        if (ImGui::BeginMenuBar()) {
-            if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("New Project...", nullptr, false, !ctx.IsEditingPrefab))
-                    ctx.RequestNewProject = true;
-                if (ImGui::MenuItem("Open Project...", nullptr, false, !ctx.IsEditingPrefab))
-                    ctx.RequestOpenProject = true;
-                ImGui::Separator();
-                const char* saveLabel = ctx.IsEditingPrefab ? " Save Prefab" : " Save Scene";
-                if (ImGui::MenuItem((std::string(EditorIcons::Save) + saveLabel).c_str(), "Ctrl+S"))
-                    SaveScene(ctx);
-                // Reloads ctx.ScenePath from disk, discarding unsaved in-memory edits --
-                // routed through SceneOps::OpenScene (clears the scene first) rather than a
-                // raw Deserialize straight onto the live scene, which used to just ADD every
-                // loaded entity alongside whatever was already there (a real reported bug).
-                if (ImGui::MenuItem("Load Scene", nullptr, false, !ctx.IsEditingPrefab))
-                    OpenScene(ctx, ctx.ScenePath);
-                // Same clear-then-load, but browses to an arbitrary .scene file first --
-                // Unity's own "Open Scene", unlike "Load Scene" which always targets whatever
-                // ctx.ScenePath currently is.
-                if (ImGui::MenuItem("Open Scene...", nullptr, false, !ctx.IsEditingPrefab))
-                    ctx.RequestOpenSceneDialog = true;
-                // Writes a SNAPSHOT of the current scene to a new file the user picks --
-                // does not change which scene "Save Scene"/"Load Scene" above operate on.
-                // See Application::SaveSceneAsFromDialog's own comment for why -- this is
-                // how a project gets a second scene file for Behaviour::LoadScene to target.
-                if (ImGui::MenuItem("Save Scene As...", nullptr, false, !ctx.IsEditingPrefab))
-                    ctx.RequestSaveSceneAs = true;
-                ImGui::Separator();
-                // Async so the Editor's UI thread never blocks on a clean 3DS
-                // build (can take up to a minute) -- grayed out while one is
-                // already running instead of letting a second build start
-                // concurrently. Progress/result show up in the Console panel
-                // (Log::), same as the old synchronous version did. Also grayed out
-                // during a script reload -- both eventually run `cmake --build`, see
-                // BuildPipeline::BuildForPCAsync's own comment on why they share one gate.
-                bool building = (BuildPipeline::GetStatus() == BuildStatus::Running) ||
-                    (ScriptEngine::GetStatus() == ReloadStatus::Running);
-                const std::string build3DSLabel = std::string(EditorIcons::Package) +
-                    (building ? " Build for 3DS (building...)" : " Build for 3DS");
-                if (ImGui::MenuItem(build3DSLabel.c_str(), nullptr, false, !building && !ctx.IsEditingPrefab)) {
-                    if (ValidateSceneForRuntime(ctx, "Build")) {
-                        SaveScene(ctx);
-                        BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
-                    }
-                }
-                // Shares the same `building`/s_Status as "Build for 3DS" above (BuildPipeline
-                // deliberately funnels both through one status flag -- see its own header
-                // comment) so the two can't run concurrently against the same build tools.
-                // DualityPlayerDesktop reads a project's Assets/ directly off disk at its own
-                // launch time (no romfs/manifest cook step like the 3DS build), so this is just
-                // an incremental rebuild of that one target -- saving the scene first still
-                // matters, so the next launch sees the latest edits.
-                if (ImGui::MenuItem(building ? "Build for PC (building...)" : "Build for PC", nullptr, false, !building && !ctx.IsEditingPrefab)) {
-                    SaveScene(ctx);
-                    BuildPipeline::BuildForPCAsync(ctx.BuildDirectory);
-                }
-                ImGui::Separator();
-                // Built-in checkbox-style toggle (the bool* overload) rather than a manual
-                // assignment -- ImGui::MenuItem itself flips *ctx.ShowBuildSettings on click.
-                ImGui::MenuItem((std::string(EditorIcons::Settings) + " Build Settings...").c_str(), nullptr, &ctx.ShowBuildSettings);
-                ImGui::EndMenu();
-            }
-
-            // Matches Unity's own menu placement (File > Build Settings, Edit > Project
-            // Settings/Preferences) -- a familiar convention for this Unity-inspired editor.
-            if (ImGui::BeginMenu("Edit")) {
-                if (ImGui::MenuItem("Undo", "Ctrl+Z", false, !ctx.IsPlaying && ctx.History.CanUndo()))
-                    UndoScene(ctx);
-                if (ImGui::MenuItem("Redo", "Ctrl+Y / Ctrl+Shift+Z", false, !ctx.IsPlaying && ctx.History.CanRedo()))
-                    RedoScene(ctx);
-                ImGui::Separator();
-                ImGui::MenuItem((std::string(EditorIcons::Settings) + " Project Settings...").c_str(), nullptr, &ctx.ShowProjectSettings);
-                ImGui::MenuItem((std::string(EditorIcons::Settings) + " Preferences...").c_str(), nullptr, &ctx.ShowPreferences);
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Window")) {
-                ImGui::MenuItem((std::string(EditorIcons::Package) + " Package Manager...").c_str(), nullptr, &ctx.ShowPackageManager);
-                if (ImGui::BeginMenu("Rendering")) {
-                    // Unity: Window > Rendering > Lighting (scene ambient, lights, shadows).
-                    ImGui::MenuItem("Lighting", nullptr, &LightingPanel::IsOpen());
-                    ImGui::EndMenu();
-                }
-                ImGui::EndMenu();
-            }
-
-            // Which scene "Save Scene"/"Load Scene" currently target -- easy to lose track of
-            // once "Open Scene..."/Content Browser double-click/the Scene asset inspector's
-            // "Open Scene" button can all change it; a plain menu bar Text widget (ImGui allows
-            // arbitrary widgets between BeginMenuBar/EndMenuBar, not just BeginMenu blocks).
-            std::string sceneLabel = ctx.IsEditingPrefab
-                ? ("Prefab: " + std::filesystem::path(ctx.EditingPrefabPath).filename().string())
-                : ("Scene: " + std::filesystem::path(ctx.ScenePath).filename().string());
-            if (ctx.SceneDirty)
-                sceneLabel += "*";
-            ImGui::TextDisabled("  %s", sceneLabel.c_str());
-            if (ctx.IsEditingPrefab) {
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Exit Prefab"))
-                    ctx.RequestExitPrefabMode = true;
-            }
-
-            ImGui::EndMenuBar();
+    namespace {
+        std::string WithIcon(const char* icon, const char* label) {
+            return std::string(icon) + "  " + label;
         }
+    }
+
+    // Unity's main menu: File / Edit / Assets / GameObject / Component / Window / Help. Every
+    // item calls the same command used by its keyboard shortcut and context-menu twin
+    // (EditorCommands / SceneOps), so the three entry points can never behave differently.
+    void MenuBarPanel::OnImGuiRender(EditorContext& ctx) {
+        if (!ImGui::BeginMenuBar())
+            return;
+
+        if (ImGui::BeginMenu("File")) {
+            const bool sceneFile = !ctx.IsEditingPrefab;
+            if (ImGui::MenuItem("New Scene", "Ctrl+N", false, sceneFile))
+                NewSceneWithPrompt(ctx);
+            if (ImGui::MenuItem("Open Scene...", "Ctrl+O", false, sceneFile))
+                ctx.RequestOpenSceneDialog = true;
+            // Reloads ctx.ScenePath from disk, discarding unsaved in-memory edits (asks first).
+            if (ImGui::MenuItem("Revert Scene", nullptr, false, sceneFile && !ctx.ScenePath.empty()))
+                OpenSceneWithPrompt(ctx, ctx.ScenePath);
+            ImGui::Separator();
+            if (ImGui::MenuItem(WithIcon(EditorIcons::Save, ctx.IsEditingPrefab ? "Save Prefab" : "Save").c_str(), "Ctrl+S"))
+                SaveScene(ctx);
+            if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, sceneFile))
+                ctx.RequestSaveSceneAs = true;
+            ImGui::Separator();
+            if (ImGui::MenuItem("New Project...", nullptr, false, sceneFile))
+                ctx.RequestNewProject = true;
+            if (ImGui::MenuItem(WithIcon(EditorIcons::FolderOpen, "Open Project...").c_str(), nullptr, false, sceneFile))
+                ctx.RequestOpenProject = true;
+            const auto& recent = EditorSettings::Get().RecentProjects;
+            if (ImGui::BeginMenu("Open Recent Project", sceneFile && !recent.empty())) {
+                for (const std::string& path : recent) {
+                    const bool exists = std::filesystem::exists(path);
+                    const std::string label = std::filesystem::path(path).stem().string() + "##" + path;
+                    if (ImGui::MenuItem(label.c_str(), nullptr, false, exists))
+                        ctx.Session.RequestOpenProjectPath = path;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", path.c_str());
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::Separator();
+            ImGui::MenuItem(WithIcon(EditorIcons::Settings, "Build Settings...").c_str(), "Ctrl+Shift+B", &ctx.ShowBuildSettings);
+            // Async so the Editor's UI thread never blocks on a clean 3DS build -- grayed out
+            // while a build or a script reload is already running (they share one gate, see
+            // BuildPipeline::BuildForPCAsync). Progress/result show up in the Console.
+            const bool building = (BuildPipeline::GetStatus() == BuildStatus::Running) ||
+                (ScriptEngine::GetStatus() == ReloadStatus::Running);
+            if (ImGui::MenuItem(WithIcon(EditorIcons::Package, building ? "Build for 3DS (building...)" : "Build for 3DS").c_str(), nullptr, false, !building && sceneFile && !ctx.IsPlaying)) {
+                if (ValidateSceneForRuntime(ctx, "Build") && SaveScene(ctx))
+                    BuildPipeline::BuildFor3DSAsync(ctx.RepoRoot, ctx.ScenePath);
+            }
+            // DualityPlayerDesktop reads a project's Assets/ directly off disk at launch, so this
+            // is an incremental rebuild of that one target after saving the scene.
+            if (ImGui::MenuItem(building ? "Build for PC (building...)" : "Build for PC", nullptr, false, !building && sceneFile && !ctx.IsPlaying)) {
+                if (SaveScene(ctx))
+                    BuildPipeline::BuildForPCAsync(ctx.BuildDirectory);
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Exit", "Alt+F4"))
+                ctx.Session.RequestQuit = true;
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Edit")) {
+            const bool canUndo = !ctx.IsPlaying && ctx.History.CanUndo();
+            const bool canRedo = !ctx.IsPlaying && ctx.History.CanRedo();
+            const std::string undoLabel = WithIcon(EditorIcons::Undo, canUndo ? ("Undo " + ctx.History.UndoLabel()).c_str() : "Undo");
+            const std::string redoLabel = WithIcon(EditorIcons::Redo, canRedo ? ("Redo " + ctx.History.RedoLabel()).c_str() : "Redo");
+            if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, canUndo))
+                UndoScene(ctx);
+            if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, canRedo))
+                RedoScene(ctx);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Select All", "Ctrl+A"))
+                EditorCommands::SelectAll(ctx);
+            if (ImGui::MenuItem("Deselect All", nullptr, false, !ctx.SelectedEntities.empty()))
+                EditorCommands::ClearSelection(ctx);
+            ImGui::Separator();
+            EditorCommands::DrawEntityEditMenuItems(ctx);
+            if (ImGui::MenuItem("Frame Selected", "F", false, static_cast<bool>(ctx.Selected)))
+                ctx.Session.RequestFrameSelected = true;
+            ImGui::Separator();
+            if (ImGui::MenuItem(ctx.IsPlaying ? "Stop" : "Play", "Ctrl+P", false, !ctx.IsEditingPrefab))
+                EditorCommands::TogglePlay(ctx);
+            if (ImGui::MenuItem("Pause", "Ctrl+Shift+P", ctx.Session.IsPaused))
+                EditorCommands::TogglePause(ctx);
+            if (ImGui::MenuItem("Step", "Ctrl+Alt+P", false, !ctx.IsEditingPrefab))
+                EditorCommands::Step(ctx);
+            ImGui::Separator();
+            ImGui::MenuItem(WithIcon(EditorIcons::Settings, "Project Settings...").c_str(), nullptr, &ctx.ShowProjectSettings);
+            ImGui::MenuItem(WithIcon(EditorIcons::Sliders, "Preferences...").c_str(), nullptr, &ctx.ShowPreferences);
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("GameObject")) {
+            EditorCommands::DrawCreateObjectMenu(ctx);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Toggle Active State", "Alt+Shift+A", false, static_cast<bool>(ctx.Selected)))
+                EditorCommands::ToggleActiveSelection(ctx);
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Component")) {
+            const bool hasSelection = !ctx.SelectedEntities.empty();
+            if (!hasSelection)
+                ImGui::TextDisabled("Select a GameObject first");
+            for (const char* category : EditorCommands::ComponentCategories()) {
+                if (!ImGui::BeginMenu(category, hasSelection))
+                    continue;
+                for (ComponentTypeInfo& type : TypeRegistry::All()) {
+                    if (type.Mandatory || type.DisplayName == "Scripts" || type.DisplayName == "Prefab Instance" ||
+                        std::string(EditorCommands::ComponentCategoryOf(type.DisplayName)) != category)
+                        continue;
+                    if (ImGui::MenuItem(type.DisplayName.c_str()))
+                        EditorCommands::AddComponentToSelection(ctx, type);
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Window")) {
+            if (ImGui::BeginMenu("General")) {
+                ImGui::MenuItem("Scene", nullptr, &ctx.Session.ShowScene);
+                ImGui::MenuItem("Game", nullptr, &ctx.Session.ShowGame);
+                ImGui::MenuItem("Inspector", nullptr, &ctx.Session.ShowInspector);
+                ImGui::MenuItem("Hierarchy", nullptr, &ctx.Session.ShowHierarchy);
+                ImGui::MenuItem("Project", nullptr, &ctx.Session.ShowProject);
+                ImGui::MenuItem("Console", nullptr, &ctx.Session.ShowConsole);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Rendering")) {
+                // Unity: Window > Rendering > Lighting (scene ambient, lights, shadows).
+                ImGui::MenuItem("Lighting", nullptr, &LightingPanel::IsOpen());
+                ImGui::EndMenu();
+            }
+            ImGui::MenuItem(WithIcon(EditorIcons::Package, "Package Manager").c_str(), nullptr, &ctx.ShowPackageManager);
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Layouts")) {
+                if (ImGui::MenuItem("Reset All Layouts (Default)"))
+                    ctx.Session.RequestResetLayout = true;
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Help")) {
+            ImGui::TextDisabled("DualityEngine Editor");
+            ImGui::Separator();
+            ImGui::TextUnformatted("Docs: Docs/pages/editor.html (shortcuts table)");
+            ImGui::EndMenu();
+        }
+
+        // Open scene / prefab name on the right side of the menu bar, '*' while unsaved.
+        std::string sceneLabel = ctx.IsEditingPrefab
+            ? ("Prefab Mode: " + std::filesystem::path(ctx.EditingPrefabPath).filename().string())
+            : (ctx.ScenePath.empty() ? std::string("Untitled") : std::filesystem::path(ctx.ScenePath).filename().string());
+        if (ctx.SceneDirty)
+            sceneLabel += "*";
+        const float exitWidth = ctx.IsEditingPrefab ? ImGui::CalcTextSize("< Exit Prefab Mode").x + ImGui::GetStyle().FramePadding.x * 4.0f : 0.0f;
+        const float labelWidth = ImGui::CalcTextSize(sceneLabel.c_str()).x + exitWidth + 24.0f;
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 16.0f, ImGui::GetWindowWidth() - labelWidth));
+        ImGui::TextDisabled("%s", sceneLabel.c_str());
+        if (ctx.IsEditingPrefab) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("< Exit Prefab Mode"))
+                ctx.RequestExitPrefabMode = true;
+        }
+
+        ImGui::EndMenuBar();
     }
 
 }

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -10,8 +12,12 @@
 #include <imgui_internal.h> // DockBuilder* -- for the initial Unity/Cocos-Creator-style dock layout
 
 #include "DualityEditor/AssetInspectors.h"
+#include "DualityEditor/EditorCommands.h"
+#include "DualityEditor/EditorIcons.h"
+#include "DualityEditor/EditorTheme.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/EditorSettings.h"
+#include "DualityEditor/FieldEditorWidget.h"
 #include "DualityEditor/FileDialogs.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEditor/ScriptEngine.h"
@@ -58,7 +64,12 @@ namespace Duality {
         return exePath;
     }
 
-    static std::shared_ptr<Project> LoadDefaultProject() {
+    static std::shared_ptr<Project> LoadDefaultProject(const std::string& requestedPath) {
+        if (!requestedPath.empty()) {
+            if (auto project = Project::Load(requestedPath))
+                return project;
+            Log::Error("Could not open project '" + requestedPath + "', falling back to SampleProject");
+        }
         constexpr const char* DefaultProjectPath = "SampleProject/SampleProject.dproj";
         if (std::filesystem::exists(DefaultProjectPath)) {
             if (auto project = Project::Load(DefaultProjectPath))
@@ -71,9 +82,9 @@ namespace Duality {
         return project->GetAssetsDirectory() + "/" + project->GetStartScenePath();
     }
 
-    Application::Application()
-        : m_Window(1280, 800, "DualityEditor")
-        , m_Project(LoadDefaultProject())
+    Application::Application(const ApplicationOptions& options)
+        : m_Window(options.Width, options.Height, "DualityEditor", !options.TestScript.empty())
+        , m_Project(LoadDefaultProject(options.ProjectPath))
         , m_TopFramebuffer(TopScreenWidth, TopScreenHeight)
         , m_BottomFramebuffer(BottomScreenWidth, BottomScreenHeight)
         , m_TopSceneFramebuffer(480, 540) // resized every frame to match its Scene view pane -- see ScenePanel
@@ -114,7 +125,63 @@ namespace Duality {
             SceneSerializer(m_Scene).Deserialize(m_ScenePath);
         else
             SetupDemoScene();
-        m_SceneHistory.Reset(m_Scene);
+        m_SceneHistory.Reset(m_Scene, m_Session.Ids);
+
+        m_Options = options;
+        m_Session.RunAfterSavePrompt = [this](std::function<void(EditorContext&)> action) { RunAfterSavePrompt(std::move(action)); };
+
+        // Reference fields (Inspector object fields): click pings, double-click selects.
+        FieldEditorHooks hooks;
+        hooks.PingAsset = [this](const std::string& path) {
+            m_Session.PingAssetPath = path;
+            m_Session.PingStartTime = ImGui::GetTime();
+        };
+        hooks.SelectAsset = [this](const std::string& path) {
+            m_Selected = Entity{};
+            m_SelectedEntities.clear();
+            m_SelectedAssetPath = path;
+            m_SelectedAssetPaths = { path };
+            m_Session.PingAssetPath = path;
+            m_Session.PingStartTime = ImGui::GetTime();
+        };
+        hooks.PingEntity = [this](uint32_t handle) {
+            Entity entity(static_cast<entt::entity>(handle), &m_Scene);
+            if (!entity)
+                return;
+            m_Session.PingEntityId = m_Session.Ids.Get(entity);
+            m_Session.PingStartTime = ImGui::GetTime();
+        };
+        hooks.SelectEntity = [this](uint32_t handle) {
+            Entity entity(static_cast<entt::entity>(handle), &m_Scene);
+            if (!entity)
+                return;
+            m_Selected = entity;
+            m_SelectedEntities = { entity };
+            m_SelectedAssetPath.clear();
+            m_SelectedAssetPaths.clear();
+            m_Session.RequestRevealSelection = true;
+        };
+        SetFieldEditorHooks(std::move(hooks));
+        if (!options.TestScript.empty())
+            m_Automation.Load(options.TestScript);
+        else
+            RecordRecentProject();
+    }
+
+    void Application::RecordRecentProject() {
+        if (!m_Project)
+            return;
+        const std::string path = m_Project->GetDirectory() + "/" + m_Project->GetConfig().Name + ".dproj";
+        if (!std::filesystem::exists(path))
+            return;
+        EditorSettings::Get().AddRecentProject(path);
+        EditorSettings::Get().Save();
+    }
+
+    void Application::RunAfterSavePrompt(std::function<void(EditorContext&)> action) {
+        // Unity asks only about real unsaved scene edits; Play-mode changes are transient.
+        m_PendingSavePromptAction = std::move(action);
+        m_OpenSavePrompt = true;
     }
 
     void Application::EnterPrefabMode(const std::string& prefabPath) {
@@ -124,6 +191,7 @@ namespace Duality {
             ExitPrefabMode();
 
         m_PrefabModeSceneSnapshot = SceneSerializer(m_Scene).SerializeToJson().dump();
+        m_PrefabModeIds = m_Session.Ids.CaptureOrder(m_Scene);
         m_PrefabModeOriginalScenePath = m_ScenePath;
         m_PrefabModeOriginalDirty = m_SceneDirty;
         m_Scene.Clear();
@@ -152,7 +220,7 @@ namespace Duality {
         m_Selected = root;
         m_SelectedEntities = { root };
         m_SceneDirty = false;
-        m_SceneHistory.Reset(m_Scene);
+        m_SceneHistory.Reset(m_Scene, m_Session.Ids);
         m_CapturedSceneChangeSerial = m_SceneChangeSerial;
         Log::Info("Entered Prefab Mode: '" + prefabPath + "'");
     }
@@ -167,6 +235,7 @@ namespace Duality {
         m_Scene.Clear();
         try {
             SceneSerializer(m_Scene).DeserializeFromJson(nlohmann::json::parse(m_PrefabModeSceneSnapshot));
+            m_Session.Ids.ApplyOrder(m_Scene, m_PrefabModeIds);
         } catch (const nlohmann::json::exception& e) {
             Log::Error(std::string("Could not restore scene after Prefab Mode: ") + e.what());
         }
@@ -178,7 +247,7 @@ namespace Duality {
         m_SelectedEntities.clear();
         m_SelectedAssetPath.clear();
         m_SelectedAssetPaths.clear();
-        m_SceneHistory.Reset(m_Scene);
+        m_SceneHistory.Reset(m_Scene, m_Session.Ids);
         m_CapturedSceneChangeSerial = m_SceneChangeSerial;
         Log::Info("Exited Prefab Mode");
     }
@@ -520,19 +589,20 @@ namespace Duality {
         m_SelectedEntities = { topQuad };
     }
 
-    void Application::OpenProjectFromDialog() {
-        std::string path = FileDialogs::OpenFile(m_Window.GetNativeWindow(), "Duality Project (*.dproj)\0*.dproj\0");
-        if (path.empty())
-            return;
-
-        auto project = Project::Load(path);
+    // Shared by Open Project / New Project / File > Open Recent: stops Play, swaps the active
+    // project and loads its start scene.
+    void Application::SwitchProject(const std::shared_ptr<Project>& project) {
         if (!project)
             return;
-
         if (m_IsPlaying) {
             StopAdditiveRuntimeScenes();
             m_Scene.OnRuntimeStop();
             m_IsPlaying = false;
+            m_Session.IsPaused = false;
+        }
+        if (m_IsEditingPrefab) {
+            m_IsEditingPrefab = false;
+            m_EditingPrefabPath.clear();
         }
 
         m_Project = project;
@@ -542,6 +612,9 @@ namespace Duality {
         m_SelectedEntities.clear();
         m_SelectedAssetPath.clear();
         m_SelectedAssetPaths.clear();
+        m_Session.Ids.Clear();
+        m_Session.ChangeGroupOpen = false;
+        m_Session.PendingUndoLabel.clear();
         m_TopSceneView = SceneViewCamera();       // re-seed from the new scene's own cameras
         m_BottomSceneView = SceneViewCamera();    // instead of keeping the old project's pan/zoom
         m_TopSceneView3D = SceneViewCamera3D();   // same reasoning, 3D orbit cameras
@@ -558,23 +631,25 @@ namespace Duality {
         TypeScriptCompiler::CompileAsync(m_RepoRoot, m_Project->GetDirectory());
 
         // A brand new project has no configured start scene yet -- Deserialize logs an
-        // error and leaves m_Scene empty in that case, same as clicking
-        // "Load Scene" against a project that hasn't saved one yet.
+        // error and leaves m_Scene empty in that case.
         SceneSerializer(m_Scene).Deserialize(m_ScenePath);
-        m_SceneHistory.Reset(m_Scene);
+        m_SceneHistory.Reset(m_Scene, m_Session.Ids);
         m_SceneDirty = false;
+        RecordRecentProject();
     }
 
-    // "Create New Project" -- Project::New(directory, name) already existed and does
-    // everything needed (creates the directory + Assets/, writes the .dproj) but was
-    // never wired up to any Editor UI. Reuses FileDialogs::SaveFile (the same native dialog
-    // "Save Scene As..." already uses) instead of adding a new folder-picker dialog: the
-    // chosen path's filename (minus extension) becomes both the project's Name and a
-    // same-named subfolder created under its parent folder, e.g. picking
+    void Application::OpenProjectFromDialog() {
+        std::string path = FileDialogs::OpenFile(m_Window.GetNativeWindow(), "Duality Project (*.dproj)\0*.dproj\0");
+        if (path.empty())
+            return;
+        SwitchProject(Project::Load(path));
+    }
+
+    // "Create New Project" -- the chosen path's filename (minus extension) becomes both the
+    // project's Name and a same-named subfolder created under its parent folder, e.g. picking
     // "F:\Projects\MyGame.dproj" creates "F:\Projects\MyGame\MyGame.dproj" +
-    // "F:\Projects\MyGame\Assets\" -- matches SampleProject's own existing layout (a
-    // dedicated project folder with the .dproj at its own root) and mirrors how Unity's own
-    // "New Project" dialog asks for a location + name and creates location/name/ as the root.
+    // "F:\Projects\MyGame\Assets\" -- matches SampleProject's own layout and mirrors how
+    // Unity's "New Project" dialog asks for a location + name and creates location/name/.
     void Application::NewProjectFromDialog() {
         std::string path = FileDialogs::SaveFile(m_Window.GetNativeWindow(), "Duality Project (*.dproj)\0*.dproj\0");
         if (path.empty())
@@ -583,63 +658,39 @@ namespace Duality {
         std::filesystem::path chosen(path);
         std::string name = chosen.stem().string();
         std::string directory = (chosen.parent_path() / name).string();
-
-        auto project = Project::New(directory, name);
-        if (!project)
-            return;
-
-        if (m_IsPlaying) {
-            StopAdditiveRuntimeScenes();
-            m_Scene.OnRuntimeStop();
-            m_IsPlaying = false;
-        }
-
-        m_Project = project;
-        RenderSettings::SetShadowMode(m_Project->GetConfig().ShadowTechnique);
-        m_Scene = Scene(); // old Entity handles (including m_Selected) don't survive this
-        m_Selected = Entity();
-        m_SelectedEntities.clear();
-        m_SelectedAssetPath.clear();
-        m_SelectedAssetPaths.clear();
-        m_TopSceneView = SceneViewCamera();       // re-seed from the new scene's own cameras
-        m_BottomSceneView = SceneViewCamera();    // instead of keeping the old project's pan/zoom
-        m_TopSceneView3D = SceneViewCamera3D();   // same reasoning, 3D orbit cameras
-        m_BottomSceneView3D = SceneViewCamera3D();
-        m_ScenePath = GetStartupScenePath(m_Project);
-        m_ContentBrowserPanel.SetRootDirectory(m_Project->GetAssetsDirectory());
-        AssetDatabase::Refresh(m_Project->GetAssetsDirectory());
-        // Same reasoning as OpenProjectFromDialog's own call -- compiles+loads this brand new
-        // project's (empty, until Content Browser's "Create > Script" is used) Assets/Scripts.
-        ScriptEngine::ReloadAsync(m_BuildDirectory);
-        TypeScriptCompiler::CompileAsync(m_RepoRoot, m_Project->GetDirectory());
-
-        // Always a no-op in practice (a brand new project's Assets/ is empty) -- kept for the
-        // exact same reason OpenProjectFromDialog keeps its own call: logs a normal "could not
-        // open" error and leaves m_Scene empty rather than needing a special case here.
-        SceneSerializer(m_Scene).Deserialize(m_ScenePath);
-        m_SceneHistory.Reset(m_Scene);
-        m_SceneDirty = false;
+        SwitchProject(Project::New(directory, name));
     }
 
-    // Writes the CURRENT scene's content to a new file the user picks (defaulting to the
-    // project's own Assets folder), WITHOUT changing m_ScenePath -- unlike Unity's own
-    // "Save Scene As...", the newly-written file does not become "the" active scene; this
-    // exists specifically so a project can accumulate additional scene files (e.g.
-    // "Level2.scene") for Behaviour::LoadScene to target, while "Save Scene"/"Load Scene"
-    // keep operating on the original scene exactly as before. A snapshot/export, not a
-    // scene switch.
+    // Unity's "Save As": writes the current scene to a new file and makes that file the open
+    // scene (later Ctrl+S saves there). Also how an untitled scene (File > New Scene) gets its
+    // first file name.
     void Application::SaveSceneAsFromDialog() {
         std::string assetsDir = m_Project->GetAssetsDirectory();
         std::string path = FileDialogs::SaveFile(m_Window.GetNativeWindow(), "Duality Scene (*.scene)\0*.scene\0", assetsDir.c_str());
         if (path.empty())
             return;
-        SceneSerializer(m_Scene).Serialize(path);
+        if (std::filesystem::path(path).extension().empty())
+            path += ".scene";
+        if (!SceneSerializer(m_Scene).Serialize(path))
+            return;
+        const std::string guid = AssetMeta::EnsureMetaFile(path);
+        AssetDatabase::Register(guid, path);
+        m_ScenePath = path;
+        m_SceneHistory.MarkSaved(m_Scene, m_Session.Ids);
+        m_SceneDirty = false;
     }
 
 
     void Application::OnEvent(Event& e) {
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent&) {
+            // Unity: closing the editor with unsaved scene changes asks first.
+            if (m_SceneDirty && !m_IsPlaying && !m_Automation.IsActive()) {
+                m_Window.SetShouldClose(false);
+                m_QuitAfterPrompt = true;
+                RunAfterSavePrompt([this](EditorContext&) { m_Running = false; });
+                return true;
+            }
             m_Running = false;
             return true;
         });
@@ -650,8 +701,254 @@ namespace Duality {
         // an OS-level resize without Application needing to know GLFW exists.
     }
 
-    void Application::Run() {
+    // Unity's default layout: Hierarchy left, Scene/Game tabs center, Inspector right,
+    // Project/Console tabs along the bottom. Built only when no saved layout exists (first
+    // launch, or a dockspace that was never split) and by Window > Layouts > Reset.
+    void Application::BuildDefaultDockLayout(unsigned int dockspaceId) {
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::DockBuilderRemoveNode(dockspaceId);
+        ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
+
+        ImGuiID dockMain = dockspaceId;
+        ImGuiID dockRight = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, 0.24f, nullptr, &dockMain);
+        ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.30f, nullptr, &dockMain);
+        ImGuiID dockLeft = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, 0.22f, nullptr, &dockMain);
+
+        ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
+        ImGui::DockBuilderDockWindow("Inspector", dockRight);
+        ImGui::DockBuilderDockWindow("Lighting", dockRight);
+        ImGui::DockBuilderDockWindow("Project", dockBottom);
+        ImGui::DockBuilderDockWindow("Console", dockBottom);
+        // Scene and Game share the same center dock node, so they come up as tabs.
+        ImGui::DockBuilderDockWindow("Scene", dockMain);
+        ImGui::DockBuilderDockWindow("Game", dockMain);
+        ImGui::DockBuilderFinish(dockspaceId);
+    }
+
+    namespace {
+        // Unity's toolbar buttons: an icon toggle that stays highlighted while active.
+        bool ToolbarToggle(const char* label, bool active, const char* tooltip, ImVec2 size = ImVec2(0.0f, 0.0f)) {
+            if (active) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::ColorConvertU32ToFloat4(EditorColors::Selection()));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::ColorConvertU32ToFloat4(EditorColors::Selection()));
+            }
+            const bool pressed = ImGui::Button(label, size);
+            if (active)
+                ImGui::PopStyleColor(2);
+            if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                ImGui::SetTooltip("%s", tooltip);
+            return pressed;
+        }
+    }
+
+    // The strip under the menu bar: transform tools + handle position/rotation + snapping on the
+    // left, Play / Pause / Step centered, Layout on the right -- Unity's main toolbar.
+    void Application::DrawToolbar(EditorContext& ctx) {
+        const ImGuiStyle& style = ImGui::GetStyle();
+        const float height = ImGui::GetFrameHeight() + style.FramePadding.y * 2.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(style.FramePadding.x * 2.0f, style.FramePadding.y));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+        ImGui::BeginChild("##MainToolbar", ImVec2(0.0f, height), ImGuiChildFlags_AlwaysUseWindowPadding,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+
+        const float button = ImGui::GetFrameHeight();
+        const ImVec2 square(button * 1.25f, button);
+        ImGui::SetCursorPosY((height - button) * 0.5f);
+
+        struct Tool { const char* Icon; GizmoMode Mode; const char* Tip; };
+        const Tool tools[] = {
+            { EditorIcons::Hand, GizmoMode::View, "View Tool (Q)\nLeft-drag pans the Scene view" },
+            { EditorIcons::Move, GizmoMode::Translate, "Move Tool (W)" },
+            { EditorIcons::Rotate, GizmoMode::Rotate, "Rotate Tool (E)" },
+            { EditorIcons::Scale, GizmoMode::Scale, "Scale Tool (R)" },
+            { EditorIcons::RectTool, GizmoMode::Rect, "Rect Tool (T)\n2D move/resize of sprites" },
+        };
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(1.0f, style.ItemSpacing.y));
+        for (const Tool& tool : tools) {
+            ImGui::PushID(tool.Icon);
+            if (ToolbarToggle(tool.Icon, ctx.ActiveGizmoMode == tool.Mode, tool.Tip, square))
+                ctx.ActiveGizmoMode = tool.Mode;
+            ImGui::PopID();
+            ImGui::SameLine();
+        }
+        ImGui::PopStyleVar();
+
+        ImGui::SameLine(0.0f, style.ItemSpacing.x * 3.0f);
+        const bool pivot = m_Session.ToolHandlePosition == HandlePosition::Pivot;
+        if (ToolbarToggle((std::string(pivot ? EditorIcons::Crosshairs : EditorIcons::Square) + (pivot ? " Pivot" : " Center")).c_str(), false,
+                "Tool Handle Position (Z)\nPivot: the active object's pivot\nCenter: the center of the selection"))
+            m_Session.ToolHandlePosition = pivot ? HandlePosition::Center : HandlePosition::Pivot;
+        ImGui::SameLine();
+        const bool global = m_Session.ToolHandleSpace == HandleSpace::Global;
+        if (ToolbarToggle((std::string(global ? EditorIcons::Globe : EditorIcons::Cube) + (global ? " Global" : " Local")).c_str(), false,
+                "Tool Handle Rotation (X)\nGlobal: world axes\nLocal: the active object's rotation"))
+            m_Session.ToolHandleSpace = global ? HandleSpace::Local : HandleSpace::Global;
+        ImGui::SameLine();
+        if (ToolbarToggle((std::string(EditorIcons::Magnet) + " " + EditorIcons::CaretDown).c_str(), false,
+                "Increment Snapping (hold Ctrl while dragging a handle)"))
+            ImGui::OpenPopup("SnapSettings");
+        if (ImGui::BeginPopup("SnapSettings")) {
+            ImGui::TextUnformatted("Increment Snapping");
+            ImGui::TextDisabled("Hold Ctrl while dragging a Move/Rotate/Scale handle.");
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::DragFloat("Move", &m_Session.SnapMove, 0.01f, 0.001f, 1000.0f, "%.3f");
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::DragFloat("Rotate", &m_Session.SnapRotate, 0.5f, 0.1f, 180.0f, "%.1f deg");
+            ImGui::SetNextItemWidth(120.0f);
+            ImGui::DragFloat("Scale", &m_Session.SnapScale, 0.01f, 0.001f, 100.0f, "%.3f");
+            if (ImGui::Button("Reset to defaults")) {
+                m_Session.SnapMove = 0.25f;
+                m_Session.SnapRotate = 15.0f;
+                m_Session.SnapScale = 0.1f;
+            }
+            ImGui::EndPopup();
+        }
+
+        // Play / Pause / Step, centered in the toolbar.
+        const float groupWidth = square.x * 3.0f + 2.0f;
+        ImGui::SameLine(std::max(ImGui::GetCursorPosX() + 8.0f, (ImGui::GetWindowWidth() - groupWidth) * 0.5f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(1.0f, style.ItemSpacing.y));
+        ImGui::BeginDisabled(m_IsEditingPrefab);
+        if (ToolbarToggle(EditorIcons::Play, m_IsPlaying, m_IsPlaying ? "Stop (Ctrl+P)" : "Play (Ctrl+P)", square))
+            EditorCommands::TogglePlay(ctx);
+        ImGui::SameLine();
+        if (ToolbarToggle(EditorIcons::Pause, m_Session.IsPaused, "Pause (Ctrl+Shift+P)", square))
+            EditorCommands::TogglePause(ctx);
+        ImGui::SameLine();
+        if (ToolbarToggle(EditorIcons::StepForward, false, "Step (Ctrl+Alt+P)", square))
+            EditorCommands::Step(ctx);
+        ImGui::EndDisabled();
+        ImGui::PopStyleVar();
+
+        // Right side: Layout menu (Unity's Layout dropdown).
+        const char* layoutLabel = "Layout";
+        const float layoutWidth = ImGui::CalcTextSize(layoutLabel).x + ImGui::CalcTextSize(EditorIcons::CaretDown).x + style.FramePadding.x * 2.0f + style.ItemInnerSpacing.x * 2.0f;
+        ImGui::SameLine(ImGui::GetWindowWidth() - layoutWidth - style.WindowPadding.x);
+        if (ImGui::Button((std::string(layoutLabel) + " " + EditorIcons::CaretDown).c_str()))
+            ImGui::OpenPopup("LayoutMenu");
+        if (ImGui::BeginPopup("LayoutMenu")) {
+            if (ImGui::MenuItem("Default (Unity)"))
+                m_Session.RequestResetLayout = true;
+            ImGui::EndPopup();
+        }
+        ImGui::EndChild();
+    }
+
+    void Application::DrawSaveChangesPrompt(EditorContext& ctx) {
+        if (m_OpenSavePrompt) {
+            m_OpenSavePrompt = false;
+            // Nothing to lose: run the action straight away.
+            if (!m_SceneDirty) {
+                auto action = std::move(m_PendingSavePromptAction);
+                m_PendingSavePromptAction = nullptr;
+                m_QuitAfterPrompt = false;
+                if (action)
+                    action(ctx);
+                return;
+            }
+            ImGui::OpenPopup("Scene(s) Have Been Modified");
+        }
+
+        const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        if (!ImGui::BeginPopupModal("Scene(s) Have Been Modified", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            return;
+        const std::string name = m_IsEditingPrefab
+            ? std::filesystem::path(m_EditingPrefabPath).filename().string()
+            : (m_ScenePath.empty() ? std::string("Untitled") : std::filesystem::path(m_ScenePath).filename().string());
+        ImGui::Text("Do you want to save the changes you made in:");
+        ImGui::BulletText("%s", name.c_str());
+        ImGui::TextDisabled("Your changes will be lost if you don't save them.");
+        ImGui::Spacing();
+
+        enum class Answer { None, Save, DontSave, Cancel } answer = Answer::None;
+        const float width = 110.0f;
+        if (ImGui::Button("Save", ImVec2(width, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Enter))
+            answer = Answer::Save;
+        ImGui::SameLine();
+        if (ImGui::Button("Don't Save", ImVec2(width, 0.0f)))
+            answer = Answer::DontSave;
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(width, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            answer = Answer::Cancel;
+
+        if (answer != Answer::None) {
+            ImGui::CloseCurrentPopup();
+            auto action = std::move(m_PendingSavePromptAction);
+            m_PendingSavePromptAction = nullptr;
+            bool proceed = answer == Answer::DontSave;
+            if (answer == Answer::Save) {
+                if (m_IsPlaying)
+                    EditorCommands::StopPlay(ctx);
+                if (m_ScenePath.empty() && !m_IsEditingPrefab)
+                    SaveSceneAsFromDialog();
+                else
+                    SaveScene(ctx);
+                proceed = !m_SceneDirty;
+            }
+            if (proceed && action)
+                action(ctx);
+            if (!proceed)
+                m_QuitAfterPrompt = false;
+        }
+        ImGui::EndPopup();
+    }
+
+    // Commits the change group opened by MarkSceneDirty as ONE Undo step -- but only once the
+    // interaction that produced it is over (no widget / gizmo / handle still being dragged, no
+    // text field still being typed into). A whole slider drag or a typed name is one step.
+    void Application::CommitPendingChange(EditorContext& ctx) {
+        if (m_IsPlaying || m_CapturedSceneChangeSerial == m_SceneChangeSerial)
+            return;
+        if (ImGui::IsAnyItemActive() || m_DraggingGizmoAxis != GizmoAxis::None)
+            return;
+        m_SceneHistory.Capture(m_Scene, m_Session.Ids, m_Session.PendingUndoLabel,
+            m_Session.SelectionBeforeChange, EditorCommands::CaptureSelection(ctx));
+        m_CapturedSceneChangeSerial = m_SceneChangeSerial;
+        m_Session.ChangeGroupOpen = false;
+        m_Session.PendingUndoLabel.clear();
+        m_SceneDirty = !m_SceneHistory.IsAtSavedState();
+    }
+
+    void Application::UpdateWindowTitle() {
+        std::string title = "DualityEditor - ";
+        title += m_Project ? m_Project->GetConfig().Name : std::string("No Project");
+        title += " - ";
+        if (m_IsEditingPrefab)
+            title += "Prefab: " + std::filesystem::path(m_EditingPrefabPath).filename().string();
+        else
+            title += m_ScenePath.empty() ? std::string("Untitled") : std::filesystem::path(m_ScenePath).stem().string();
+        if (m_SceneDirty)
+            title += "*";
+        if (m_IsPlaying)
+            title += m_Session.IsPaused ? "  [Paused]" : "  [Playing]";
+        if (title != m_LastWindowTitle) {
+            m_Window.SetTitle(title);
+            m_LastWindowTitle = title;
+        }
+    }
+
+    int Application::Run() {
         double lastFrameTime = m_Window.GetTime();
+
+        // Saved layouts from before the Content Browser was renamed to Unity's "Project": keep
+        // the user's docking by renaming the window entry in imgui.ini before ImGui loads it.
+        if (const char* iniName = ImGui::GetIO().IniFilename) {
+            std::ifstream in(iniName, std::ios::binary);
+            if (in.is_open()) {
+                std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                in.close();
+                const std::string oldKey = "[Window][Content Browser]";
+                if (text.find(oldKey) != std::string::npos && text.find("[Window][Project]") == std::string::npos) {
+                    text.replace(text.find(oldKey), oldKey.size(), "[Window][Project]");
+                    std::ofstream out(iniName, std::ios::binary);
+                    out << text;
+                }
+            }
+        }
 
         while (m_Running && !m_Window.ShouldClose()) {
             double now = m_Window.GetTime();
@@ -676,21 +973,23 @@ namespace Duality {
             // TypeScript: file watching + background rebuild, bundle swap outside Play.
             TypeScriptCompiler::Update(deltaTime, m_IsPlaying, m_RepoRoot, m_Project->GetDirectory());
 
-            if (m_IsPlaying) {
+            // Pause freezes the game; Step advances exactly one fixed frame (Unity's Step).
+            const bool advanceGame = m_IsPlaying && (!m_Session.IsPaused || m_Session.StepRequested);
+            const float gameDeltaTime = m_Session.StepRequested ? (1.0f / 60.0f) : deltaTime;
+            m_Session.StepRequested = false;
+            if (advanceGame) {
                 // Before OnRuntimeUpdate, not after -- a script polling UIButtonComponent::
                 // WasClicked this frame needs this frame's value already computed. Gated on
-                // Play like OnRuntimeUpdate itself -- a button's click state is gameplay state,
-                // same as Unity's own UI only receiving click events at Play time, not while
-                // editing the Scene view.
+                // Play like OnRuntimeUpdate itself.
                 UpdateUIInteractions(m_Scene);
                 UpdatePhysicsRaycasterInteractions(m_Scene);
                 for (auto& loaded : m_AdditiveRuntimeScenes) {
                     UpdateUIInteractions(*loaded.Value);
                     UpdatePhysicsRaycasterInteractions(*loaded.Value);
                 }
-                m_Scene.OnRuntimeUpdate(deltaTime);
+                m_Scene.OnRuntimeUpdate(gameDeltaTime);
                 for (auto& loaded : m_AdditiveRuntimeScenes)
-                    loaded.Value->OnRuntimeUpdate(deltaTime);
+                    loaded.Value->OnRuntimeUpdate(gameDeltaTime);
 
                 // All active worlds have now returned from OnRuntimeUpdate, so it is safe to
                 // process the deferred, ordered Single/Additive/Unload queue. Additive scenes
@@ -731,9 +1030,16 @@ namespace Duality {
                     loaded->OnRuntimeStart();
                     m_AdditiveRuntimeScenes.push_back({ request.Path, std::move(loaded) });
                 }
-            } else if (!m_AdditiveRuntimeScenes.empty()) {
-                // Covers a Stop action taken by GamePanel during the previous UI frame.
+            } else if (!m_IsPlaying && !m_AdditiveRuntimeScenes.empty()) {
+                // Covers a Stop action taken during the previous UI frame.
                 StopAdditiveRuntimeScenes();
+            }
+            // Console "Error Pause": any new error while playing pauses the game.
+            if (m_IsPlaying) {
+                const uint64_t errors = Log::GetTotalCount(LogLevel::Error);
+                if (m_Session.ErrorPause && errors > m_Session.ErrorCountAtLastCheck)
+                    m_Session.IsPaused = true;
+                m_Session.ErrorCountAtLastCheck = errors;
             }
 
             m_Renderer.BeginFrame();
@@ -760,9 +1066,46 @@ namespace Duality {
 
             m_Window.BeginFrame();
 
-            // --- Fullscreen dockspace host + menu bar, Unity/Cocos-
-            // Creator-style default layout (mirrors MyGameEngine's
-            // EditorLayer::OnUpdate) -------------------------------------
+            EditorContext ctx{
+                m_Scene, m_Selected, m_SelectedEntities, m_SelectedAssetPath, m_SelectedAssetPaths, m_IsPlaying, m_SceneDirty, m_SceneHistory, m_SceneChangeSerial,
+                m_TopSceneView, m_BottomSceneView, m_ActiveGizmoMode, m_DraggingGizmoAxis, m_DraggingGizmoScreen,
+                m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
+                m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
+                m_Fps, m_GameDrawCallCount, m_GameRenderStats,
+                m_ScenePath, m_IsEditingPrefab, m_EditingPrefabPath, m_RequestOpenPrefabPath, m_RequestExitPrefabMode,
+                m_BuildDirectory, m_RepoRoot, m_PlaySnapshot, [this]() { StopAdditiveRuntimeScenes(); },
+                m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog,
+                m_RequestBrowseExternalEditor, m_RequestBrowseIcon, m_ShowBuildSettings, m_ShowProjectSettings, m_ShowPackageManager, m_ShowPreferences,
+                m_Session
+            };
+
+            // One consistent selection for every panel this frame, and the "before" selection
+            // of any change that starts this frame (restored by its Undo).
+            EditorCommands::NormalizeSelection(ctx);
+            if (!m_Session.ChangeGroupOpen)
+                m_Session.FrameStartSelection = EditorCommands::CaptureSelection(ctx);
+
+            m_Automation.Update(ctx, m_Window);
+            if (m_Automation.WantsQuit())
+                m_Running = false;
+
+            // Unity's play-mode tint: the whole editor darkens/reddens while the game runs, so
+            // it is obvious that edits made now will be reverted on Stop.
+            int tintColors = 0;
+            if (m_IsPlaying) {
+                const ImGuiStyle& style = ImGui::GetStyle();
+                auto tint = [&](ImGuiCol color) {
+                    const ImVec4 c = style.Colors[color];
+                    ImGui::PushStyleColor(color, ImVec4(c.x * 0.86f + 0.04f, c.y * 0.78f, c.z * 0.78f, c.w));
+                    ++tintColors;
+                };
+                for (ImGuiCol color : { ImGuiCol_WindowBg, ImGuiCol_MenuBarBg, ImGuiCol_TitleBg, ImGuiCol_TitleBgActive,
+                        ImGuiCol_Tab, ImGuiCol_TabSelected, ImGuiCol_TabDimmed, ImGuiCol_TabDimmedSelected, ImGuiCol_FrameBg,
+                        ImGuiCol_Button, ImGuiCol_Header, ImGuiCol_DockingEmptyBg })
+                    tint(color);
+            }
+
+            // --- Fullscreen dockspace host: menu bar, main toolbar, dock space --------------
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(viewport->WorkPos);
             ImGui::SetNextWindowSize(viewport->WorkSize);
@@ -779,74 +1122,47 @@ namespace Duality {
             ImGui::Begin("EditorDockHost", nullptr, hostFlags);
             ImGui::PopStyleVar(3);
 
+            // Global shortcuts run inside the host window so ImGui's own shortcut routing (menus,
+            // popups) has already been set up for this frame.
+            EditorCommands::HandleGlobalShortcuts(ctx);
+            m_MenuBarPanel.OnImGuiRender(ctx);
+            DrawToolbar(ctx);
+
             ImGuiID dockspaceId = ImGui::GetID("EditorDockspace");
-
-            if (!m_DockLayoutInitialized) {
-                ImGui::DockBuilderRemoveNode(dockspaceId);
-                ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
-                ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->Size);
-
-                ImGuiID dockMain = dockspaceId;
-                ImGuiID dockLeft = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, 0.2f, nullptr, &dockMain);
-                ImGuiID dockRight = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, 0.28f, nullptr, &dockMain);
-                ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.28f, nullptr, &dockMain);
-
-                ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
-                ImGui::DockBuilderDockWindow("Inspector", dockRight);
-                ImGui::DockBuilderDockWindow("Content Browser", dockBottom);
-                ImGui::DockBuilderDockWindow("Console", dockBottom);
-                // Scene and Game share the same center dock node, so they
-                // come up as tabs -- matching Unity's default layout.
-                ImGui::DockBuilderDockWindow("Scene", dockMain);
-                ImGui::DockBuilderDockWindow("Game", dockMain);
-                ImGui::DockBuilderFinish(dockspaceId);
-
+            if (!m_DockLayoutInitialized || m_Session.RequestResetLayout) {
+                ImGuiDockNode* node = ImGui::DockBuilderGetNode(dockspaceId);
+                const bool hasSavedLayout = node && (node->ChildNodes[0] || node->ChildNodes[1]);
+                if (!hasSavedLayout || m_Session.RequestResetLayout) {
+                    m_Session.ShowScene = m_Session.ShowGame = m_Session.ShowHierarchy = true;
+                    m_Session.ShowInspector = m_Session.ShowProject = m_Session.ShowConsole = true;
+                    BuildDefaultDockLayout(dockspaceId);
+                }
+                m_Session.RequestResetLayout = false;
                 m_DockLayoutInitialized = true;
             }
-
             ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
-
-            EditorContext ctx{
-                m_Scene, m_Selected, m_SelectedEntities, m_SelectedAssetPath, m_SelectedAssetPaths, m_IsPlaying, m_SceneDirty, m_SceneHistory, m_SceneChangeSerial,
-                m_TopSceneView, m_BottomSceneView, m_ActiveGizmoMode, m_DraggingGizmoAxis, m_DraggingGizmoScreen,
-                m_TopRenderMode, m_BottomRenderMode, m_TopSceneView3D, m_BottomSceneView3D,
-                m_TopSceneFramebuffer, m_BottomSceneFramebuffer, m_TopFramebuffer, m_BottomFramebuffer, m_Renderer, m_Renderer3D,
-                m_Fps, m_GameDrawCallCount, m_GameRenderStats,
-                m_ScenePath, m_IsEditingPrefab, m_EditingPrefabPath, m_RequestOpenPrefabPath, m_RequestExitPrefabMode,
-                m_BuildDirectory, m_RepoRoot, m_PlaySnapshot, [this]() { StopAdditiveRuntimeScenes(); },
-                m_RequestOpenProject, m_RequestNewProject, m_RequestSaveSceneAs, m_RequestOpenSceneDialog,
-                m_RequestBrowseExternalEditor, m_RequestBrowseIcon, m_ShowBuildSettings, m_ShowProjectSettings, m_ShowPackageManager, m_ShowPreferences
-            };
-
-            // Text fields own Ctrl+Z themselves. Everywhere else gets the editor-wide scene
-            // history shortcut; Ctrl+Shift+Z and Ctrl+Y are both familiar Redo variants.
-            ImGuiIO& io = ImGui::GetIO();
-            if (!m_IsPlaying && !io.WantTextInput && io.KeyCtrl) {
-                if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
-                    if (io.KeyShift)
-                        RedoScene(ctx);
-                    else
-                        UndoScene(ctx);
-                } else if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
-                    RedoScene(ctx);
-                }
-            }
-
-            m_MenuBarPanel.OnImGuiRender(ctx);
             ImGui::End(); // EditorDockHost
 
-            // Handled here (not inside MenuBarPanel) since opening a project
-            // means swapping Scene/Project/ContentBrowser state that only
-            // Application owns -- done before the rest of this frame's
-            // panels render so they immediately reflect the new project
-            // instead of showing one stale frame first.
+            // Handled here (not inside MenuBarPanel) since opening a project / scene means
+            // swapping state only Application owns -- done before the rest of this frame's
+            // panels render so they immediately reflect the change. Each one that would discard
+            // the open scene goes through the "save changes?" prompt first.
             if (m_RequestOpenProject) {
                 m_RequestOpenProject = false;
-                OpenProjectFromDialog();
+                RunAfterSavePrompt([this](EditorContext&) { OpenProjectFromDialog(); });
             }
             if (m_RequestNewProject) {
                 m_RequestNewProject = false;
-                NewProjectFromDialog();
+                RunAfterSavePrompt([this](EditorContext&) { NewProjectFromDialog(); });
+            }
+            if (m_Session.RequestQuit) {
+                m_Session.RequestQuit = false;
+                RunAfterSavePrompt([this](EditorContext&) { m_Running = false; });
+            }
+            if (!m_Session.RequestOpenProjectPath.empty()) {
+                const std::string path = m_Session.RequestOpenProjectPath;
+                m_Session.RequestOpenProjectPath.clear();
+                RunAfterSavePrompt([this, path](EditorContext&) { SwitchProject(Project::Load(path)); });
             }
             if (m_RequestSaveSceneAs) {
                 m_RequestSaveSceneAs = false;
@@ -861,17 +1177,13 @@ namespace Duality {
                 m_RequestExitPrefabMode = false;
                 ExitPrefabMode();
             }
-            // Inlined rather than a separate Application method (unlike OpenProjectFromDialog/
-            // SaveSceneAsFromDialog above) -- this is the one action that both needs
-            // m_Window.GetNativeWindow() (only Application has it) AND wants to reuse
-            // SceneOps.h's OpenScene(EditorContext&, path) (which every other "open a known
-            // scene path" call site already shares) -- `ctx` right here is the only place
-            // both are available together without constructing a second EditorContext.
             if (m_RequestOpenSceneDialog) {
                 m_RequestOpenSceneDialog = false;
-                std::string path = FileDialogs::OpenFile(m_Window.GetNativeWindow(), "Duality Scene (*.scene)\0*.scene\0");
-                if (!path.empty())
-                    OpenScene(ctx, path);
+                RunAfterSavePrompt([this](EditorContext& later) {
+                    std::string path = FileDialogs::OpenFile(m_Window.GetNativeWindow(), "Duality Scene (*.scene)\0*.scene\0");
+                    if (!path.empty())
+                        OpenScene(later, path);
+                });
             }
             // Same native-dialog constraint as RequestOpenSceneDialog above -- PreferencesPanel
             // itself has no window handle to call FileDialogs::OpenFile with.
@@ -884,9 +1196,7 @@ namespace Duality {
                 }
             }
             // Same native-dialog constraint as the two blocks above -- ProjectSettingsPanel has
-            // no window handle of its own. Per-project (Project::GetConfig().IconPath +
-            // Save()), not EditorSettings -- an icon belongs to the project being built, not
-            // this machine's Editor install.
+            // no window handle of its own. Per-project (Project::GetConfig().IconPath).
             if (m_RequestBrowseIcon) {
                 m_RequestBrowseIcon = false;
                 std::string path = FileDialogs::OpenFile(m_Window.GetNativeWindow(), "PNG Image (*.png)\0*.png\0");
@@ -901,20 +1211,23 @@ namespace Duality {
             m_HierarchyPanel.OnImGuiRender(ctx);
             m_PropertiesPanel.OnImGuiRender(ctx);
             m_ContentBrowserPanel.OnImGuiRender(ctx);
-            m_ConsolePanel.OnImGuiRender();
+            m_ConsolePanel.OnImGuiRender(ctx);
             m_BuildSettingsPanel.OnImGuiRender(ctx);
             m_ProjectSettingsPanel.OnImGuiRender(ctx);
             m_PackageManagerPanel.OnImGuiRender(ctx);
             m_PreferencesPanel.OnImGuiRender(ctx);
             m_LightingPanel.OnImGuiRender(ctx);
 
+            DrawSaveChangesPrompt(ctx);
+
+            if (tintColors > 0)
+                ImGui::PopStyleColor(tintColors);
+
             // MarkSceneDirty is called by every Scene mutation path (Inspector, gizmo,
-            // hierarchy, creation/deletion, drag-drop). Capture after all panels have run so
-            // one UI frame becomes one atomic history entry.
-            if (!m_IsPlaying && m_CapturedSceneChangeSerial != m_SceneChangeSerial) {
-                m_SceneHistory.Capture(m_Scene);
-                m_CapturedSceneChangeSerial = m_SceneChangeSerial;
-            }
+            // hierarchy, creation/deletion, drag-drop). One finished interaction becomes one
+            // atomic history entry.
+            CommitPendingChange(ctx);
+            UpdateWindowTitle();
 
             m_Window.EndFrame();
         }
@@ -929,6 +1242,7 @@ namespace Duality {
         m_Renderer.Shutdown();
         m_Renderer3D.Shutdown();
         AudioEngine::Shutdown();
+        return m_Automation.IsActive() ? m_Automation.FailureCount() : 0;
     }
 
 }

@@ -10,6 +10,8 @@ namespace Duality {
 
     std::mutex Log::s_Mutex;
     std::deque<LogEntry> Log::s_Entries;
+    uint64_t Log::s_Serial = 0;
+    uint64_t Log::s_TotalByLevel[4] = { 0, 0, 0, 0 };
 
     static const char* LevelPrefix(LogLevel level) {
         switch (level) {
@@ -24,7 +26,8 @@ namespace Duality {
     void Log::Push(LogLevel level, const std::string& message) {
         {
             std::lock_guard<std::mutex> lock(s_Mutex);
-            s_Entries.push_back({ level, message });
+            s_Entries.push_back({ level, message, ++s_Serial });
+            ++s_TotalByLevel[static_cast<int>(level)];
             while (s_Entries.size() > s_MaxEntries)
                 s_Entries.pop_front();
         }

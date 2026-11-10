@@ -3,12 +3,20 @@
 #include <filesystem>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 #include "DualityEditor/ThumbnailCache.h"
 
 namespace Duality {
 
     struct EditorContext;
+
+    // Script templates shared by the Project window ("Create > ... Script") and the Inspector's
+    // Add Component > New Script: write <Name>.ts, or the <Name>.h + <Name>.cpp Behaviour pair,
+    // into `directory`. False if the name is not an identifier or the file(s) already exist.
+    bool IsCppIdentifier(const std::string& value);
+    bool CreateTypeScriptAsset(const std::filesystem::path& directory, const std::string& className);
+    bool CreateScriptAsset(const std::filesystem::path& directory, const std::string& className);
 
     // Unity-like Project browser: a resizable full asset tree on the left and an
     // asset grid on the right. Assets are editable; Packages are intentionally
@@ -76,6 +84,10 @@ namespace Duality {
         // re-registers it -- the drag-a-file-onto-a-folder flow.
         void MoveAssetInto(const std::string& guid, const std::filesystem::path& destDir);
         void DrawDirectoryTree(EditorContext& ctx, const std::filesystem::path& directory, const char* label, int depth = 0);
+        // Items of Create (shared by the "+" toolbar button and the right-click menu).
+        void DrawCreateMenuItems(EditorContext& ctx);
+        // Opens `path` with its default application, or reveals it in Windows Explorer.
+        static void OpenWithShell(const std::filesystem::path& path, bool revealInExplorer);
         bool IsPackagesView(const std::filesystem::path& path) const;
         std::filesystem::path CurrentContentRoot() const;
 
@@ -87,6 +99,15 @@ namespace Duality {
         // preference): each Content Browser dock can keep the amount of path/file detail its
         // author needs without affecting the scene/inspector layout.
         float m_ProjectTreeWidth = 190.0f;
+        // Grid icon size (footer slider, Ctrl+wheel).
+        float m_ThumbnailSize = 72.0f;
+        // Ping handling (reference field click / Select Asset): reveal + scroll once per ping.
+        double m_HandledPingTime = -1.0;
+        std::string m_ScrollToPath;
+        // Project-wide search results (cached, see OnImGuiRender).
+        std::string m_SearchCacheKey;
+        double m_SearchCacheTime = -10.0;
+        std::vector<std::filesystem::directory_entry> m_SearchCache;
         char m_SearchBuffer[128] = "";
 
         // Empty = nothing being renamed; otherwise the path (path.string()) of the item whose

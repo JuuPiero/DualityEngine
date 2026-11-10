@@ -15,7 +15,10 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include "DualityEditor/EditorCommands.h"
 #include "DualityEditor/EditorContext.h"
+#include "DualityEditor/EditorIcons.h"
+#include "DualityEditor/EditorTheme.h"
 #include "DualityEditor/SceneGizmo.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
@@ -1089,7 +1092,7 @@ namespace Duality {
         // Draws X/Y/Z axis handles (Translate/Scale) or three rotation rings (Rotate) projected
         // from `originWorld`, and returns whichever handle the mouse is over -- same contract as
         // the 2D version, this never touches a TransformComponent itself.
-        GizmoAxis DrawAndHitTestGizmo3D(GizmoMode mode, const Projector3D& proj, const glm::vec3& originWorld, GizmoAxis activeAxis, ImVec2& outOriginScreen) {
+        GizmoAxis DrawAndHitTestGizmo3D(GizmoMode mode, const Projector3D& proj, const glm::vec3& originWorld, GizmoAxis activeAxis, ImVec2& outOriginScreen, const glm::quat& frame = glm::quat(1.0f, 0.0f, 0.0f, 0.0f)) {
             if (!proj.Project(originWorld, outOriginScreen))
                 return GizmoAxis::None;
 
@@ -1099,9 +1102,10 @@ namespace Duality {
 
             struct AxisInfo { glm::vec3 Dir; ImU32 Color; ImU32 HighlightColor; GizmoAxis Axis; };
             AxisInfo axes[3] = {
-                { { 1.0f, 0.0f, 0.0f }, IM_COL32(230, 70, 70, 255), IM_COL32(255, 150, 150, 255), GizmoAxis::X },
-                { { 0.0f, 1.0f, 0.0f }, IM_COL32(80, 200, 100, 255), IM_COL32(160, 255, 180, 255), GizmoAxis::Y },
-                { { 0.0f, 0.0f, 1.0f }, IM_COL32(80, 140, 230, 255), IM_COL32(160, 190, 255, 255), GizmoAxis::Z },
+                // Unity's handle colors (red / green / blue, yellow while hovered or dragged).
+                { frame * glm::vec3(1.0f, 0.0f, 0.0f), IM_COL32(219, 62, 29, 255), IM_COL32(255, 210, 60, 255), GizmoAxis::X },
+                { frame * glm::vec3(0.0f, 1.0f, 0.0f), IM_COL32(139, 220, 0, 255), IM_COL32(255, 210, 60, 255), GizmoAxis::Y },
+                { frame * glm::vec3(0.0f, 0.0f, 1.0f), IM_COL32(58, 122, 248, 255), IM_COL32(255, 210, 60, 255), GizmoAxis::Z },
             };
 
             GizmoAxis hovered = GizmoAxis::None;
@@ -1169,6 +1173,245 @@ namespace Duality {
                 hovered = GizmoAxis::Both;
 
             return hovered;
+        }
+
+        // ------------------------------------------------------------------------------------
+        // Unity-style Scene view interaction shared by the 2D and 3D panes: click / Ctrl-click
+        // selection, marquee (rectangle) selection, multi-object handle drags with Pivot/Center
+        // and Local/Global handle settings and Ctrl increment snapping, and fly navigation.
+        // ------------------------------------------------------------------------------------
+
+        // One drag of a Move/Rotate/Scale handle. Transforms are recomputed every frame from
+        // the values captured when the drag started plus the accumulated (optionally snapped)
+        // delta, so snapping never drifts and one drag is one Undo step.
+        struct GizmoDragState {
+            bool Active = false;
+            std::vector<Entity> Targets;
+            std::vector<TransformComponent> StartLocal;
+            std::vector<TransformComponent> StartWorld;
+            glm::vec3 Pivot{ 0.0f };
+            glm::quat Frame{ 1.0f, 0.0f, 0.0f, 0.0f };
+            glm::vec3 RawTranslate{ 0.0f }; // in handle-axis space (3D) or world XY (2D)
+            float RawRotate = 0.0f;
+            glm::vec3 RawScale{ 0.0f };
+        };
+        GizmoDragState s_GizmoDrag;
+
+        // Per-pane mouse interaction (pending click / marquee / fly-through), one per screen.
+        struct PaneInteraction {
+            bool ClickPending = false;
+            ImVec2 ClickStart{};
+            Entity ClickHit;
+            bool Marquee = false;
+            bool Flying = false;      // RMB fly-through (3D) / RMB pan (2D)
+            bool AltOrbit = false;    // Alt+LMB orbit
+            bool AltZoom = false;     // Alt+RMB zoom
+            bool ViewPan = false;     // View tool LMB pan
+        };
+        PaneInteraction s_PaneInteraction[2];
+        PaneInteraction& InteractionFor(Screen screen) { return s_PaneInteraction[screen == Screen::Top ? 0 : 1]; }
+
+        float Snap(float value, float increment, bool enabled) {
+            if (!enabled || increment <= 0.0f)
+                return value;
+            return std::round(value / increment) * increment;
+        }
+
+        std::vector<Entity> GizmoTargets(EditorContext& ctx) {
+            std::vector<Entity> targets = EditorCommands::TopLevelSelection(ctx);
+            // Primary first so Pivot mode and Local space follow the active object.
+            auto primary = std::find(targets.begin(), targets.end(), ctx.Selected);
+            if (primary != targets.end() && primary != targets.begin())
+                std::rotate(targets.begin(), primary, primary + 1);
+            return targets;
+        }
+
+        // Where the handle is drawn: the active object's pivot, or the selection's center.
+        glm::vec3 HandlePosition(EditorContext& ctx, const std::vector<Entity>& targets) {
+            if (targets.empty())
+                return glm::vec3(0.0f);
+            if (ctx.Session.ToolHandlePosition == HandlePosition::Pivot || targets.size() == 1)
+                return ctx.SceneRef.GetWorldTransform(targets.front()).Translation;
+            glm::vec3 sum(0.0f);
+            for (Entity entity : targets)
+                sum += ctx.SceneRef.GetWorldTransform(entity).Translation;
+            return sum / static_cast<float>(targets.size());
+        }
+
+        glm::quat HandleFrame(EditorContext& ctx, const std::vector<Entity>& targets) {
+            if (targets.empty() || ctx.Session.ToolHandleSpace == HandleSpace::Global || ctx.ActiveGizmoMode == GizmoMode::Rotate)
+                return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+            return EulerDegreesToQuat(ctx.SceneRef.GetWorldTransform(targets.front()).Rotation);
+        }
+
+        void BeginGizmoDrag(EditorContext& ctx) {
+            s_GizmoDrag = GizmoDragState{};
+            s_GizmoDrag.Active = true;
+            s_GizmoDrag.Targets = GizmoTargets(ctx);
+            for (Entity entity : s_GizmoDrag.Targets) {
+                s_GizmoDrag.StartLocal.push_back(entity.GetComponent<TransformComponent>());
+                s_GizmoDrag.StartWorld.push_back(ctx.SceneRef.GetWorldTransform(entity));
+            }
+            s_GizmoDrag.Pivot = HandlePosition(ctx, s_GizmoDrag.Targets);
+            s_GizmoDrag.Frame = HandleFrame(ctx, s_GizmoDrag.Targets);
+        }
+
+        const char* GizmoUndoLabel(GizmoMode mode) {
+            switch (mode) {
+                case GizmoMode::Rotate: return "Rotate";
+                case GizmoMode::Scale: return "Scale";
+                default: return "Move";
+            }
+        }
+
+        // Rewrites every target from its drag-start transform. `worldOffset`: translation in
+        // world space; `rotateAxis`: 0/1/2 = X/Y/Z Euler axis; `scaleDelta`: added to local scale.
+        void ApplyGizmoDrag(EditorContext& ctx, const glm::vec3& worldOffset, int rotateAxis, float rotateDegrees, const glm::vec3& scaleDelta) {
+            const bool center = ctx.Session.ToolHandlePosition == HandlePosition::Center && s_GizmoDrag.Targets.size() > 1;
+            for (size_t i = 0; i < s_GizmoDrag.Targets.size(); ++i) {
+                Entity entity = s_GizmoDrag.Targets[i];
+                if (!entity)
+                    continue;
+                TransformComponent local = s_GizmoDrag.StartLocal[i];
+                TransformComponent world = s_GizmoDrag.StartWorld[i];
+                bool moved = false;
+                if (worldOffset != glm::vec3(0.0f)) {
+                    world.Translation += worldOffset;
+                    moved = true;
+                }
+                if (rotateAxis >= 0 && rotateDegrees != 0.0f) {
+                    local.Rotation[rotateAxis] += rotateDegrees;
+                    if (center) {
+                        // Center mode: the objects also orbit the selection center.
+                        glm::vec3 axis(0.0f);
+                        axis[rotateAxis] = 1.0f;
+                        const glm::quat spin = glm::angleAxis(glm::radians(rotateDegrees), axis);
+                        world.Translation = s_GizmoDrag.Pivot + spin * (world.Translation - s_GizmoDrag.Pivot);
+                        moved = true;
+                    }
+                }
+                if (scaleDelta != glm::vec3(0.0f)) {
+                    local.Scale = s_GizmoDrag.StartLocal[i].Scale + scaleDelta;
+                    if (center) {
+                        const glm::vec3 start = s_GizmoDrag.StartLocal[i].Scale;
+                        const glm::vec3 factor(start.x != 0.0f ? local.Scale.x / start.x : 1.0f, start.y != 0.0f ? local.Scale.y / start.y : 1.0f, start.z != 0.0f ? local.Scale.z / start.z : 1.0f);
+                        world.Translation = s_GizmoDrag.Pivot + (world.Translation - s_GizmoDrag.Pivot) * factor;
+                        moved = true;
+                    }
+                }
+                if (moved) {
+                    world.Rotation = s_GizmoDrag.StartWorld[i].Rotation;
+                    world.Scale = s_GizmoDrag.StartWorld[i].Scale;
+                    local.Translation = ctx.SceneRef.WorldToLocal(entity, world).Translation;
+                }
+                entity.GetComponent<TransformComponent>() = local;
+            }
+            MarkSceneDirty(ctx, GizmoUndoLabel(ctx.ActiveGizmoMode));
+        }
+
+        // Entities a marquee can pick on `screen`: anything drawn or with a gizmo of its own
+        // (pure grouping entities are skipped -- Unity's rect selection picks renderers).
+        bool IsMarqueeCandidate(EditorContext& ctx, Entity entity, Screen screen) {
+            if (!ShouldRenderOnScreen(ctx.SceneRef, entity.Handle(), screen))
+                return false;
+            return entity.HasComponent<SpriteRendererComponent>() || entity.HasComponent<MeshRendererComponent>() ||
+                entity.HasComponent<SkinnedMeshRendererComponent>() || entity.HasComponent<CameraComponent>() ||
+                entity.HasComponent<DirectionalLightComponent>() || entity.HasComponent<PointLightComponent>() ||
+                entity.HasComponent<SpotLightComponent>() || entity.HasComponent<BoxCollider2DComponent>() ||
+                entity.HasComponent<CircleCollider2DComponent>() || entity.HasComponent<BoxCollider3DComponent>() ||
+                entity.HasComponent<SphereCollider3DComponent>() || entity.HasComponent<ParticleSystemComponent>() ||
+                entity.HasComponent<LineRendererComponent>() || entity.HasComponent<AudioSourceComponent>() ||
+                entity.HasComponent<BehaviourComponent>();
+        }
+
+        // Shared tail of a pane's mouse handling: a press that did not grab a handle becomes a
+        // click (select the hit object; Ctrl toggles, Shift adds; empty space clears) or, once
+        // dragged past the threshold, a marquee selecting every candidate whose pivot projects
+        // inside the rectangle. `project` maps a world position into pane screen space.
+        template<typename ProjectFn>
+        void UpdateClickAndMarquee(EditorContext& ctx, Screen screen, ProjectFn project, ImVec2 imageMin, ImVec2 imageMax) {
+            PaneInteraction& pane = InteractionFor(screen);
+            if (!pane.ClickPending)
+                return;
+            ImGuiIO& io = ImGui::GetIO();
+            const float dx = io.MousePos.x - pane.ClickStart.x, dy = io.MousePos.y - pane.ClickStart.y;
+            if (!pane.Marquee && ImGui::IsMouseDown(ImGuiMouseButton_Left) && dx * dx + dy * dy > 16.0f)
+                pane.Marquee = true;
+
+            const ImVec2 rectMin(std::max(imageMin.x, std::min(pane.ClickStart.x, io.MousePos.x)), std::max(imageMin.y, std::min(pane.ClickStart.y, io.MousePos.y)));
+            const ImVec2 rectMax(std::min(imageMax.x, std::max(pane.ClickStart.x, io.MousePos.x)), std::min(imageMax.y, std::max(pane.ClickStart.y, io.MousePos.y)));
+            if (pane.Marquee) {
+                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                drawList->AddRectFilled(rectMin, rectMax, IM_COL32(90, 150, 230, 40));
+                drawList->AddRect(rectMin, rectMax, IM_COL32(120, 170, 240, 200));
+            }
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                return;
+
+            // Released.
+            const bool additive = io.KeyCtrl || io.KeyShift;
+            if (pane.Marquee) {
+                std::vector<Entity> picked = additive ? ctx.SelectedEntities : std::vector<Entity>{};
+                for (Entity entity : ctx.SceneRef.GetHierarchyTraversalOrder()) {
+                    if (!IsMarqueeCandidate(ctx, entity, screen))
+                        continue;
+                    ImVec2 point;
+                    if (!project(ctx.SceneRef.GetWorldTransform(entity).Translation, point))
+                        continue;
+                    if (point.x >= rectMin.x && point.x <= rectMax.x && point.y >= rectMin.y && point.y <= rectMax.y &&
+                        std::find(picked.begin(), picked.end(), entity) == picked.end())
+                        picked.push_back(entity);
+                }
+                EditorCommands::SetSelection(ctx, picked, picked.empty() ? Entity{} : picked.back());
+                ctx.Session.RequestRevealSelection = true;
+            } else if (pane.ClickHit) {
+                if (io.KeyCtrl)
+                    EditorCommands::ToggleSelected(ctx, pane.ClickHit);
+                else if (io.KeyShift && !EditorCommands::IsSelected(ctx, pane.ClickHit)) {
+                    std::vector<Entity> extended = ctx.SelectedEntities;
+                    extended.push_back(pane.ClickHit);
+                    EditorCommands::SetSelection(ctx, extended, pane.ClickHit);
+                } else
+                    EditorCommands::SelectOnly(ctx, pane.ClickHit);
+                ctx.Session.RequestRevealSelection = true;
+            } else if (!additive) {
+                EditorCommands::ClearSelection(ctx);
+            }
+            pane.ClickPending = false;
+            pane.Marquee = false;
+            pane.ClickHit = Entity{};
+        }
+
+        void BeginPaneClick(Screen screen, Entity hit) {
+            PaneInteraction& pane = InteractionFor(screen);
+            pane.ClickPending = true;
+            pane.Marquee = false;
+            pane.ClickStart = ImGui::GetIO().MousePos;
+            pane.ClickHit = hit;
+        }
+
+        // World-space bounds of the selection (pivots + sprite extents), for Frame Selected.
+        bool SelectionBounds(EditorContext& ctx, glm::vec3& outMin, glm::vec3& outMax) {
+            bool any = false;
+            for (Entity entity : ctx.SelectedEntities) {
+                if (!entity || !entity.HasComponent<TransformComponent>())
+                    continue;
+                const TransformComponent world = ctx.SceneRef.GetWorldTransform(entity);
+                glm::vec3 extent(0.5f);
+                if (entity.HasComponent<SpriteRendererComponent>()) {
+                    const glm::vec2 size = glm::abs(entity.GetComponent<SpriteRendererComponent>().Size * glm::vec2(world.Scale.x, world.Scale.y)) * 0.5f;
+                    extent = glm::vec3(size.x, size.y, 0.01f);
+                } else if (entity.HasComponent<MeshRendererComponent>()) {
+                    const float radius = MeshBoundingRadius(entity.GetComponent<MeshRendererComponent>()) *
+                        std::max({ std::abs(world.Scale.x), std::abs(world.Scale.y), std::abs(world.Scale.z) });
+                    extent = glm::vec3(radius);
+                }
+                const glm::vec3 low = world.Translation - extent, high = world.Translation + extent;
+                outMin = any ? glm::min(outMin, low) : low;
+                outMax = any ? glm::max(outMax, high) : high;
+                any = true;
+            }
+            return any;
         }
 
         // Renders and interacts with one screen's 3D orbit-camera pane -- the 3D analog of the
@@ -1476,72 +1719,137 @@ namespace Duality {
             // pane's own reasoning -- a drag already in progress keeps tracking even if the
             // mouse drifts outside the image mid-drag. Any entity with a Transform gets a
             // gizmo when selected (empty GameObjects included), same as the 2D pane.
-            bool hasGizmoTarget = ctx.Selected && ctx.Selected.HasComponent<TransformComponent>();
+            // Handles for the whole selection: drawn every frame (not just while hovered) so a
+            // drag in progress keeps tracking even if the mouse leaves the image. Pivot/Center
+            // picks where the handle sits, Local/Global its orientation (toolbar, Z / X keys).
+            const std::vector<Entity> gizmoTargets = GizmoTargets(ctx);
+            const bool toolHasHandle = ctx.ActiveGizmoMode != GizmoMode::View;
+            bool hasGizmoTarget = toolHasHandle && !gizmoTargets.empty() && ShouldRenderOnScreen(ctx.SceneRef, gizmoTargets.front().Handle(), screen);
             GizmoAxis hoveredGizmoAxis = GizmoAxis::None;
             ImVec2 gizmoOriginScreen{};
+            const GizmoMode handleMode = ctx.ActiveGizmoMode == GizmoMode::Rect ? GizmoMode::Translate : ctx.ActiveGizmoMode;
+            const glm::vec3 handlePosition = (s_GizmoDrag.Active && ctx.DraggingGizmoScreen == screen) ? s_GizmoDrag.Pivot : HandlePosition(ctx, gizmoTargets);
+            const glm::quat handleFrame = (s_GizmoDrag.Active && ctx.DraggingGizmoScreen == screen) ? s_GizmoDrag.Frame : HandleFrame(ctx, gizmoTargets);
             if (hasGizmoTarget) {
-                TransformComponent selectedWorld = ctx.SceneRef.GetWorldTransform(ctx.Selected);
                 GizmoAxis activeAxisForThisPane = (ctx.DraggingGizmoAxis != GizmoAxis::None && ctx.DraggingGizmoScreen != screen)
                     ? GizmoAxis::None : ctx.DraggingGizmoAxis;
-                hoveredGizmoAxis = DrawAndHitTestGizmo3D(ctx.ActiveGizmoMode, proj, selectedWorld.Translation, activeAxisForThisPane, gizmoOriginScreen);
+                ImGui::PushClipRect(imagePos, ImVec2(imagePos.x + avail.x, imagePos.y + avail.y), true);
+                hoveredGizmoAxis = DrawAndHitTestGizmo3D(handleMode, proj, handlePosition, activeAxisForThisPane, gizmoOriginScreen, handleFrame);
+                ImGui::PopClipRect();
+            }
+
+            // Selection outline (Unity's orange): projected bounding box of each selected mesh /
+            // sprite, a small circle for everything else.
+            {
+                ImDrawList* outline = ImGui::GetWindowDrawList();
+                const ImU32 orange = IM_COL32(255, 140, 30, 230);
+                for (Entity entity : ctx.SelectedEntities) {
+                    if (!entity || !ShouldRenderOnScreen(ctx.SceneRef, entity.Handle(), screen))
+                        continue;
+                    const TransformComponent world = ctx.SceneRef.GetWorldTransform(entity);
+                    glm::vec3 half(0.0f);
+                    if (entity.HasComponent<MeshRendererComponent>())
+                        half = glm::abs(world.Scale) * 0.5f;
+                    else if (entity.HasComponent<SpriteRendererComponent>()) {
+                        const glm::vec2 size = entity.GetComponent<SpriteRendererComponent>().Size;
+                        half = glm::vec3(std::abs(size.x * world.Scale.x) * 0.5f, std::abs(size.y * world.Scale.y) * 0.5f, 0.0f);
+                    }
+                    if (half == glm::vec3(0.0f)) {
+                        ImVec2 point;
+                        if (proj.Project(world.Translation, point))
+                            outline->AddCircle(point, 9.0f, orange, 16, 1.5f);
+                        continue;
+                    }
+                    const glm::quat rotation = EulerDegreesToQuat(world.Rotation);
+                    ImVec2 corners[8];
+                    bool visible = true;
+                    for (int c = 0; c < 8 && visible; ++c) {
+                        const glm::vec3 local((c & 1) ? half.x : -half.x, (c & 2) ? half.y : -half.y, (c & 4) ? half.z : -half.z);
+                        visible = proj.Project(world.Translation + rotation * local, corners[c]);
+                    }
+                    if (!visible)
+                        continue;
+                    static const int edges[12][2] = { {0,1},{2,3},{4,5},{6,7},{0,2},{1,3},{4,6},{5,7},{0,4},{1,5},{2,6},{3,7} };
+                    for (const auto& edge : edges)
+                        outline->AddLine(corners[edge[0]], corners[edge[1]], orange, 1.5f);
+                }
             }
 
             // Drawn last (on top of everything else in this pane -- a fixed screen-space
-            // widget, unlike every other overlay above which is anchored to world content) and
-            // hit-tested BEFORE the entity-pick-ray below, so clicking it snaps the view instead
-            // of also selecting/deselecting whatever mesh happens to be underneath it.
+            // widget) and hit-tested BEFORE the entity pick below, so clicking it snaps the view
+            // instead of also selecting whatever mesh is underneath it.
             bool orientationGizmoConsumedClick = DrawAndInteractOrientationGizmo3D(camera3D, imagePos, viewportW, imageHovered);
 
-            if (imageHovered) {
-                // Frame Selected in the 3D pane too. A 1-unit sprite (for example a 100 px
-                // image at PPU 100) is correctly tiny at this view's normal 300-unit startup
-                // distance, so F is the reliable way to inspect it without distorting scene
-                // data solely for the editor.
-                if (!io.WantTextInput && ctx.Selected &&
-                    ctx.Selected.HasComponent<TransformComponent>() &&
-                    ImGui::IsKeyPressed(ImGuiKey_F, false)) {
-                    TransformComponent selectedWorld = ctx.SceneRef.GetWorldTransform(ctx.Selected);
-                    camera3D.Target = selectedWorld.Translation;
-
-                    glm::vec2 bounds{ 1.0f, 1.0f };
-                    if (ctx.Selected.HasComponent<SpriteRendererComponent>()) {
-                        const auto& sprite = ctx.Selected.GetComponent<SpriteRendererComponent>();
-                        bounds = glm::max(glm::abs(sprite.Size * glm::vec2(selectedWorld.Scale.x, selectedWorld.Scale.y)), glm::vec2{ 0.01f, 0.01f });
-                    }
-
-                    constexpr float FitFraction = 0.65f;
+            // Frame Selected (F / Hierarchy double-click): fit the whole selection.
+            if (ctx.Session.RequestFrameSelected && ctx.Session.FocusedPanel != EditorPanel::Game) {
+                glm::vec3 boundsMin, boundsMax;
+                if (SelectionBounds(ctx, boundsMin, boundsMax)) {
+                    camera3D.Target = (boundsMin + boundsMax) * 0.5f;
+                    const float radius = std::max(0.05f, glm::length(boundsMax - boundsMin) * 0.5f);
                     const float tanHalfFov = std::tan(glm::radians(FovDegrees) * 0.5f);
-                    const float distanceForHeight = bounds.y / (2.0f * FitFraction * tanHalfFov);
-                    const float distanceForWidth = bounds.x / (2.0f * FitFraction * tanHalfFov * aspect);
-                    camera3D.Distance = std::clamp(std::max(distanceForWidth, distanceForHeight), MinSceneViewDistance3D, 5000.0f);
+                    camera3D.Distance = std::clamp(radius / (0.65f * tanHalfFov) , MinSceneViewDistance3D, 5000.0f);
                 }
+            }
 
-                if (io.MouseWheel != 0.0f)
-                    camera3D.Distance = std::clamp(camera3D.Distance * (1.0f - io.MouseWheel * 0.1f), MinSceneViewDistance3D, 5000.0f);
+            // ---- Navigation (Unity): RMB look + WASD/QE fly (Shift faster, wheel = speed),
+            // Alt+LMB orbit, Alt+RMB / wheel zoom, MMB (or the View tool's LMB) pan.
+            PaneInteraction& pane = InteractionFor(screen);
+            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                if (io.KeyAlt)
+                    pane.AltZoom = true;
+                else
+                    pane.Flying = true;
+            }
+            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && io.KeyAlt)
+                pane.AltOrbit = true;
+            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt && ctx.ActiveGizmoMode == GizmoMode::View)
+                pane.ViewPan = true;
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Right))
+                pane.Flying = pane.AltZoom = false;
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                pane.AltOrbit = pane.ViewPan = false;
 
-                if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
-                    float panScale = camera3D.Distance * 0.0015f;
-                    camera3D.Target -= right * io.MouseDelta.x * panScale;
-                    camera3D.Target += up * io.MouseDelta.y * panScale;
-                }
-
-                // Right-drag orbits, matching Unity's Scene view convention (left is reserved
-                // for selection/gizmo-dragging, middle pans, wheel zooms -- all three mouse
-                // buttons doing something distinct, like Unity). Yaw is applied as a world-space
-                // rotation (pre-multiplied) around the fixed world-up axis, so horizontal drag
-                // always swings the view around the same "up" regardless of current pitch --
-                // pitch is applied as a local-space rotation (post-multiplied) around the
-                // camera's own current right axis. No clamp: unlike the old pitch/yaw + world-up
-                // cross-product scheme, this quaternion composition has no singularity, so the
-                // camera flips smoothly through the poles like Unity/Blender's Scene view
-                // instead of stopping at +-89 degrees.
-                if (ImGui::IsMouseDragging(ImGuiMouseButton_Right, 0.0f)) {
-                    glm::quat yawRot = glm::angleAxis(glm::radians(io.MouseDelta.x * 0.3f), glm::vec3(0.0f, 1.0f, 0.0f));
-                    glm::quat pitchRot = glm::angleAxis(glm::radians(-io.MouseDelta.y * 0.3f), glm::vec3(1.0f, 0.0f, 0.0f));
+            const glm::vec3 eye = camera3D.Target - forward * camera3D.Distance;
+            if (pane.Flying) {
+                // Look around in place: rotate, then move Target so the eye stays put.
+                if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
+                    glm::quat yawRot = glm::angleAxis(glm::radians(-io.MouseDelta.x * 0.25f), glm::vec3(0.0f, 1.0f, 0.0f));
+                    glm::quat pitchRot = glm::angleAxis(glm::radians(-io.MouseDelta.y * 0.25f), glm::vec3(1.0f, 0.0f, 0.0f));
                     camera3D.Rotation = glm::normalize(yawRot * camera3D.Rotation * pitchRot);
+                    const glm::vec3 newForward = camera3D.Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+                    camera3D.Target = eye + newForward * camera3D.Distance;
                 }
+                if (io.MouseWheel != 0.0f)
+                    ctx.Session.FlySpeed = std::clamp(ctx.Session.FlySpeed * (1.0f + io.MouseWheel * 0.15f), 0.05f, 500.0f);
+                glm::vec3 move(0.0f);
+                if (ImGui::IsKeyDown(ImGuiKey_W)) move += forward;
+                if (ImGui::IsKeyDown(ImGuiKey_S)) move -= forward;
+                if (ImGui::IsKeyDown(ImGuiKey_D)) move += right;
+                if (ImGui::IsKeyDown(ImGuiKey_A)) move -= right;
+                if (ImGui::IsKeyDown(ImGuiKey_E)) move += glm::vec3(0.0f, 1.0f, 0.0f);
+                if (ImGui::IsKeyDown(ImGuiKey_Q)) move -= glm::vec3(0.0f, 1.0f, 0.0f);
+                if (move != glm::vec3(0.0f)) {
+                    const float speed = ctx.Session.FlySpeed * (io.KeyShift ? 3.0f : 1.0f);
+                    camera3D.Target += glm::normalize(move) * speed * io.DeltaTime;
+                }
+                ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+            } else if (pane.AltZoom) {
+                camera3D.Distance = std::clamp(camera3D.Distance * (1.0f + (io.MouseDelta.x - io.MouseDelta.y) * 0.01f), MinSceneViewDistance3D, 5000.0f);
+            } else if (pane.AltOrbit) {
+                glm::quat yawRot = glm::angleAxis(glm::radians(io.MouseDelta.x * 0.3f), glm::vec3(0.0f, 1.0f, 0.0f));
+                glm::quat pitchRot = glm::angleAxis(glm::radians(-io.MouseDelta.y * 0.3f), glm::vec3(1.0f, 0.0f, 0.0f));
+                camera3D.Rotation = glm::normalize(yawRot * camera3D.Rotation * pitchRot);
+            } else if (imageHovered && io.MouseWheel != 0.0f) {
+                camera3D.Distance = std::clamp(camera3D.Distance * (1.0f - io.MouseWheel * 0.1f), MinSceneViewDistance3D, 5000.0f);
+            }
+            if ((imageHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) || pane.ViewPan) {
+                const float panScale = camera3D.Distance * 0.0015f;
+                camera3D.Target -= right * io.MouseDelta.x * panScale;
+                camera3D.Target += up * io.MouseDelta.y * panScale;
+            }
 
-                if (!orientationGizmoConsumedClick && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            if (imageHovered) {
+                if (!orientationGizmoConsumedClick && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt && ctx.ActiveGizmoMode != GizmoMode::View) {
                     if (hasGizmoTarget && hoveredGizmoAxis != GizmoAxis::None) {
                         ctx.DraggingGizmoAxis = hoveredGizmoAxis;
                         ctx.DraggingGizmoScreen = screen;
@@ -1662,66 +1970,78 @@ namespace Duality {
                             TransformComponent transform = ctx.SceneRef.GetWorldTransform(candidate);
                             testSphere(candidate, transform.Translation, EmptyEntityPickRadius3D);
                         }
-                        if (hit)
-                            ctx.Selected = hit;
+                        BeginPaneClick(screen, hit);
                     }
                 }
             }
 
-            // Not gated on imageHovered -- once a drag starts it should keep following the
-            // mouse even if the cursor leaves the image, matching the 2D pane's own gizmo drag.
+            // Marquee / click selection (also completes when the mouse is released outside).
+            UpdateClickAndMarquee(ctx, screen, [&](const glm::vec3& world, ImVec2& out) { return proj.Project(world, out); },
+                imagePos, ImVec2(imagePos.x + avail.x, imagePos.y + avail.y));
+
+            // Handle drag: not gated on imageHovered -- once it starts it follows the mouse even
+            // outside the image. Values are recomputed from the drag-start transforms + the
+            // accumulated delta (Ctrl = increment snapping, Unity).
             if (ctx.DraggingGizmoAxis != GizmoAxis::None && ctx.DraggingGizmoScreen == screen) {
-                if (hasGizmoTarget && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                    MarkSceneDirty(ctx);
-                    auto& selectedTransform = ctx.Selected.GetComponent<TransformComponent>();
-                    glm::vec2 mouseDelta{ io.MouseDelta.x, io.MouseDelta.y };
+                if (!s_GizmoDrag.Active)
+                    BeginGizmoDrag(ctx);
+                const bool snap = io.KeyCtrl;
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && !s_GizmoDrag.Targets.empty()) {
+                    const glm::vec2 mouseDelta{ io.MouseDelta.x, io.MouseDelta.y };
+                    const glm::vec3 axisDirs[3] = { s_GizmoDrag.Frame * glm::vec3(1, 0, 0), s_GizmoDrag.Frame * glm::vec3(0, 1, 0), s_GizmoDrag.Frame * glm::vec3(0, 0, 1) };
+                    const int axisIndex = ctx.DraggingGizmoAxis == GizmoAxis::X ? 0 : ctx.DraggingGizmoAxis == GizmoAxis::Y ? 1 : ctx.DraggingGizmoAxis == GizmoAxis::Z ? 2 : -1;
+                    // Mouse movement projected onto an axis' screen direction.
+                    auto axisScreenDelta = [&](const glm::vec3& axisDir) -> float {
+                        ImVec2 originScreen, tipScreen;
+                        const glm::vec3 origin = s_GizmoDrag.Pivot;
+                        const float axisLength = Gizmo3DWorldAxisLength(proj, origin);
+                        if (!proj.Project(origin, originScreen) || !proj.Project(origin + axisDir * axisLength, tipScreen))
+                            return 0.0f;
+                        glm::vec2 axis2D{ tipScreen.x - originScreen.x, tipScreen.y - originScreen.y };
+                        const float length = glm::length(axis2D);
+                        return length < 1e-4f ? 0.0f : glm::dot(mouseDelta, axis2D / length) * (axisLength / length);
+                    };
 
-                    if (ctx.ActiveGizmoMode == GizmoMode::Rotate) {
-                        ImVec2 prevMouse{ io.MousePos.x - io.MouseDelta.x, io.MousePos.y - io.MouseDelta.y };
-                        float angleNow = std::atan2(io.MousePos.y - gizmoOriginScreen.y, io.MousePos.x - gizmoOriginScreen.x);
-                        float anglePrev = std::atan2(prevMouse.y - gizmoOriginScreen.y, prevMouse.x - gizmoOriginScreen.x);
-                        float deltaDegrees = glm::degrees(angleNow - anglePrev);
-                        while (deltaDegrees > 180.0f) deltaDegrees -= 360.0f;
-                        while (deltaDegrees < -180.0f) deltaDegrees += 360.0f;
-                        if (ctx.DraggingGizmoAxis == GizmoAxis::X) selectedTransform.Rotation.x += deltaDegrees;
-                        else if (ctx.DraggingGizmoAxis == GizmoAxis::Y) selectedTransform.Rotation.y += deltaDegrees;
-                        else if (ctx.DraggingGizmoAxis == GizmoAxis::Z) selectedTransform.Rotation.z += deltaDegrees;
-                    } else {
-                        // Translate/Scale: project mouseDelta onto each axis's own screen-space
-                        // direction (recomputed fresh every frame so it stays correct as the
-                        // camera orbits), then apply the resulting scalar along that WORLD axis.
-                        auto axisScreenDelta = [&](const glm::vec3& axisDir) -> float {
-                            ImVec2 tipScreen;
-                            const float axisLength = Gizmo3DWorldAxisLength(proj, selectedTransform.Translation);
-                            if (!proj.Project(selectedTransform.Translation + axisDir * axisLength, tipScreen))
-                                return 0.0f;
-                            glm::vec2 axisDir2D{ tipScreen.x - gizmoOriginScreen.x, tipScreen.y - gizmoOriginScreen.y };
-                            float len = glm::length(axisDir2D);
-                            if (len < 1e-4f)
-                                return 0.0f;
-                            return glm::dot(mouseDelta, axisDir2D / len);
-                        };
-
-                        if (ctx.ActiveGizmoMode == GizmoMode::Scale) {
-                            if (ctx.DraggingGizmoAxis == GizmoAxis::X) selectedTransform.Scale.x += axisScreenDelta({ 1.0f, 0.0f, 0.0f }) * ScaleDragSensitivity;
-                            else if (ctx.DraggingGizmoAxis == GizmoAxis::Y) selectedTransform.Scale.y += axisScreenDelta({ 0.0f, 1.0f, 0.0f }) * ScaleDragSensitivity;
-                            else if (ctx.DraggingGizmoAxis == GizmoAxis::Z) selectedTransform.Scale.z += axisScreenDelta({ 0.0f, 0.0f, 1.0f }) * ScaleDragSensitivity;
-                            else if (ctx.DraggingGizmoAxis == GizmoAxis::Both)
-                                selectedTransform.Scale += glm::vec3((mouseDelta.x - mouseDelta.y) * ScaleDragSensitivity * 0.5f);
-                        } else {
-                            // World-units-per-pixel scaled by distance from camera, same idea
-                            // as the orbit camera's own pan scale above.
-                            float worldPerPixel = camera3D.Distance * 0.003f;
-                            if (ctx.DraggingGizmoAxis == GizmoAxis::X) selectedTransform.Translation.x += axisScreenDelta({ 1.0f, 0.0f, 0.0f }) * worldPerPixel;
-                            else if (ctx.DraggingGizmoAxis == GizmoAxis::Y) selectedTransform.Translation.y += axisScreenDelta({ 0.0f, 1.0f, 0.0f }) * worldPerPixel;
-                            else if (ctx.DraggingGizmoAxis == GizmoAxis::Z) selectedTransform.Translation.z += axisScreenDelta({ 0.0f, 0.0f, 1.0f }) * worldPerPixel;
-                            else if (ctx.DraggingGizmoAxis == GizmoAxis::Both)
-                                selectedTransform.Translation += right * mouseDelta.x * worldPerPixel - up * mouseDelta.y * worldPerPixel;
+                    if (handleMode == GizmoMode::Rotate) {
+                        ImVec2 originScreen;
+                        float deltaDegrees = 0.0f;
+                        if (proj.Project(s_GizmoDrag.Pivot, originScreen)) {
+                            ImVec2 prevMouse{ io.MousePos.x - io.MouseDelta.x, io.MousePos.y - io.MouseDelta.y };
+                            float angleNow = std::atan2(io.MousePos.y - originScreen.y, io.MousePos.x - originScreen.x);
+                            float anglePrev = std::atan2(prevMouse.y - originScreen.y, prevMouse.x - originScreen.x);
+                            deltaDegrees = glm::degrees(angleNow - anglePrev);
+                            while (deltaDegrees > 180.0f) deltaDegrees -= 360.0f;
+                            while (deltaDegrees < -180.0f) deltaDegrees += 360.0f;
                         }
+                        s_GizmoDrag.RawRotate += deltaDegrees;
+                        ApplyGizmoDrag(ctx, glm::vec3(0.0f), axisIndex, Snap(s_GizmoDrag.RawRotate, ctx.Session.SnapRotate, snap), glm::vec3(0.0f));
+                    } else if (handleMode == GizmoMode::Scale) {
+                        if (axisIndex >= 0)
+                            s_GizmoDrag.RawScale[axisIndex] += axisScreenDelta(axisDirs[axisIndex]) / std::max(0.001f, Gizmo3DWorldAxisLength(proj, s_GizmoDrag.Pivot)) * ScaleDragSensitivity;
+                        else
+                            s_GizmoDrag.RawScale += glm::vec3((mouseDelta.x - mouseDelta.y) * 0.01f * ScaleDragSensitivity);
+                        glm::vec3 effective(Snap(s_GizmoDrag.RawScale.x, ctx.Session.SnapScale, snap), Snap(s_GizmoDrag.RawScale.y, ctx.Session.SnapScale, snap), Snap(s_GizmoDrag.RawScale.z, ctx.Session.SnapScale, snap));
+                        ApplyGizmoDrag(ctx, glm::vec3(0.0f), -1, 0.0f, effective);
+                    } else {
+                        glm::vec3 worldOffset(0.0f);
+                        if (axisIndex >= 0) {
+                            s_GizmoDrag.RawTranslate[axisIndex] += axisScreenDelta(axisDirs[axisIndex]);
+                            worldOffset = axisDirs[axisIndex] * Snap(s_GizmoDrag.RawTranslate[axisIndex], ctx.Session.SnapMove, snap);
+                        } else {
+                            // Free move in the camera plane.
+                            const float worldPerPixel = std::max(0.0001f, glm::dot(s_GizmoDrag.Pivot - cameraPos, forward)) * 2.0f *
+                                std::tan(glm::radians(FovDegrees) * 0.5f) / static_cast<float>(viewportH);
+                            s_GizmoDrag.RawTranslate += right * mouseDelta.x * worldPerPixel - up * mouseDelta.y * worldPerPixel;
+                            worldOffset = glm::vec3(Snap(s_GizmoDrag.RawTranslate.x, ctx.Session.SnapMove, snap),
+                                Snap(s_GizmoDrag.RawTranslate.y, ctx.Session.SnapMove, snap), Snap(s_GizmoDrag.RawTranslate.z, ctx.Session.SnapMove, snap));
+                        }
+                        ApplyGizmoDrag(ctx, worldOffset, -1, 0.0f, glm::vec3(0.0f));
                     }
                 }
-                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
                     ctx.DraggingGizmoAxis = GizmoAxis::None;
+                    s_GizmoDrag = GizmoDragState{};
+                }
             }
         }
 
@@ -1995,57 +2315,128 @@ namespace Duality {
             // drag already in progress keeps tracking even if the mouse drifts
             // outside the image mid-drag. Drawn in both panes (the selected
             // entity is shared, editable from whichever pane is more convenient).
-            bool hasGizmoTarget = ctx.Selected && ctx.Selected.HasComponent<TransformComponent>();
-            GizmoAxis hoveredGizmoAxis = GizmoAxis::None;
-            ImVec2 gizmoOrigin{};
-            if (hasGizmoTarget) {
-                TransformComponent selectedWorld = ctx.SceneRef.GetWorldTransform(ctx.Selected);
-                gizmoOrigin = worldToPaneScreen({ selectedWorld.Translation.x, selectedWorld.Translation.y });
-                // Only the pane that started the current drag reports a hovered
-                // handle -- otherwise moving the mouse over the OTHER pane while
-                // dragging in this one would steal the highlight/hit-test.
-                GizmoAxis activeAxisForThisPane = (ctx.DraggingGizmoAxis != GizmoAxis::None && ctx.DraggingGizmoScreen != screen)
-                    ? GizmoAxis::None : ctx.DraggingGizmoAxis;
-                hoveredGizmoAxis = DrawAndHitTestGizmo2D(ctx.ActiveGizmoMode, gizmoOrigin, activeAxisForThisPane);
+            // Selection outline (Unity's orange): each selected sprite's rotated rectangle.
+            {
+                ImDrawList* outline = ImGui::GetWindowDrawList();
+                const ImU32 orange = IM_COL32(255, 140, 30, 230);
+                for (Entity entity : ctx.SelectedEntities) {
+                    if (!entity || !entity.HasComponent<SpriteRendererComponent>() || !ShouldRenderOnScreen(ctx.SceneRef, entity.Handle(), screen))
+                        continue;
+                    const TransformComponent world = ctx.SceneRef.GetWorldTransform(entity);
+                    const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
+                    const glm::vec2 size = sprite.Size * glm::vec2(world.Scale.x, world.Scale.y);
+                    const float radians = glm::radians(world.Rotation.z);
+                    const float c = std::cos(radians), s = std::sin(radians);
+                    ImVec2 corners[4];
+                    const glm::vec2 local[4] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+                    for (int i = 0; i < 4; ++i) {
+                        const glm::vec2 offset = (local[i] - sprite.Pivot) * size;
+                        corners[i] = worldToPaneScreen({ world.Translation.x + offset.x * c - offset.y * s, world.Translation.y + offset.x * s + offset.y * c });
+                    }
+                    outline->AddPolyline(corners, 4, orange, ImDrawFlags_Closed, 1.5f);
+                }
             }
 
-            if (imageHovered) {
-                // Frame Selected (Unity's F): keep the Scene view's camera independent
-                // from the game's CameraComponent, then fit a selected sprite comfortably
-                // in the editor pane.  SpriteRenderer::Size is expressed in world units
-                // (e.g. a 90 px texture at PPU 100 is 0.9 units), so this is the normal
-                // way to inspect and edit small 2D game assets without inflating them.
-                if (!io.WantTextInput && ctx.Selected &&
-                    ctx.Selected.HasComponent<TransformComponent>() &&
-                    ImGui::IsKeyPressed(ImGuiKey_F, false)) {
-                    TransformComponent selectedWorld = ctx.SceneRef.GetWorldTransform(ctx.Selected);
-                    camera.Position = { selectedWorld.Translation.x, selectedWorld.Translation.y };
+            // Handles for the whole selection (Pivot / Center, see the toolbar). The View tool
+            // has none; the Rect tool moves with the free-move square and resizes with corners.
+            const std::vector<Entity> gizmoTargets = GizmoTargets(ctx);
+            bool hasGizmoTarget = ctx.ActiveGizmoMode != GizmoMode::View && !gizmoTargets.empty() &&
+                ShouldRenderOnScreen(ctx.SceneRef, gizmoTargets.front().Handle(), screen);
+            GizmoAxis hoveredGizmoAxis = GizmoAxis::None;
+            ImVec2 gizmoOrigin{};
+            const GizmoMode handleMode = ctx.ActiveGizmoMode == GizmoMode::Rect ? GizmoMode::Translate : ctx.ActiveGizmoMode;
+            bool rectHandleActive = false;
+            if (hasGizmoTarget) {
+                const glm::vec3 handleWorld = (s_GizmoDrag.Active && ctx.DraggingGizmoScreen == screen) ? s_GizmoDrag.Pivot : HandlePosition(ctx, gizmoTargets);
+                gizmoOrigin = worldToPaneScreen({ handleWorld.x, handleWorld.y });
+                // Only the pane that started the current drag reports a hovered handle.
+                GizmoAxis activeAxisForThisPane = (ctx.DraggingGizmoAxis != GizmoAxis::None && ctx.DraggingGizmoScreen != screen)
+                    ? GizmoAxis::None : ctx.DraggingGizmoAxis;
+                ImGui::PushClipRect(imagePos, ImVec2(imagePos.x + avail.x, imagePos.y + avail.y), true);
+                hoveredGizmoAxis = DrawAndHitTestGizmo2D(handleMode, gizmoOrigin, activeAxisForThisPane);
+                ImGui::PopClipRect();
 
-                    glm::vec2 bounds{ 1.0f, 1.0f };
-                    if (ctx.Selected.HasComponent<SpriteRendererComponent>()) {
-                        const auto& sprite = ctx.Selected.GetComponent<SpriteRendererComponent>();
-                        bounds = glm::max(glm::abs(sprite.Size * glm::vec2(selectedWorld.Scale.x, selectedWorld.Scale.y)), glm::vec2{ 0.01f, 0.01f });
+                // Rect tool corners (single sprite): drag a corner, the opposite one stays put.
+                Entity primary = gizmoTargets.front();
+                if (ctx.ActiveGizmoMode == GizmoMode::Rect && gizmoTargets.size() == 1 && primary.HasComponent<SpriteRendererComponent>()) {
+                    auto& sprite = primary.GetComponent<SpriteRendererComponent>();
+                    auto& transform = primary.GetComponent<TransformComponent>();
+                    const TransformComponent world = ctx.SceneRef.GetWorldTransform(primary);
+                    const glm::vec2 worldSize = sprite.Size * glm::vec2(world.Scale.x, world.Scale.y);
+                    const glm::vec2 topLeft{ world.Translation.x - worldSize.x * sprite.Pivot.x, world.Translation.y - worldSize.y * sprite.Pivot.y };
+                    ImDrawList* drawList = ImGui::GetWindowDrawList();
+                    drawList->AddRect(worldToPaneScreen(topLeft), worldToPaneScreen(topLeft + worldSize), IM_COL32(90, 160, 255, 220), 0.0f, 0, 1.5f);
+                    for (int corner = 0; corner < 4; ++corner) {
+                        const bool maxX = corner == 1 || corner == 2, maxY = corner >= 2;
+                        const ImVec2 point = worldToPaneScreen({ topLeft.x + (maxX ? worldSize.x : 0.0f), topLeft.y + (maxY ? worldSize.y : 0.0f) });
+                        ImGui::PushID(corner);
+                        ImGui::SetCursorScreenPos(ImVec2(point.x - 5.0f, point.y - 5.0f));
+                        ImGui::InvisibleButton("##RectCorner", ImVec2(10.0f, 10.0f));
+                        const bool active = ImGui::IsItemActive();
+                        rectHandleActive |= active || ImGui::IsItemHovered();
+                        drawList->AddRectFilled(ImVec2(point.x - 4.0f, point.y - 4.0f), ImVec2(point.x + 4.0f, point.y + 4.0f),
+                            active ? IM_COL32(255, 210, 60, 255) : IM_COL32(90, 160, 255, 255));
+                        if (active && (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f)) {
+                            const glm::vec2 delta{ io.MouseDelta.x / worldToPixels, io.MouseDelta.y / worldToPixels };
+                            glm::vec2 newSize = worldSize;
+                            glm::vec2 move{ 0.0f, 0.0f };
+                            newSize.x += maxX ? delta.x : -delta.x;
+                            newSize.y += maxY ? delta.y : -delta.y;
+                            move.x = delta.x * (maxX ? sprite.Pivot.x : 1.0f - sprite.Pivot.x);
+                            move.y = delta.y * (maxY ? sprite.Pivot.y : 1.0f - sprite.Pivot.y);
+                            auto safeDiv = [](float a, float b) { return std::abs(b) > 1e-6f ? a / b : a; };
+                            sprite.Size = { std::max(0.01f, safeDiv(newSize.x, world.Scale.x)), std::max(0.01f, safeDiv(newSize.y, world.Scale.y)) };
+                            const glm::vec2 localMove = WorldDeltaToLocal(ctx.SceneRef, primary, move);
+                            transform.Translation.x += localMove.x;
+                            transform.Translation.y += localMove.y;
+                            MarkSceneDirty(ctx, "Resize");
+                        }
+                        ImGui::PopID();
                     }
+                }
+            }
+            if (rectHandleActive)
+                hoveredGizmoAxis = GizmoAxis::None;
 
+            // Frame Selected (F / Hierarchy double-click): fit the whole selection.
+            if (ctx.Session.RequestFrameSelected && ctx.Session.FocusedPanel != EditorPanel::Game) {
+                glm::vec3 boundsMin, boundsMax;
+                if (SelectionBounds(ctx, boundsMin, boundsMax)) {
+                    camera.Position = { (boundsMin.x + boundsMax.x) * 0.5f, (boundsMin.y + boundsMax.y) * 0.5f };
+                    const glm::vec2 bounds = glm::max(glm::vec2(boundsMax.x - boundsMin.x, boundsMax.y - boundsMin.y), glm::vec2(0.01f));
                     constexpr float FitFraction = 0.65f;
                     const float fitZoomX = (static_cast<float>(viewportW) * FitFraction) / (bounds.x * PhysicsUnits::PPU());
                     const float fitZoomY = (static_cast<float>(viewportH) * FitFraction) / (bounds.y * PhysicsUnits::PPU());
                     camera.Zoom = std::clamp(std::min(fitZoomX, fitZoomY), 0.1f, 5.0f);
                 }
+            }
 
-                if (io.MouseWheel != 0.0f)
-                    camera.Zoom = std::clamp(camera.Zoom * (1.0f + io.MouseWheel * 0.1f), 0.1f, 5.0f);
+            // ---- Navigation (Unity 2D mode): wheel zooms toward the cursor, MMB / RMB drag (or
+            // the View tool's LMB drag) pans.
+            PaneInteraction& pane = InteractionFor(screen);
+            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+                pane.Flying = true;
+            if (imageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && (ctx.ActiveGizmoMode == GizmoMode::View || io.KeyAlt))
+                pane.ViewPan = true;
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Right))
+                pane.Flying = false;
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+                pane.ViewPan = false;
+            if (pane.Flying || pane.ViewPan || (imageHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))) {
+                camera.Position.x -= io.MouseDelta.x / worldToPixels;
+                camera.Position.y -= io.MouseDelta.y / worldToPixels;
+            }
+            if (imageHovered && io.MouseWheel != 0.0f) {
+                // Keep the world point under the cursor fixed while zooming.
+                const glm::vec2 cursor{ io.MousePos.x - imagePos.x - viewportW * 0.5f, io.MousePos.y - imagePos.y - viewportH * 0.5f };
+                const glm::vec2 before = cursor / worldToPixels + camera.Position;
+                camera.Zoom = std::clamp(camera.Zoom * (1.0f + io.MouseWheel * 0.1f), 0.1f, 5.0f);
+                const float newWorldToPixels = camera.Zoom * PhysicsUnits::PPU();
+                camera.Position = before - cursor / newWorldToPixels;
+            }
 
-                // Middle-mouse-drag pans, matching MyGameEngine's own Scene
-                // view and Unity's convention (right-click is left unbound,
-                // same as the reference -- it was only ever repurposed here as
-                // an interim stand-in before this fix).
-                if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
-                    camera.Position.x -= io.MouseDelta.x / worldToPixels;
-                    camera.Position.y -= io.MouseDelta.y / worldToPixels;
-                }
-
-                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            if (imageHovered && !rectHandleActive && !pane.ViewPan) {
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt && ctx.ActiveGizmoMode != GizmoMode::View) {
                     if (hasGizmoTarget && hoveredGizmoAxis != GizmoAxis::None) {
                         ctx.DraggingGizmoAxis = hoveredGizmoAxis;
                         ctx.DraggingGizmoScreen = screen;
@@ -2129,58 +2520,56 @@ namespace Duality {
                             if (glm::distance(worldPoint, pivot) <= EmptyEntityPickRadius2D)
                                 tryPick(candidate);
                         }
-                        if (hit)
-                            ctx.Selected = hit;
+                        BeginPaneClick(screen, hit);
                     }
                 }
             }
 
-            // Not gated on imageHovered: once a drag starts it should keep
-            // following the mouse even if the cursor leaves the image rect,
-            // matching how ImGui's own drag widgets behave. Gated to the pane
-            // that actually started the drag (ctx.DraggingGizmoScreen) so a fast
-            // mouse movement into the other pane mid-drag doesn't reinterpret the
-            // drag using this pane's (wrong) camera pan/zoom.
-            if (ctx.DraggingGizmoAxis != GizmoAxis::None && ctx.DraggingGizmoScreen == screen) {
-                if (hasGizmoTarget && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                    MarkSceneDirty(ctx);
-                    auto& selectedTransform = ctx.Selected.GetComponent<TransformComponent>();
+            // Marquee / click selection (also completes when the mouse is released outside).
+            UpdateClickAndMarquee(ctx, screen, [&](const glm::vec3& world, ImVec2& out) { out = worldToPaneScreen({ world.x, world.y }); return true; },
+                imagePos, ImVec2(imagePos.x + avail.x, imagePos.y + avail.y));
 
-                    if (ctx.ActiveGizmoMode == GizmoMode::Rotate) {
-                        // Angle delta between this frame's and last frame's
-                        // mouse position, both measured from the gizmo's
-                        // origin -- normalized into [-180, 180] so crossing
-                        // atan2's -180/180 discontinuity behind the origin
-                        // doesn't register as a ~360 degree jump.
+            // Handle drag: not gated on imageHovered (follows the mouse outside the image), only
+            // in the pane that started it. Recomputed from the drag-start transforms + the
+            // accumulated delta, so Ctrl increment snapping never drifts.
+            if (ctx.DraggingGizmoAxis != GizmoAxis::None && ctx.DraggingGizmoScreen == screen) {
+                if (!s_GizmoDrag.Active)
+                    BeginGizmoDrag(ctx);
+                const bool snap = io.KeyCtrl;
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && !s_GizmoDrag.Targets.empty()) {
+                    const glm::vec2 worldDelta{ io.MouseDelta.x / worldToPixels, io.MouseDelta.y / worldToPixels };
+                    if (handleMode == GizmoMode::Rotate) {
+                        const ImVec2 origin = worldToPaneScreen({ s_GizmoDrag.Pivot.x, s_GizmoDrag.Pivot.y });
                         ImVec2 prevMouse{ io.MousePos.x - io.MouseDelta.x, io.MousePos.y - io.MouseDelta.y };
-                        float angleNow = std::atan2(io.MousePos.y - gizmoOrigin.y, io.MousePos.x - gizmoOrigin.x);
-                        float anglePrev = std::atan2(prevMouse.y - gizmoOrigin.y, prevMouse.x - gizmoOrigin.x);
+                        float angleNow = std::atan2(io.MousePos.y - origin.y, io.MousePos.x - origin.x);
+                        float anglePrev = std::atan2(prevMouse.y - origin.y, prevMouse.x - origin.x);
                         float deltaDegrees = glm::degrees(angleNow - anglePrev);
                         while (deltaDegrees > 180.0f) deltaDegrees -= 360.0f;
                         while (deltaDegrees < -180.0f) deltaDegrees += 360.0f;
-                        selectedTransform.Rotation.z += deltaDegrees;
+                        s_GizmoDrag.RawRotate += deltaDegrees;
+                        ApplyGizmoDrag(ctx, glm::vec3(0.0f), 2, Snap(s_GizmoDrag.RawRotate, ctx.Session.SnapRotate, snap), glm::vec3(0.0f));
+                    } else if (handleMode == GizmoMode::Scale) {
+                        // Scale is measured along the primary object's local axes.
+                        const glm::vec2 localDelta = WorldDeltaToLocal(ctx.SceneRef, s_GizmoDrag.Targets.front(), worldDelta);
+                        if (ctx.DraggingGizmoAxis == GizmoAxis::X || ctx.DraggingGizmoAxis == GizmoAxis::Both)
+                            s_GizmoDrag.RawScale.x += localDelta.x * ScaleDragSensitivity;
+                        if (ctx.DraggingGizmoAxis == GizmoAxis::Y || ctx.DraggingGizmoAxis == GizmoAxis::Both)
+                            s_GizmoDrag.RawScale.y += (ctx.DraggingGizmoAxis == GizmoAxis::Both ? localDelta.x : localDelta.y) * ScaleDragSensitivity;
+                        ApplyGizmoDrag(ctx, glm::vec3(0.0f), -1, 0.0f, glm::vec3(Snap(s_GizmoDrag.RawScale.x, ctx.Session.SnapScale, snap),
+                            Snap(s_GizmoDrag.RawScale.y, ctx.Session.SnapScale, snap), 0.0f));
                     } else {
-                        glm::vec2 worldDelta{ io.MouseDelta.x / worldToPixels, io.MouseDelta.y / worldToPixels };
-                        // The gizmo drag is a world-space mouse delta, but it's being
-                        // added to a LOCAL Translation/Scale -- converted so dragging
-                        // feels the same regardless of the entity's parent (identity
-                        // conversion for a root entity).
-                        glm::vec2 localDelta = WorldDeltaToLocal(ctx.SceneRef, ctx.Selected, worldDelta);
-                        if (ctx.ActiveGizmoMode == GizmoMode::Scale) {
-                            if (ctx.DraggingGizmoAxis == GizmoAxis::X || ctx.DraggingGizmoAxis == GizmoAxis::Both)
-                                selectedTransform.Scale.x += localDelta.x * ScaleDragSensitivity;
-                            if (ctx.DraggingGizmoAxis == GizmoAxis::Y || ctx.DraggingGizmoAxis == GizmoAxis::Both)
-                                selectedTransform.Scale.y += localDelta.y * ScaleDragSensitivity;
-                        } else {
-                            if (ctx.DraggingGizmoAxis == GizmoAxis::X || ctx.DraggingGizmoAxis == GizmoAxis::Both)
-                                selectedTransform.Translation.x += localDelta.x;
-                            if (ctx.DraggingGizmoAxis == GizmoAxis::Y || ctx.DraggingGizmoAxis == GizmoAxis::Both)
-                                selectedTransform.Translation.y += localDelta.y;
-                        }
+                        if (ctx.DraggingGizmoAxis == GizmoAxis::X || ctx.DraggingGizmoAxis == GizmoAxis::Both)
+                            s_GizmoDrag.RawTranslate.x += worldDelta.x;
+                        if (ctx.DraggingGizmoAxis == GizmoAxis::Y || ctx.DraggingGizmoAxis == GizmoAxis::Both)
+                            s_GizmoDrag.RawTranslate.y += worldDelta.y;
+                        ApplyGizmoDrag(ctx, glm::vec3(Snap(s_GizmoDrag.RawTranslate.x, ctx.Session.SnapMove, snap),
+                            Snap(s_GizmoDrag.RawTranslate.y, ctx.Session.SnapMove, snap), 0.0f), -1, 0.0f, glm::vec3(0.0f));
                     }
                 }
-                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
                     ctx.DraggingGizmoAxis = GizmoAxis::None;
+                    s_GizmoDrag = GizmoDragState{};
+                }
             }
         }
 
@@ -2188,22 +2577,26 @@ namespace Duality {
         // DrawScenePane2D or DrawScenePane3D above -- a pane renders through exactly
         // one pipeline at a time, never both composited together (see RenderMode).
         void DrawScenePane(EditorContext& ctx, const char* label, Screen screen, SceneViewCamera& camera, SceneViewCamera3D& camera3D, RenderMode& renderMode, Framebuffer& framebuffer, ImVec2 paneSize) {
-            ImGui::Text("%s", label);
-            ImGui::SameLine();
-
+            // Pane header: screen name, then Unity's 2D toggle as a 2D | 3D segmented button.
             auto renderModeButton = [&](const char* buttonLabel, RenderMode mode) {
-                bool active = (renderMode == mode);
-                if (active)
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+                const bool active = (renderMode == mode);
+                ImGui::PushStyleColor(ImGuiCol_Button, active ? ImGui::ColorConvertU32ToFloat4(EditorColors::Selection()) : ImGui::GetStyleColorVec4(ImGuiCol_Button));
                 if (ImGui::SmallButton(buttonLabel))
                     renderMode = mode;
-                if (active)
-                    ImGui::PopStyleColor();
-                ImGui::SameLine();
+                ImGui::PopStyleColor();
             };
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s %s", screen == Screen::Top ? EditorIcons::Image : EditorIcons::Gamepad, label);
+            ImGui::SameLine();
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(1.0f, ImGui::GetStyle().ItemSpacing.y));
             renderModeButton("2D", RenderMode::Mode2D);
+            ImGui::SameLine();
             renderModeButton("3D", RenderMode::Mode3D);
-            ImGui::NewLine();
+            ImGui::PopStyleVar();
+            if (renderMode == RenderMode::Mode3D && InteractionFor(screen).Flying) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("Fly speed %.2f (wheel)", ctx.Session.FlySpeed);
+            }
 
             if (renderMode == RenderMode::Mode2D)
                 DrawScenePane2D(ctx, screen, camera, framebuffer, paneSize);
@@ -2213,56 +2606,53 @@ namespace Duality {
     }
 
     void ScenePanel::OnImGuiRender(EditorContext& ctx) {
-        ImGui::Begin("Scene");
-
-        // Duplicate from either Scene view without making the Hierarchy a
-        // mandatory stop. PrefabSerializer keeps the selected entity's complete
-        // subtree and remaps references that point inside that subtree.
-        if (!ctx.IsPlaying && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-            !ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl &&
-            ImGui::IsKeyPressed(ImGuiKey_D, false) && ctx.Selected &&
-            ctx.SceneRef.Registry().valid(ctx.Selected.Handle())) {
-            Entity duplicate = PrefabSerializer::Duplicate(ctx.SceneRef, ctx.Selected);
-            if (duplicate) {
-                ctx.Selected = duplicate;
-                MarkSceneDirty(ctx);
-            }
+        if (!ctx.Session.ShowScene) {
+            ctx.Session.RequestFrameSelected = false;
+            return;
         }
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f, 2.0f));
+        const bool visible = ImGui::Begin("Scene", &ctx.Session.ShowScene);
+        ImGui::PopStyleVar();
+        if (!visible) {
+            ImGui::End();
+            ctx.Session.RequestFrameSelected = false;
+            return;
+        }
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+            ctx.Session.FocusedPanel = EditorPanel::Scene;
+        // A right/middle click into the Scene view focuses it too (so Delete / Ctrl+D / F act
+        // on the selection right after clicking there, like Unity).
+        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+            (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseClicked(ImGuiMouseButton_Middle)))
+            ImGui::SetWindowFocus();
 
-        // Gizmo tool switcher -- Unity/MyGameEngine's Q/W/E/R convention,
-        // minus a "None" mode (Translate is always at least available). Shared
-        // across both panes below (one selection, one gizmo).
-        auto modeButton = [&](const char* label, GizmoMode mode) {
-            bool active = (ctx.ActiveGizmoMode == mode);
-            if (active)
-                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-            if (ImGui::Button(label))
-                ctx.ActiveGizmoMode = mode;
-            if (active)
-                ImGui::PopStyleColor();
-            ImGui::SameLine();
-        };
-        modeButton("Translate", GizmoMode::Translate);
-        modeButton("Rotate", GizmoMode::Rotate);
-        modeButton("Scale", GizmoMode::Scale);
-        ImGui::NewLine();
-
-        // Two side-by-side panes, one per screen -- fixed 50/50 split (a
-        // draggable splitter is a nice-to-have, not built yet, see ROADMAP.md).
+        // Two side-by-side panes, one per screen, with a draggable splitter between them.
         ImVec2 avail = ImGui::GetContentRegionAvail();
-        constexpr float PaneSpacing = 4.0f;
-        ImVec2 paneSize{ std::max(1.0f, (avail.x - PaneSpacing) * 0.5f), std::max(1.0f, avail.y) };
+        constexpr float PaneSpacing = 6.0f;
+        m_SplitRatio = std::clamp(m_SplitRatio, 0.15f, 0.85f);
+        const float usable = std::max(2.0f, avail.x - PaneSpacing);
+        ImVec2 topSize{ std::max(1.0f, usable * m_SplitRatio), std::max(1.0f, avail.y) };
+        ImVec2 bottomSize{ std::max(1.0f, usable - topSize.x), std::max(1.0f, avail.y) };
 
-        ImGui::BeginChild("TopScenePane", paneSize, true);
-        DrawScenePane(ctx, "Top Screen", Screen::Top, ctx.TopSceneView, ctx.TopSceneView3D, ctx.TopRenderMode, ctx.TopSceneFramebuffer, paneSize);
+        ImGui::BeginChild("TopScenePane", topSize, ImGuiChildFlags_Border);
+        DrawScenePane(ctx, "Top Screen", Screen::Top, ctx.TopSceneView, ctx.TopSceneView3D, ctx.TopRenderMode, ctx.TopSceneFramebuffer, topSize);
         ImGui::EndChild();
 
-        ImGui::SameLine(0.0f, PaneSpacing);
+        ImGui::SameLine(0.0f, 0.0f);
+        ImGui::InvisibleButton("##ScenePaneSplitter", ImVec2(PaneSpacing, avail.y));
+        if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        if (ImGui::IsItemActive() && usable > 1.0f)
+            m_SplitRatio += ImGui::GetIO().MouseDelta.x / usable;
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            m_SplitRatio = 0.5f;
+        ImGui::SameLine(0.0f, 0.0f);
 
-        ImGui::BeginChild("BottomScenePane", paneSize, true);
-        DrawScenePane(ctx, "Bottom Screen", Screen::Bottom, ctx.BottomSceneView, ctx.BottomSceneView3D, ctx.BottomRenderMode, ctx.BottomSceneFramebuffer, paneSize);
+        ImGui::BeginChild("BottomScenePane", bottomSize, ImGuiChildFlags_Border);
+        DrawScenePane(ctx, "Bottom Screen", Screen::Bottom, ctx.BottomSceneView, ctx.BottomSceneView3D, ctx.BottomRenderMode, ctx.BottomSceneFramebuffer, bottomSize);
         ImGui::EndChild();
 
+        ctx.Session.RequestFrameSelected = false;
         ImGui::End();
     }
 

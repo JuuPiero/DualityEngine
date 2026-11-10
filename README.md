@@ -67,23 +67,72 @@ On launch, the Editor opens (creating if needed) a fixed sample project at
 `SampleProject/` next to the executable. A different project can be created
 or opened via the File menu.
 
+#### Unity-style workflow (layout, shortcuts, undo, selection)
+
+The Editor mirrors Unity's editor: names, menus, shortcuts and behaviour. Full reference
+(with the shortcut table): `Docs/pages/editor.html`.
+
+- **Look & layout** -- Unity's dark skin (Edit > Preferences > Color Theme: Unity Dark
+  default; Blue/Pink/Dark kept), the OS's Segoe UI font loaded at runtime (never copied into
+  the repo; falls back to ImGui's bitmap font), Font Awesome icons. Default dock layout:
+  Hierarchy left, Scene/Game tabs center, Inspector right, Project/Console tabs bottom. The
+  layout persists in `imgui.ini` (the old "Project window" window entry is renamed to
+  "Project" automatically); Window > Layouts > Reset (or the toolbar's Layout button)
+  rebuilds the default; Window > General reopens any closed panel.
+- **Main toolbar** -- Q/W/E/R/T tools (View, Move, Rotate, Scale, Rect), Pivot/Center (Z),
+  Global/Local (X), increment-snap settings (magnet), Play/Pause/Step centered (Ctrl+P,
+  Ctrl+Shift+P, Ctrl+Alt+P), Layout menu right. Playing tints the whole editor; Stop reverts
+  every Play-mode change and keeps the selection; Step advances one fixed 1/60 s frame.
+- **Undo/Redo** (Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z) for every scene edit -- field edits, gizmo /
+  collider / UI-rect drags, create/delete/duplicate/paste/reparent/reorder, add/remove/reset/
+  paste component, active toggles, prefab operations. One interaction = one step (a whole
+  drag, a whole typed value); Edit shows "Undo Move" / "Redo Add Rigidbody 2D". Selection and
+  Hierarchy foldouts are restored through editor-only stable entity ids (never written to
+  scene files). Unsaved scenes show `*` in the window title / menu bar / Hierarchy, and
+  switching scene/project or closing asks Save / Don't Save / Cancel.
+- **Selection & commands** -- Ctrl/Shift-click and arrow keys in the Hierarchy, click /
+  Ctrl-click / marquee in the Scene view, Ctrl+A; Duplicate (Ctrl+D), Copy/Cut/Paste/Paste As
+  Child (Ctrl+C/X/V, Ctrl+Shift+V -- EntityRefs inside the copy point at the copies, references
+  to other objects are kept), Delete, Rename (F2, inline), Frame (F / double-click), Create
+  Empty (Ctrl+Shift+N), Create Empty Child (Alt+Shift+N), Create Empty Parent (Ctrl+Shift+G),
+  Toggle Active (Alt+Shift+A). The GameObject menu (3D/2D Object, Effects, Light, Audio, UI,
+  Camera) is shared by the main menu, the Hierarchy "+" button and every context menu.
+- **Inspector** -- GameObject header (active, name, Tag, Layer, prefab row with Open / Select /
+  Overrides: Apply All / Revert All / Unpack), component cards with enable checkbox + kebab
+  menu (Reset, Remove, Move Up/Down for scripts, Copy, Paste Values, Paste As New, Edit Script),
+  Unity property layout (labels left, X/Y/Z vector fields, color swatch + hex, object fields
+  with thumbnails: click pings, double-click selects, a picker button), multi-object editing
+  (shared components only, differing values shown as "-", one edit applies to all as one Undo
+  step), prefab overrides in bold (right-click > Revert), and a categorized searchable Add
+  Component popup with Scripts `(C++)`/`(TS)` and **New Script** (TypeScript or C++).
+- **Scene view** -- RMB look + WASD/QE fly (Shift faster, wheel = speed), Alt+LMB orbit,
+  Alt+RMB / wheel zoom, MMB pan (2D: MMB/RMB pan, wheel zooms toward the cursor), handles for
+  the whole selection, Ctrl increment snapping (Move 0.25, Rotate 15 deg, Scale 0.1), orange
+  selection outlines, a draggable splitter between the Top/Bottom panes.
+- **Console** -- Clear, Collapse, Clear on Play, Error Pause, per-level counts/toggles, search,
+  a details pane with the full selected message.
+- **Project** (was "Project window") -- folder tree + grid, "+" Create menu, clickable
+  breadcrumb, project-wide search, icon-size slider (Ctrl+wheel), Show in Explorer / Open /
+  Copy Path, F2 / Delete / Ctrl+D, drag a Hierarchy object in to make a prefab, ping highlight.
+- **File > Open Recent Project** keeps the last 10 projects (`EditorSettings.json`).
+- **Automation** -- `DualityEditor --editor-test script.txt [--project X.dproj] [--size WxH]`
+  drives the editor in-process (ImGui input queue + editor commands, offscreen screenshots,
+  `expect-*` checks; exit code = failures) without touching the desktop's real mouse/keyboard.
+
+
 - **File menu** (top) -- **New Project...** (pick a location + name via a
   native Save dialog -- e.g. choosing `F:\Projects\MyGame.dproj` creates
   `F:\Projects\MyGame\MyGame.dproj` + `F:\Projects\MyGame\Assets\`, a
   dedicated project folder with the `.dproj` at its own root, matching
   Unity's own "New Project" flow), **Open Project...** (browse for a
-  `.dproj` file; swaps the active project/scene/Content Browser root,
-  stopping Play first if it's running), **Save Scene** / **Load Scene**
-  (JSON round-trip to
-  `<project>/Assets/Scene.scene` -- Load Scene clears the current scene
-  first, then loads: it used to just add every loaded entity alongside
-  whatever was already there, a real reported bug), **Open Scene...**
-  (browse for a different `.scene` file and switch to it -- unlike Save
-  Scene As... below, this DOES change which scene Save/Load Scene operate
-  on afterward), **Save Scene As...** (writes a *snapshot* of the current
-  scene to a new file the user picks, without changing which scene Save/
-  Load Scene operate on -- this is how a project gets a second scene file
-  for `SceneManager`/`Behaviour::LoadScene` to target), and **Build for
+  `.dproj` file; swaps the active project/scene/Project window root,
+  stopping Play first if it's running), **New Scene** (Ctrl+N, an untitled
+  scene with one root + 2D camera per screen), **Open Scene...** (Ctrl+O),
+  **Revert Scene** (reload the open scene from disk, discarding edits after
+  asking), **Save** (Ctrl+S) and **Save As...** (Ctrl+Shift+S -- now Unity's
+  behaviour: writes the scene to a new file *and* makes that file the open
+  scene; still how a project gets a second scene file for
+  `SceneManager`/`Behaviour::LoadScene` to target), and **Build for
   3DS** (saves the scene, then runs `build-3ds.bat`, see below, so the
   on-device build always packages the latest scene), and **Build for PC**
   (saves the scene, then rebuilds `DualityPlayerDesktop` in the existing
@@ -93,7 +142,7 @@ or opened via the File menu.
   Settings...** (a separate window -- see below). Both build actions share
   one build-status flag, so they can't run concurrently against the same
   build tools. The menu bar also shows which scene file is currently active
-  (`Scene: <filename>`), since **Open Scene...**/a Content Browser
+  (`Scene: <filename>`), since **Open Scene...**/a Project window
   double-click/the Scene asset inspector's own "Open Scene" button can all
   change it.
 - **Build Settings...** window (File menu) -- Unity's own Build Settings
@@ -122,15 +171,15 @@ or opened via the File menu.
   **Create Child Entity** or **Create Prefab from Selection** (writes
   `Assets/Prefabs/<Name>.prefab`); drag a Prefab asset from the Content
   Browser onto empty space in this panel to instantiate it.
-- **Properties** (right) -- shows every component on the selected entity,
+- **Inspector** (right) -- shows every component on the selected entity,
   fields fully generic (reflection-driven -- adding a new component/field
   never needs editor code changes). Every entity has an **Active** checkbox
   (Unity's `GameObject.SetActive`) alongside Transform/Name/Tag. Each
   non-mandatory component has a "..." button to remove it; **+ Add
   Component** at the bottom lists every component type not already on the
   entity. **Lock** (top, Unity-Inspector-style) pins the panel to whatever's
-  currently shown, ignoring further Hierarchy/Scene/Content Browser
-  selections until unlocked -- needed because clicking a Content Browser
+  currently shown, ignoring further Hierarchy/Scene/Project window
+  selections until unlocked -- needed because clicking a Project window
   thumbnail to start dragging it (e.g. a Material/Texture onto an `AssetRef`
   field here) fires on mouse-down -- fixed to fire on release-while-still-
   hovering instead (`ContentBrowserPanel`'s own thumbnail button), so Lock
@@ -184,16 +233,16 @@ or opened via the File menu.
   coordinates, so `Behaviour::GetPointerPosition()`/`ScreenPointToRay3D`
   work the same in Play-in-Editor as they do on `DualityPlayerDesktop` or a
   real 3DS.
-- **Console** (bottom, tabbed with Content Browser) -- `Duality::Log`
+- **Console** (bottom, tabbed with Project window) -- `Duality::Log`
   output (including `Behaviour::LogInfo/LogWarn/LogError` calls from
   scripts), color-coded and filterable by level (Trace/Info/Warn/Error),
   plus a text search box and a Clear button.
-- **Content Browser** (bottom, tabbed with Console) -- browses
+- **Project window** (bottom, tabbed with Console) -- browses
   `SampleProject/Assets/` as a grid of icons, with real thumbnails for image
   files, and a search box that filters files by name within the current
   folder (folders themselves stay visible so navigation keeps working).
   Every asset gets a companion `<name>.meta` file (a stable GUID,
-  Unity/Unreal-style) generated the first time the Content Browser sees it;
+  Unity/Unreal-style) generated the first time the Project window sees it;
   `.meta` files themselves are hidden from the grid. Drag an asset out onto
   an `AssetRef` field in Properties (a texture, a Material, a Prefab, ...)
   to assign it (referenced by its GUID, so renaming/moving the file later
@@ -257,7 +306,7 @@ Either way:
 
 1. Override whichever lifecycle methods the script needs (see below).
 2. Register it with `REGISTER_BEHAVIOUR(YourClassName)` at the bottom of its
-   `.cpp` file (already there if created via Content Browser).
+   `.cpp` file (already there if created via Project window).
 3. In the Editor, select an entity, click **+ Add Component > Add Script**,
    and pick the class from the submenu (every `REGISTER_BEHAVIOUR`'d class
    shows up there automatically -- project-owned and engine-shared scripts
@@ -389,7 +438,7 @@ a Rigidbody + collider and watch the Console panel as it touches things.
 `GameScripts/Include/GameSettingsData.h` is the `ScriptableObject` demo
 (`PlayerSpeed`/`ScorePerCoin`/`GameTitle`); `SampleProject/Assets/
 GameSettings.asset` is a real instance of it, editable in Properties by
-selecting it in the Content Browser.
+selecting it in the Project window.
 
 **C++ ↔ TypeScript**: `Behaviour::FindScript("ClassName")`,
 `GetScriptField("Mover", "speed", value)` / `SetScriptField(...)` and
@@ -425,7 +474,7 @@ export class Spawner extends MonoBehaviour {
 }
 ```
 
-- **Where**: any `*.ts` under the project's `Assets/` (Content Browser
+- **Where**: any `*.ts` under the project's `Assets/` (Project window
   **Create > TypeScript Script**). Every *exported* class extending
   `MonoBehaviour` is a script class (name = export name; must not clash with
   a C++ class) and shows in **Add Component** as `Name (TS)`.
@@ -556,7 +605,7 @@ Project Settings > Rendering > Shadow Technique. Desktop "Shadow Maps (Experimen
 darkens only that light's contribution on Lit/Toon materials (Unlit/VertexLit keep the old
 whole-surface darkening); the 3DS always uses projected blob shadows on Plane receivers.
 
-**Editor**: select a `.mat` in the Content Browser -- the inspector shows a live lit-sphere
+**Editor**: select a `.mat` in the Project window -- the inspector shows a live lit-sphere
 preview, the Shader dropdown (grouped Lit / Toon / Mobile / Unlit), Surface Options and only
 the selected shader's properties (color pickers, texture slots with drag-and-drop, sliders).
 Edits save immediately and show in the Scene and Game views next frame. **Create >
@@ -668,6 +717,20 @@ load, and a 200-entity C++-vs-TS `update()` timing. Its fixture
 (`Tests/TypeScriptFixture/`) is bundled at build time with node; without node
 those cases report "skipped".
 
+`Tests/EditorLogicTests.cpp` covers editor logic without UI (the editor sources it needs --
+`SceneHistory`, `EntityIdRegistry`, `MultiEdit` -- are compiled into the test binary): Undo/Redo
+states, labels and selection restore by stable entity id, history bounds, clipboard copy/paste
+(internal EntityRefs remapped to the copies, external ones kept or remapped after an Undo),
+prefab EntityRefs (prefab-local indices, legacy raw handles dropped) and Inspector
+multi-object editing (mixed masks, per-element propagation).
+
+The editor UI itself is checked with its automation mode: `DualityEditor --editor-test
+script.txt [--project Game.dproj] [--size 1600x900]` runs a script of editor commands, keyboard
+/ mouse events fed into ImGui's own input queue (never the desktop's real input), `expect-*`
+checks and offscreen `screenshot` captures; the process exit code is the number of failed
+checks. Run it on a copy of the project with its own `APPDATA` so `imgui.ini`,
+`EditorSettings.json` and the scenes stay untouched (command list: `Docs/pages/editor.html`).
+
 ## Repository layout
 
 ```
@@ -676,7 +739,7 @@ DualityEngine/       Shared engine core (ECS, reflection, scene, renderer
                      via Box2D, 3D physics via Bullet, scripting registry)
 DualityEditor/       Desktop editor (Dear ImGui) -- Application owns a Window
                      (GLFW/GL/ImGui backend) and every Panel (Scene, Game,
-                     Hierarchy, Properties, MenuBar, Content Browser,
+                     Hierarchy, Properties, MenuBar, Project window,
                      Console, Build Settings, Project Settings, Preferences);
                      Main.cpp is just Application().Run()
 DualityPlayerDesktop/ Standalone desktop player (real GLFW window, no Editor UI)
@@ -738,7 +801,7 @@ repo (prebuilt binaries).
 - A `ScriptableObject`/Material asset has no "used by" tracking -- deleting
   or renaming one doesn't warn about (or fix up) scripts/other assets whose
   `AssetRef` still points at its old guid, same as every other asset type
-  today. The Content Browser's "Create" menu covers Material and
+  today. The Project window's "Create" menu covers Material and
   ScriptableObject only; there's no equivalent for Prefab (still created via
   "Create Prefab from Selection" in the Hierarchy, which needs a source
   entity to begin with) or Scene.

@@ -411,24 +411,73 @@ this file whenever something below actually gets built, or a new deferred item c
       even though a brand new project's `Assets/` is always empty -- it's a harmless no-op
       (logs a normal "could not open" error) and keeps the two functions' shape symmetric
       rather than needing a special case.
-- [ ] Project Hub / recent-projects list, as its own separate window (or its own
-      subfolder in this repo) -- explicitly deferred until "everything else" is more
-      finished. "New Project"/"Open Project" are plain native file dialogs, no recent-project
-      history.
-- [ ] Inline thumbnail preview on Properties panel asset fields (texture/etc.) --
-      currently just shows the resolved filename + a Clear button.
-- [ ] Undo/redo.
-- [ ] Multi-select (Hierarchy, Scene view).
-- [ ] Duplicate entity (Ctrl+D / Hierarchy context menu) -- no way to clone an entity and its
-      components yet, only create-new-empty or drag-reparent.
-- [ ] Grid/angle snapping for the Translate/Rotate gizmos, 2D and 3D (hold-a-modifier-key
-      convention, matching Unity's Ctrl-to-snap).
-- [x] Search/filter box for the Hierarchy panel, Content Browser, and Console panel.
+- [x] **Unity-style editor upgrade** (behaviour + look; reference: `Docs/pages/editor.html`).
+      - Look: Unity dark skin (default theme "Unity", Preferences keeps Blue/Pink/Dark; old
+        settings files migrate once via `SettingsVersion`), Segoe UI loaded from the Windows
+        font folder at runtime (+ bold face; bitmap-font fallback), Font Awesome icons, main
+        toolbar (Q W E R T tools, Pivot/Center, Global/Local, snap settings, centered
+        Play/Pause/Step, Layout menu), Unity default dock layout that now *persists* in
+        `imgui.ini` (it used to be rebuilt every launch), Window menu to reopen any panel,
+        Reset Layout, panels renamed to Unity's names ("Project window" -> "Project", the
+        saved ini entry is migrated), OS window title with project/scene/`*`/[Playing].
+      - Undo/Redo for every scene edit, one step per interaction (commit deferred while any
+        widget / gizmo is still active), labelled ("Undo Move"), restoring selection and
+        Hierarchy foldouts through editor-only stable entity ids (`EntityIdRegistry`, kept in
+        the in-memory snapshots, never in scene files). Unity's Save / Don't Save / Cancel
+        prompt on scene switch, New Scene, project switch and window close.
+      - Shared command layer (`EditorCommands`): selection (multi), Duplicate, Copy/Cut/Paste/
+        Paste As Child (`PrefabSerializer::CopyToJson`/`PasteFromJson`: internal EntityRefs
+        follow the copies, external ones survive Undo via stable ids), Delete, Rename, Frame,
+        Create Empty / Child / Parent, Toggle Active, GameObject create menu (3D/2D Object,
+        Effects, Light, Audio, UI, Camera), Play/Pause/Step, Unity's global shortcuts.
+      - Hierarchy: Ctrl/Shift/arrow-key selection, multi-object drag & drop (before / after /
+        child / first child), Alt+click recursive fold, inline F2 rename, eye active toggle,
+        inactive greyed, prefab instances blue, auto-expand + scroll to selection/pings.
+      - Inspector: GameObject header (active, name, Tag, Layer, prefab row with Open / Select
+        / Overrides: Apply All / Revert All / Unpack), component cards with kebab menu (Reset,
+        Remove, Move Up/Down for scripts, Copy, Paste Values, Paste As New, Edit Script),
+        Unity property drawers (label-left with drag-to-scrub, X/Y/Z vectors, color swatch +
+        hex, object fields with thumbnails, ping on click / select on double-click, asset &
+        entity pickers, Unity-style lists, layer-mask dropdown), multi-object editing with
+        mixed values ("-") and per-component propagation (`MultiEdit`), prefab overrides in
+        bold (right-click > Revert), categorized searchable Add Component with Scripts
+        (C++)/(TS) and New Script.
+      - Scene view: click / Ctrl-click / marquee selection, handles for the whole selection
+        (Pivot/Center, Local/Global in 3D), Ctrl increment snapping (configurable) computed
+        from drag-start values (no drift), View and Rect tools, RMB look + WASD/QE fly with
+        Shift boost and wheel speed, Alt+LMB orbit, Alt+RMB zoom, cursor-anchored 2D zoom,
+        orange selection outlines, frame the whole selection, draggable pane splitter.
+      - Play mode: toolbar + Ctrl+P / Ctrl+Shift+P / Ctrl+Alt+P, editor tint, Stop keeps the
+        selection; Console: Collapse, Clear on Play, Error Pause, per-level counts, details
+        pane; Project: "+" Create menu, breadcrumb, project-wide search, icon-size slider
+        (Ctrl+wheel), Show in Explorer / Open / Copy Path, F2 / Delete, drop-to-prefab
+        anywhere in the grid, ping highlight.
+      - Fixes found on the way: prefab files stored live EnTT handles for EntityRefs (now
+        prefab-local indices, legacy raw handles load as "none"); script reload used the
+        editor's working directory as the CMake source dir (now `-S <repo>`).
+      - Verification: `Tests/EditorLogicTests.cpp` (history, ids, clipboard, prefab refs,
+        multi-edit) + `DualityEditor --editor-test <script>` automation with screenshots.
+- [~] Project Hub -- File > Open Recent Project (last 10, `EditorSettings.json`) only; a
+      separate Hub window is still not built.
+- [x] Inline thumbnail preview on Inspector asset fields (see above).
+- [x] Undo/redo (see above).
+- [x] Multi-select (Hierarchy, Scene view, Inspector multi-editing).
+- [x] Duplicate entity (Ctrl+D / Hierarchy context menu / Edit menu).
+- [x] Grid/angle snapping for the Move/Rotate/Scale handles, 2D and 3D (Ctrl, Unity's
+      increment snapping; values in the toolbar's magnet popup). Not built: snapping to an
+      absolute world grid (Unity's "Grid Snapping" toggle) -- increments are relative to
+      the drag start.
+- [ ] Not built yet in the Unity-style pass: Local handle orientation in the 2D panes (2D
+      handles are always screen-aligned), per-field "Apply to Prefab", Prefab Mode
+      breadcrumb/auto-save toggle, component reordering for built-in components (their order
+      is the registration order, not stored per entity), the Game view's aspect/scale
+      dropdowns and "Maximize on Play", Console stack traces (Log has none).
+- [x] Search/filter box for the Hierarchy panel, Project window, and Console panel.
       Hierarchy: while the search box has text, shows a flat filtered list of every
       matching entity scene-wide instead of the normal tree (a tree with drag-drop
       reparenting has no cheap way to hide/show whole subtrees while preserving that,
       so this deliberately doesn't try to filter-in-place -- empty search box shows the
-      unchanged original tree). Content Browser: filters files by name within the
+      unchanged original tree). Project window: filters files by name within the
       current folder; folders themselves stay visible regardless so navigation still
       works. Console: filters displayed log lines by substring, alongside the existing
       per-level checkboxes. All three use the same small case-insensitive-substring
@@ -437,7 +486,7 @@ this file whenever something below actually gets built, or a new deferred item c
       `m_LockedAssetPath`) -- Unity-Inspector-style: pins the panel to whatever was
       selected at the moment it was checked, ignoring further Hierarchy/Scene/Content
       Browser selections until unchecked. User-reported real bug this fixes: dragging a
-      Material/Texture from the Content Browser onto an `AssetRef` field starts with a
+      Material/Texture from the Project window onto an `AssetRef` field starts with a
       plain mouse-down over the thumbnail, and `ContentBrowserPanel`'s click-to-select
       (added for the Asset Inspector work above) fires on that same mouse-down frame --
       so starting the drag immediately swapped Properties away from the very entity/field
@@ -447,7 +496,7 @@ this file whenever something below actually gets built, or a new deferred item c
       scene "generation" produced it) -- covers a scene swap happening while locked,
       mirroring this codebase's existing accepted stale-Entity-across-scene-swap risk
       class rather than adding new never-before-attempted protection.
-- [x] Content Browser Explorer-like UX (`ContentBrowserPanel.h`/`.cpp`) -- user wanted it to
+- [x] Project window Explorer-like UX (`ContentBrowserPanel.h`/`.cpp`) -- user wanted it to
       behave more like a real Windows Explorer/folder manager. Inline rename (label becomes
       an `InputText`, `Escape` cancels, `IsItemDeactivated()` commits on both Enter and
       click-away -- same convention `Explorer`/Unity/Unreal use), Create Folder (numbered-
@@ -525,7 +574,8 @@ this file whenever something below actually gets built, or a new deferred item c
       Unity's Scene-vs-Game separation). Selection and the active gizmo tool are shared
       across both panes; a drag started in one pane keeps using that pane's camera math
       even if the mouse strays into the other (`EditorContext::DraggingGizmoScreen`). Not
-      built: a resizable/draggable splitter between the two panes (fixed 50/50 split).
+      built at first, added by the Unity-style pass: a draggable splitter between the two panes
+      (double-click resets 50/50).
 - [x] Screen grouping (`ScreenGroupComponent`, `Scene/Components.h`) -- opt-in tag, add to
       any entity (typically a root "TopGroup"/"BottomGroup") to associate its whole subtree
       with a screen. Drives: the Hierarchy panel's Top Screen/Bottom Screen/Ungrouped
@@ -689,7 +739,7 @@ this file whenever something below actually gets built, or a new deferred item c
 
 - [ ] Folder-level `.meta` files -- currently only individual files get one.
 - [ ] Upfront recursive asset scan on project load -- `.meta` generation and the
-      GUID->path index are currently populated lazily as the Content Browser is
+      GUID->path index are currently populated lazily as the Project window is
       browsed into each folder, not scanned ahead of time.
 - [x] Scene management upgrade (`Scene::Clear`, `SceneSerializer::SerializeToJson`/
       `DeserializeFromJson`, `DualityEditor/SceneOps.h`) -- user-reported bug: "Load Scene"
@@ -703,7 +753,7 @@ this file whenever something below actually gets built, or a new deferred item c
       `m_RootEntities` holding dangling handles into now-destroyed entities) and a shared
       `SceneOps::OpenScene(ctx, path)` free function (stops Play if running, `Clear()`s,
       updates `ctx.ScenePath`, re-seeds the Scene view's free-roam cameras, deserializes) that
-      "Load Scene", "Open Scene..." (new file-dialog menu item), the Content Browser's
+      "Load Scene", "Open Scene..." (new file-dialog menu item), the Project window's
       double-click-to-open, and the Scene asset inspector's new "Open Scene" button all share --
       one implementation, not four copies of the clear-before-load invariant.
       - **Play->Stop now actually reverts, matching Unity's own guarantee**: previously Play
@@ -719,7 +769,7 @@ this file whenever something below actually gets built, or a new deferred item c
         final `OnDisable`/`OnDestroy` and freeing the physics worlds, on the scene that was
         actually playing -- THEN `Clear()` + `DeserializeFromJson(snapshot)` to restore exactly
         what was there before Play started.
-      - Content Browser: "Create > Scene" and double-click-to-open (see its own entry above).
+      - Project window: "Create > Scene" and double-click-to-open (see its own entry above).
       - Verified via `Tests/SceneManagementTests.cpp` (`Scene::Clear()` resets both the
         registry and root list and leaves the Scene fully reusable afterward; a full in-memory
         serialize/mutate/clear/restore round trip proving a Play-mode mutation doesn't survive;
@@ -769,13 +819,13 @@ this file whenever something below actually gets built, or a new deferred item c
       FieldSerialization.{h,cpp}` so `ScriptableObjectLoader` reuses the identical
       per-`FieldValue`-alternative dispatch instead of a third copy; the Properties
       panel's own per-field-widget `std::visit` block was extracted the same way, into
-      `DualityEditor/FieldEditorWidget.h`, so the new asset inspector (Content Browser:
+      `DualityEditor/FieldEditorWidget.h`, so the new asset inspector (Project window:
       click a `.asset` to select it, Properties panel shows its fields, auto-saving
       to disk on every edit) draws identically to a component's fields. Script-facing
       `Behaviour::LoadScriptableObject<T>(assetGuid) -> T*` resolves the guid and hands
       back an opaque pointer the caller `static_cast`s to its own concrete type (same
       no-engine-type-across-the-DLL-ABI rule every other `EngineServices` call follows).
-      Content Browser gained a "Create > ScriptableObject > &lt;Type&gt;" right-click menu,
+      Project window gained a "Create > ScriptableObject > &lt;Type&gt;" right-click menu,
       listing whatever's currently registered. One real lifetime bug caught before it
       shipped: `ScriptEngine::Shutdown()` used to `FreeLibrary` the GameScripts DLL before
       dropping any state -- harmless for `ScriptRegistry`/`ScriptableObjectRegistry` (they
@@ -825,7 +875,7 @@ this file whenever something below actually gets built, or a new deferred item c
         later. `DualityEditor/FieldEditorWidget.h`'s `DrawFieldWidget` (extracted from
         PropertiesPanel's own per-field `std::visit` block) is what lets Material's and
         ScriptableObject's inspectors render identically to a component's fields, with zero
-        duplicated widget code. Content Browser gained a "Create > Material" menu item
+        duplicated widget code. Project window gained a "Create > Material" menu item
         alongside the existing "Create > ScriptableObject > <Type>".
       - **Texture/Audio import settings** (`DualityEngine/Asset/{Texture,Audio}ImportSettings.h`)
         -- Unity's TextureImporter/AudioImporter equivalent, stored in the asset's own
@@ -866,7 +916,7 @@ this file whenever something below actually gets built, or a new deferred item c
         `build-3ds.bat` clean afterward.
 - [ ] Live asset watching / hot-reload for changed textures/materials while the Editor is
       open -- only `GameScripts` hot-reloads today (`ScriptEngine`); editing a texture file
-      externally needs an Editor restart (or at least a manual Content Browser refresh) to
+      externally needs an Editor restart (or at least a manual Project window refresh) to
       pick up the change.
 
 ## Scripting
@@ -994,7 +1044,7 @@ this file whenever something below actually gets built, or a new deferred item c
       `ScriptEngine::ReloadAsync` right after switching projects so the new project's scripts
       compile+load with no extra click (safe to be async even though `Deserialize` runs right
       after -- it only stores `ScriptInstance::ClassName` strings, doesn't need `ScriptRegistry`
-      to already know the class until Play actually starts). New Content Browser **"Create >
+      to already know the class until Play actually starts). New Project window **"Create >
       Script"** (`ContentBrowserPanel::CreateScriptAsset`) writes a ready-to-edit `.h`/`.cpp`
       pair with the `REGISTER_BEHAVIOUR` boilerplate already in place -- deliberately NOT the
       same `"NewScene (1).scene"`-style numbered suffix every other Create-asset flow uses,
@@ -1022,7 +1072,7 @@ this file whenever something below actually gets built, or a new deferred item c
       -- `generate_fields.py`'s own invocation keeps the original Windows-style path unchanged,
       since it runs through a native Windows `python.exe` that needs that form, not MSYS
       notation. Verified end-to-end: a real project script with a `DUALITY_PROPERTY()` field,
-      created via the live Content Browser "Create > Script" flow, confirmed compiling into
+      created via the live Project window "Create > Script" flow, confirmed compiling into
       both the desktop `GameScripts.dll` AND the STATIC 3DS-linked `GameScripts` library, its
       generated `Fields()` entry inspected directly, and a live Play-mode run showing its
       `OnCreate()` log line in the Console.

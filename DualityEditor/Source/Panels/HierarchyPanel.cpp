@@ -3,19 +3,23 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
+#include "DualityEditor/EditorCommands.h"
 #include "DualityEditor/EditorContext.h"
 #include "DualityEditor/EditorIcons.h"
+#include "DualityEditor/EditorTheme.h"
 #include "DualityEditor/SceneOps.h"
 #include "DualityEngine/Asset/AssetDatabase.h"
 #include "DualityEngine/Asset/AssetMeta.h"
+#include "DualityEngine/Project/Project.h"
 #include "DualityEngine/Scene/Components.h"
 #include "DualityEngine/Scene/Layer.h"
 #include "DualityEngine/Scene/PrefabSerializer.h"
@@ -23,25 +27,30 @@
 namespace Duality {
 
     namespace {
-        // entt::entity's underlying type is small enough to round-trip through a
-        // plain int -- used both for ImGui::PushID (needs an int/ptr, not an enum
-        // class) and as the drag-drop payload value.
-        int EntityId(Entity entity) { return static_cast<int>(static_cast<uint32_t>(entity.Handle())); }
-
         const char* IconForEntity(Entity entity) {
             if (entity.HasComponent<PrefabInstanceComponent>())
-                return EditorIcons::Link;
+                return EditorIcons::Cube;
             if (entity.HasComponent<CameraComponent>())
                 return EditorIcons::Camera;
+            if (entity.HasComponent<DirectionalLightComponent>() || entity.HasComponent<PointLightComponent>() || entity.HasComponent<SpotLightComponent>())
+                return EditorIcons::Light;
             if (entity.HasComponent<CanvasComponent>())
-                return EditorIcons::Package;
+                return EditorIcons::Square;
+            if (entity.HasComponent<UITextComponent>())
+                return EditorIcons::Font;
             if (entity.HasComponent<SpriteRendererComponent>() || entity.HasComponent<UIImageComponent>())
                 return EditorIcons::Image;
-            if (entity.HasComponent<MeshRendererComponent>())
+            if (entity.HasComponent<MeshRendererComponent>() || entity.HasComponent<SkinnedMeshRendererComponent>())
                 return EditorIcons::Cube;
+            if (entity.HasComponent<AudioSourceComponent>())
+                return EditorIcons::Audio;
             if (entity.HasComponent<BehaviourComponent>())
                 return EditorIcons::Code;
-            return EditorIcons::File;
+            return EditorIcons::Cubes;
+        }
+
+        bool IsLive(EditorContext& ctx, Entity entity) {
+            return entity && entity.GetScene() == &ctx.SceneRef && ctx.SceneRef.Registry().valid(entity.Handle());
         }
 
         Entity DraggedHierarchyEntity(EditorContext& ctx) {
@@ -53,423 +62,80 @@ namespace Duality {
             return ctx.SceneRef.Registry().valid(handle) ? Entity(handle, &ctx.SceneRef) : Entity{};
         }
 
-        bool CanReparent(Entity child, Entity parent) {
-            if (!child || child == parent)
-                return false;
-            // A child cannot be made a descendant of itself. Keep this UI-side
-            // guard in addition to Scene::SetParent's own defensive check so an
-            // invalid target never advertises itself as a valid blue drop zone.
-            for (Entity current = parent; current; current = current.GetComponent<HierarchyComponent>().Parent) {
-                if (current == child)
-                    return false;
-            }
-            return true;
-        }
-
-        const std::vector<Entity>& SiblingsFor(const Scene& scene, Entity parent) {
-            return parent ? parent.GetComponent<HierarchyComponent>().Children : scene.GetRootEntities();
-        }
-
-        size_t SiblingIndexOf(const std::vector<Entity>& siblings, Entity entity) {
-            auto it = std::find(siblings.begin(), siblings.end(), entity);
-            return it == siblings.end() ? siblings.size() : static_cast<size_t>(it - siblings.begin());
-        }
-
-        void SetSiblingIndex(EditorContext& ctx, Entity dragged, Entity parent, size_t index) {
-            if (!CanReparent(dragged, parent))
-                return;
-            const std::vector<Entity>& siblings = SiblingsFor(ctx.SceneRef, parent);
-            Entity oldParent = dragged.GetComponent<HierarchyComponent>().Parent;
-            size_t oldIndex = oldParent == parent ? SiblingIndexOf(siblings, dragged) : siblings.size();
-            // The requested index is measured before SetSiblingIndex removes the
-            // dragged row. Account for that removal so dropping B below C gives
-            // A/C/B rather than A/C/D/B.
-            if (oldParent == parent && oldIndex < index)
-                --index;
-            if (oldParent == parent && oldIndex == index)
-                return;
-            ctx.SceneRef.SetSiblingIndex(dragged, parent, index);
-            MarkSceneDirty(ctx);
-        }
-
-        // Used only by the one-shot migration action below. New scenes use one
-        // Top/Bottom root and all of their children inherit the root's layer.
-        bool TryResolveRootLayer(Entity root, Layer& outLayer) {
-            if (root.HasComponent<LayerComponent>()) {
-                outLayer = root.GetComponent<LayerComponent>().Value;
-                return outLayer != Layer::Default;
-            }
-            if (root.HasComponent<CameraComponent>()) {
-                outLayer = ScreenToLayer(root.GetComponent<CameraComponent>().Screen);
-                return true;
+        bool IsDescendantOrSelf(Entity entity, Entity ancestor) {
+            for (Entity current = entity; current; current = current.GetComponent<HierarchyComponent>().Parent) {
+                if (current == ancestor)
+                    return true;
             }
             return false;
         }
 
-        void AcceptReparentDrop(EditorContext& ctx, Entity newParent, Entity insertAfter = {}) {
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
-                entt::entity draggedHandle = *static_cast<const entt::entity*>(payload->Data);
-                Entity dragged(draggedHandle, &ctx.SceneRef);
-                if (payload->Delivery && ctx.SceneRef.Registry().valid(draggedHandle) && CanReparent(dragged, newParent)) {
-                    ctx.SceneRef.SetParent(dragged, newParent, insertAfter);
-                    MarkSceneDirty(ctx);
-                }
-            }
+        // The entities a drag moves: the whole top-level selection when the dragged row is part
+        // of it (Unity drags every selected object), else just the dragged row.
+        std::vector<Entity> MovedEntities(EditorContext& ctx, Entity dragged) {
+            if (EditorCommands::IsSelected(ctx, dragged))
+                return EditorCommands::TopLevelSelection(ctx);
+            return { dragged };
         }
 
-        enum class RowDropPlacement { Before, Child, After };
-
-        void AcceptEntityRowDrop(EditorContext& ctx, Entity target) {
-            Entity dragged = DraggedHierarchyEntity(ctx);
-            ImVec2 min = ImGui::GetItemRectMin();
-            ImVec2 max = ImGui::GetItemRectMax();
-            float edge = (max.y - min.y) * 0.25f;
-            float mouseY = ImGui::GetIO().MousePos.y;
-            RowDropPlacement placement = mouseY < min.y + edge ? RowDropPlacement::Before :
-                (mouseY > max.y - edge ? RowDropPlacement::After : RowDropPlacement::Child);
-
-            Entity parent = placement == RowDropPlacement::Child
-                ? target : target.GetComponent<HierarchyComponent>().Parent;
-            bool valid = dragged && dragged != target && CanReparent(dragged, parent);
-            if (valid) {
-                ImDrawList* drawList = ImGui::GetWindowDrawList();
-                const ImU32 highlight = IM_COL32(80, 160, 255, 255);
-                if (placement == RowDropPlacement::Child)
-                    drawList->AddRect(min, max, highlight, 2.0f, 0, 2.0f);
-                else {
-                    float y = placement == RowDropPlacement::Before ? min.y : max.y;
-                    drawList->AddLine(ImVec2(min.x, y), ImVec2(max.x, y), highlight, 2.0f);
-                }
+        bool CanMoveUnder(const std::vector<Entity>& moved, Entity parent) {
+            for (Entity entity : moved) {
+                if (parent && IsDescendantOrSelf(parent, entity))
+                    return false;
             }
-
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY")) {
-                if (payload->Delivery && valid) {
-                    if (placement == RowDropPlacement::Child) {
-                        ctx.SceneRef.SetParent(dragged, target);
-                        MarkSceneDirty(ctx);
-                    } else {
-                        const std::vector<Entity>& siblings = SiblingsFor(ctx.SceneRef, parent);
-                        size_t targetIndex = SiblingIndexOf(siblings, target);
-                        SetSiblingIndex(ctx, dragged, parent,
-                            placement == RowDropPlacement::Before ? targetIndex : targetIndex + 1);
-                    }
-                }
-            }
+            return !moved.empty();
         }
 
-        void EnsureScreenRoots(EditorContext& ctx) {
-            const bool hadTop = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Top));
-            const bool hadBottom = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Bottom));
-            ctx.SceneRef.EnsureScreenRoot(Screen::Top);
-            ctx.SceneRef.EnsureScreenRoot(Screen::Bottom);
-            if (!hadTop || !hadBottom)
-                MarkSceneDirty(ctx);
+        const std::vector<Entity>& SiblingsFor(Scene& scene, Entity parent) {
+            return parent ? parent.GetComponent<HierarchyComponent>().Children : scene.GetRootEntities();
         }
 
-        // Converts the previous section-based layout into two honest hierarchy
-        // roots. Redundant LayerComponents are removed from the moved roots so
-        // their descendants inherit from Top/Bottom instead.
-        void OrganizeExistingScreenRoots(EditorContext& ctx) {
-            const bool hadTop = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Top));
-            const bool hadBottom = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Bottom));
-            std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
-            Entity top = ctx.SceneRef.EnsureScreenRoot(Screen::Top);
-            Entity bottom = ctx.SceneRef.EnsureScreenRoot(Screen::Bottom);
-            bool changed = false;
-            for (Entity root : roots) {
-                if (root == top || root == bottom)
-                    continue;
-                Layer layer;
-                if (!TryResolveRootLayer(root, layer) || layer == Layer::Default)
-                    continue;
-                Entity target = layer == Layer::TOP ? top : bottom;
-                ctx.SceneRef.SetParent(root, target);
-                if (root.HasComponent<LayerComponent>() && root.GetComponent<LayerComponent>().Value == layer)
-                    root.RemoveComponent<LayerComponent>();
-                changed = true;
-            }
-            if (changed || !hadTop || !hadBottom)
-                MarkSceneDirty(ctx);
-        }
-
-        // A minimal, useful 3DS scene needs a real camera for each physical
-        // screen. This bootstrap deliberately stays 2D/orthographic: it is a
-        // safe starting point for sprites, tilemaps and touch raycasts; a game
-        // that needs 3D can switch either Camera component in the Inspector.
-        void Bootstrap3DSScene(EditorContext& ctx) {
-            const bool hadTopRoot = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Top));
-            const bool hadBottomRoot = static_cast<bool>(ctx.SceneRef.GetScreenRoot(Screen::Bottom));
-            Entity topRoot = ctx.SceneRef.EnsureScreenRoot(Screen::Top);
-            Entity bottomRoot = ctx.SceneRef.EnsureScreenRoot(Screen::Bottom);
-            bool changed = !hadTopRoot || !hadBottomRoot;
-
-            auto createCameraIfMissing = [&](Screen screen, Entity parent) {
-                if (ctx.SceneRef.GetPrimaryCamera(screen))
-                    return;
-                Entity camera = ctx.SceneRef.CreateEntity(screen == Screen::Top ? "Top Camera" : "Bottom Camera");
-                camera.AddComponent<CameraComponent>().Screen = screen;
-                camera.AddComponent<PhysicsRaycaster2DComponent>();
-                ctx.SceneRef.SetParent(camera, parent);
-                changed = true;
-            };
-            createCameraIfMissing(Screen::Top, topRoot);
-            createCameraIfMissing(Screen::Bottom, bottomRoot);
-
-            if (changed) {
-                ctx.Selected = topRoot;
-                MarkSceneDirty(ctx);
-            }
-        }
-
-        // A thin invisible drop target between rows: dropping here reorders the
-        // dragged entity as the next sibling after `insertAfter`, under
-        // `insertAfter`'s own parent -- this is what "drag up/down to reorder"
-        // means once a real tree exists (dropping ON a row instead makes the
-        // dragged entity that row's *child*, handled directly in DrawEntityNode).
-        // Writes `entity` (+ its full descendant subtree) to a new
-        // "Assets/Prefabs/<EntityName>.prefab" file -- same 3-step
-        // Save -> AssetMeta::EnsureMetaFile -> AssetDatabase::Register sequence already
-        // established for creating any other custom asset type (see Application.cpp's
-        // TestOrange.mat setup). ctx.ScenePath is "<AssetsDir>/Scene.scene"
-        // (see Application.cpp), so its parent directory recovers AssetsDir without
-        // EditorContext needing its own dedicated field for it.
-        void CreatePrefabFromSelection(EditorContext& ctx, Entity entity) {
-            std::filesystem::path assetsDir = std::filesystem::path(ctx.ScenePath).parent_path();
-            std::filesystem::path prefabsDir = assetsDir / "Prefabs";
-            std::filesystem::create_directories(prefabsDir);
-
-            std::string entityName = entity.GetComponent<NameComponent>().Name;
-            std::filesystem::path prefabPath = prefabsDir / (entityName + ".prefab");
-
-            if (!PrefabSerializer::Save(entity, prefabPath.string()))
+        // Moves `moved` (in order) under `parent` so they start at `reference`'s position
+        // (before it, or after it), or at `fallbackIndex` when `reference` is empty.
+        void MoveEntities(EditorContext& ctx, const std::vector<Entity>& moved, Entity parent, Entity reference, bool after, size_t fallbackIndex) {
+            if (!CanMoveUnder(moved, parent))
                 return;
-            std::string guid = AssetMeta::EnsureMetaFile(prefabPath);
-            AssetDatabase::Register(guid, prefabPath.string());
-            if (entity.HasComponent<PrefabInstanceComponent>())
-                entity.GetComponent<PrefabInstanceComponent>().Prefab = AssetRef{ guid };
-            else
-                entity.AddComponent<PrefabInstanceComponent>(PrefabInstanceComponent{ AssetRef{ guid } });
-            MarkSceneDirty(ctx);
-        }
-
-        Entity CreateCanvas(EditorContext& ctx, Screen screen, Entity parent = {}) {
-            // Canvas belongs to a physical screen. With no explicit parent, put
-            // it beneath that screen's organizational root so UI follows the
-            // same one-tree Top/Bottom convention as gameplay entities.
-            if (!parent)
-                parent = ctx.SceneRef.EnsureScreenRoot(screen);
-            Entity canvas = ctx.SceneRef.CreateEntity(screen == Screen::Top ? "Top Canvas" : "Bottom Canvas");
-            canvas.AddComponent<CanvasComponent>().Screen = screen;
-            ctx.SceneRef.SetParent(canvas, parent);
-            ctx.Selected = canvas;
-            MarkSceneDirty(ctx);
-            return canvas;
-        }
-
-        // Cameras created from Hierarchy are ready for the pointer system immediately.
-        // Keep one primary camera per physical screen by making additional cameras
-        // non-primary; the user can still promote one explicitly in the Inspector.
-        Entity CreateCamera(EditorContext& ctx, Screen screen, ProjectionType projection, Entity parent = {}) {
-            if (!parent)
-                parent = ctx.SceneRef.EnsureScreenRoot(screen);
-
-            const bool is3D = projection == ProjectionType::Perspective;
-            Entity camera = ctx.SceneRef.CreateEntity((screen == Screen::Top ? "Top " : "Bottom ")
-                + std::string(is3D ? "3D Camera" : "2D Camera"));
-            auto& component = camera.AddComponent<CameraComponent>();
-            component.Screen = screen;
-            component.Projection = projection;
-            component.Primary = !ctx.SceneRef.GetPrimaryCamera(screen);
-            if (is3D) {
-                // A practical 3D starting point for the engine's -Z-forward camera.
-                camera.GetComponent<TransformComponent>().Translation.z = 200.0f;
-                camera.AddComponent<PhysicsRaycaster3DComponent>();
-            } else {
-                camera.AddComponent<PhysicsRaycaster2DComponent>();
+            // 1) Park every moved entity at the end of the destination list...
+            for (Entity entity : moved)
+                ctx.SceneRef.SetSiblingIndex(entity, parent, SIZE_MAX, /*preserveWorldPosition=*/true);
+            // 2) ...then the untouched siblings form the list prefix, so the insertion index is
+            //    measured among them and each moved entity is inserted one slot after the other.
+            const std::vector<Entity>& siblings = SiblingsFor(ctx.SceneRef, parent);
+            size_t insertAt = std::min(fallbackIndex, siblings.size() - moved.size());
+            if (reference) {
+                auto found = std::find(siblings.begin(), siblings.end(), reference);
+                if (found != siblings.end())
+                    insertAt = static_cast<size_t>(found - siblings.begin()) + (after ? 1 : 0);
             }
-            ctx.SceneRef.SetParent(camera, parent);
-            ctx.Selected = camera;
-            MarkSceneDirty(ctx);
-            return camera;
+            for (size_t i = 0; i < moved.size(); ++i)
+                ctx.SceneRef.SetSiblingIndex(moved[i], parent, insertAt + i, /*preserveWorldPosition=*/true);
+            MarkSceneDirty(ctx, moved.size() == 1 ? "Reparent" : "Reparent Objects");
         }
 
-        Entity CreateEmpty(EditorContext& ctx, Entity parent = {}) {
-            Entity entity = ctx.SceneRef.CreateEntity("Entity");
-            if (parent)
-                ctx.SceneRef.SetParent(entity, parent);
-            ctx.Selected = entity;
-            MarkSceneDirty(ctx);
-            return entity;
+        bool InstantiateDroppedPrefab(EditorContext& ctx, const ImGuiPayload* payload, Entity parent) {
+            std::string guid = static_cast<const char*>(payload->Data);
+            std::string path = AssetDatabase::ResolvePath(guid);
+            if (path.empty() || std::filesystem::path(path).extension() != ".prefab")
+                return false;
+            Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path, IsLive(ctx, parent) ? parent : Entity{}, AssetRef{ guid });
+            if (!instance)
+                return false;
+            EditorCommands::SelectOnly(ctx, instance);
+            ctx.Session.RequestRevealSelection = true;
+            MarkSceneDirty(ctx, "Instantiate Prefab");
+            return true;
         }
 
-        Entity CreateSprite(EditorContext& ctx, Entity parent = {}) {
-            Entity sprite = ctx.SceneRef.CreateEntity("Sprite");
-            sprite.AddComponent<SpriteRendererComponent>();
-            if (parent)
-                ctx.SceneRef.SetParent(sprite, parent);
-            ctx.Selected = sprite;
-            MarkSceneDirty(ctx);
-            return sprite;
-        }
-
-        Entity CreateLineRenderer(EditorContext& ctx, Entity parent = {}) {
-            Entity line = ctx.SceneRef.CreateEntity("Line Renderer");
-            line.AddComponent<LineRendererComponent>();
-            if (parent)
-                ctx.SceneRef.SetParent(line, parent);
-            ctx.Selected = line;
-            MarkSceneDirty(ctx);
-            return line;
-        }
-
-        Entity CreatePrimitive(EditorContext& ctx, const char* name, MeshPrimitive primitive, Entity parent = {}) {
-            Entity mesh = ctx.SceneRef.CreateEntity(name);
-            mesh.AddComponent<MeshRendererComponent>().Primitive = primitive;
-            if (parent)
-                ctx.SceneRef.SetParent(mesh, parent);
-            ctx.Selected = mesh;
-            MarkSceneDirty(ctx);
-            return mesh;
-        }
-
-        Entity FindCanvasAncestor(Entity entity) {
-            while (entity) {
-                if (entity.HasComponent<CanvasComponent>())
-                    return entity;
-                entity = entity.GetComponent<HierarchyComponent>().Parent;
+        // Prefab instance root above (or at) `entity`, if any -- whole instance subtrees are
+        // drawn in Unity's prefab blue.
+        Entity PrefabRootOf(Entity entity) {
+            for (Entity current = entity; current; current = current.GetComponent<HierarchyComponent>().Parent) {
+                if (current.HasComponent<PrefabInstanceComponent>())
+                    return current;
             }
-            return Entity{};
+            return {};
         }
 
-        Entity EnsureCanvasForUI(EditorContext& ctx, Screen screen, Entity parent) {
-            Entity canvas = FindCanvasAncestor(parent);
-            return canvas ? canvas : CreateCanvas(ctx, screen, parent);
-        }
-
-        Entity CreateUIElement(EditorContext& ctx, const char* name, Screen screen, Entity parent,
-                               bool image, const char* text = nullptr) {
-            Entity canvas = EnsureCanvasForUI(ctx, screen, parent);
-            Entity element = ctx.SceneRef.CreateEntity(name);
-            element.AddComponent<UIRectComponent>();
-            if (image)
-                element.AddComponent<UIImageComponent>();
-            if (text) {
-                auto& textComponent = element.AddComponent<UITextComponent>();
-                textComponent.Text = text;
-                textComponent.Alignment = TextAlignment::Center;
-            }
-            ctx.SceneRef.SetParent(element, canvas);
-            ctx.Selected = element;
-            MarkSceneDirty(ctx);
-            return element;
-        }
-
-        // Creates Unity's familiar Button bundle in one action: RectTransform-equivalent,
-        // Image, Button and Text. If the caller has not selected a Canvas subtree, make the
-        // required Canvas first so no UI element is ever orphaned outside a physical 3DS screen.
-        Entity CreateUIButton(EditorContext& ctx, Screen screen, Entity parent = {}) {
-            Entity button = CreateUIElement(ctx, "Button", screen, parent, true, "Button");
-            auto& rect = button.GetComponent<UIRectComponent>();
-            rect.SizeDelta = { 120.0f, 40.0f };
-            button.AddComponent<UIButtonComponent>();
-            return button;
-        }
-
-        Entity CreateUISlider(EditorContext& ctx, Screen screen, Entity parent = {}) {
-            Entity slider = CreateUIElement(ctx, "Slider", screen, parent, true);
-            slider.GetComponent<UIRectComponent>().SizeDelta = { 160.0f, 20.0f };
-            slider.AddComponent<UISliderComponent>();
-            return slider;
-        }
-
-        Entity CreateUIToggle(EditorContext& ctx, Screen screen, Entity parent = {}) {
-            Entity toggle = CreateUIElement(ctx, "Toggle", screen, parent, true);
-            toggle.GetComponent<UIRectComponent>().SizeDelta = { 24.0f, 24.0f };
-            toggle.AddComponent<UIToggleComponent>();
-            return toggle;
-        }
-
-        Entity CreateUIInputField(EditorContext& ctx, Screen screen, Entity parent = {}) {
-            Entity field = CreateUIElement(ctx, "Input Field", screen, parent, true);
-            field.GetComponent<UIRectComponent>().SizeDelta = { 160.0f, 28.0f };
-            field.AddComponent<UIInputFieldComponent>();
-            return field;
-        }
-
-        void DrawCreateObjectMenu(EditorContext& ctx, Entity parent = {}) {
-            if (ImGui::MenuItem(parent ? "Create Empty Child" : "Create Empty"))
-                CreateEmpty(ctx, parent);
-
-            if (ImGui::BeginMenu("Camera")) {
-                if (ImGui::MenuItem("Top Screen 2D Camera"))
-                    CreateCamera(ctx, Screen::Top, ProjectionType::Orthographic, parent);
-                if (ImGui::MenuItem("Bottom Screen 2D Camera"))
-                    CreateCamera(ctx, Screen::Bottom, ProjectionType::Orthographic, parent);
-                ImGui::Separator();
-                if (ImGui::MenuItem("Top Screen 3D Camera"))
-                    CreateCamera(ctx, Screen::Top, ProjectionType::Perspective, parent);
-                if (ImGui::MenuItem("Bottom Screen 3D Camera"))
-                    CreateCamera(ctx, Screen::Bottom, ProjectionType::Perspective, parent);
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("2D Object")) {
-                if (ImGui::MenuItem("Sprite"))
-                    CreateSprite(ctx, parent);
-                if (ImGui::MenuItem("Line Renderer"))
-                    CreateLineRenderer(ctx, parent);
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("3D Object")) {
-                if (ImGui::MenuItem("Cube"))
-                    CreatePrimitive(ctx, "Cube", MeshPrimitive::Cube, parent);
-                if (ImGui::MenuItem("Sphere"))
-                    CreatePrimitive(ctx, "Sphere", MeshPrimitive::Sphere, parent);
-                if (ImGui::MenuItem("Capsule"))
-                    CreatePrimitive(ctx, "Capsule", MeshPrimitive::Capsule, parent);
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("UI")) {
-                if (ImGui::MenuItem("Canvas (Top Screen)"))
-                    CreateCanvas(ctx, Screen::Top, parent);
-                if (ImGui::MenuItem("Canvas (Bottom Screen)"))
-                    CreateCanvas(ctx, Screen::Bottom, parent);
-                ImGui::Separator();
-                if (ImGui::BeginMenu("Top Screen")) {
-                    if (ImGui::MenuItem("Panel")) CreateUIElement(ctx, "Panel", Screen::Top, parent, true);
-                    if (ImGui::MenuItem("Image")) CreateUIElement(ctx, "Image", Screen::Top, parent, true);
-                    if (ImGui::MenuItem("Text")) CreateUIElement(ctx, "Text", Screen::Top, parent, false, "Text");
-                    if (ImGui::MenuItem("Button")) CreateUIButton(ctx, Screen::Top, parent);
-                    if (ImGui::MenuItem("Slider")) CreateUISlider(ctx, Screen::Top, parent);
-                    if (ImGui::MenuItem("Toggle")) CreateUIToggle(ctx, Screen::Top, parent);
-                    if (ImGui::MenuItem("Input Field")) CreateUIInputField(ctx, Screen::Top, parent);
-                    ImGui::EndMenu();
-                }
-                if (ImGui::BeginMenu("Bottom Screen")) {
-                    if (ImGui::MenuItem("Panel")) CreateUIElement(ctx, "Panel", Screen::Bottom, parent, true);
-                    if (ImGui::MenuItem("Image")) CreateUIElement(ctx, "Image", Screen::Bottom, parent, true);
-                    if (ImGui::MenuItem("Text")) CreateUIElement(ctx, "Text", Screen::Bottom, parent, false, "Text");
-                    if (ImGui::MenuItem("Button")) CreateUIButton(ctx, Screen::Bottom, parent);
-                    if (ImGui::MenuItem("Slider")) CreateUISlider(ctx, Screen::Bottom, parent);
-                    if (ImGui::MenuItem("Toggle")) CreateUIToggle(ctx, Screen::Bottom, parent);
-                    if (ImGui::MenuItem("Input Field")) CreateUIInputField(ctx, Screen::Bottom, parent);
-                    ImGui::EndMenu();
-                }
-                ImGui::EndMenu();
-            }
-            if (!parent && ImGui::BeginMenu("3DS Screen Roots")) {
-                if (ImGui::MenuItem("Bootstrap 3DS Scene (Roots + Cameras)"))
-                    Bootstrap3DSScene(ctx);
-                if (ImGui::MenuItem("Create Top and Bottom Roots"))
-                    EnsureScreenRoots(ctx);
-                if (ImGui::MenuItem("Organize Existing Screen Roots"))
-                    OrganizeExistingScreenRoots(ctx);
-                ImGui::EndMenu();
-            }
-        }
-
-        // Case-insensitive substring match, same small local-helper shape as the
-        // identical need in ConsolePanel.cpp -- not worth a shared utility for one line.
         bool ContainsCaseInsensitive(const std::string& haystack, const std::string& needle) {
             if (needle.empty())
                 return true;
@@ -478,396 +144,560 @@ namespace Duality {
             return it != haystack.end();
         }
 
-        bool IsSelected(const EditorContext& ctx, Entity entity) {
-            return std::find(ctx.SelectedEntities.begin(), ctx.SelectedEntities.end(), entity) != ctx.SelectedEntities.end();
+        std::string PathOf(Entity entity) {
+            std::string path = entity.GetComponent<NameComponent>().Name;
+            for (Entity parent = entity.GetComponent<HierarchyComponent>().Parent; parent; parent = parent.GetComponent<HierarchyComponent>().Parent)
+                path = parent.GetComponent<NameComponent>().Name + "/" + path;
+            return path;
         }
+    }
 
-        void NormalizeSelection(EditorContext& ctx, Entity& rangeAnchor) {
-            auto& selection = ctx.SelectedEntities;
-            selection.erase(std::remove_if(selection.begin(), selection.end(), [&](Entity entity) {
-                return !entity || !ctx.SceneRef.Registry().valid(entity.Handle());
-            }), selection.end());
-            if (!ctx.Selected || !ctx.SceneRef.Registry().valid(ctx.Selected.Handle())) {
-                ctx.Selected = Entity{};
-                selection.clear();
-                rangeAnchor = Entity{};
-                return;
-            }
-            if (!IsSelected(ctx, ctx.Selected)) {
-                selection = { ctx.Selected };
-                rangeAnchor = ctx.Selected;
-            }
+    void HierarchyPanel::BeginRename(EditorContext& ctx, Entity entity) {
+        if (!IsLive(ctx, entity))
+            return;
+        m_RenamingId = ctx.Session.Ids.Get(entity);
+        std::snprintf(m_RenameBuffer, sizeof(m_RenameBuffer), "%s", entity.GetComponent<NameComponent>().Name.c_str());
+        m_FocusRename = true;
+        // Make the row visible (its parents expanded) so the field can actually be shown.
+        for (Entity parent = entity.GetComponent<HierarchyComponent>().Parent; parent; parent = parent.GetComponent<HierarchyComponent>().Parent)
+            m_Expanded.insert(ctx.Session.Ids.Get(parent));
+        m_ScrollToId = m_RenamingId;
+        m_SearchBuffer[0] = '\0';
+    }
+
+    void HierarchyPanel::SetExpandedRecursive(EditorContext& ctx, Entity entity, bool expanded) {
+        const uint64_t id = ctx.Session.Ids.Get(entity);
+        if (expanded)
+            m_Expanded.insert(id);
+        else
+            m_Expanded.erase(id);
+        for (Entity child : entity.GetComponent<HierarchyComponent>().Children)
+            SetExpandedRecursive(ctx, child, expanded);
+    }
+
+    void HierarchyPanel::RevealSelection(EditorContext& ctx) {
+        for (Entity entity : ctx.SelectedEntities) {
+            if (!IsLive(ctx, entity))
+                continue;
+            for (Entity parent = entity.GetComponent<HierarchyComponent>().Parent; parent; parent = parent.GetComponent<HierarchyComponent>().Parent)
+                m_Expanded.insert(ctx.Session.Ids.Get(parent));
         }
+        m_SceneExpanded = true;
+        if (ctx.Selected)
+            m_ScrollToId = ctx.Session.Ids.Get(ctx.Selected);
+    }
 
-        void SelectEntity(EditorContext& ctx, Entity entity, Entity& rangeAnchor, bool additive, bool range) {
-            if (!entity || !ctx.SceneRef.Registry().valid(entity.Handle()))
-                return;
-
-            auto& selection = ctx.SelectedEntities;
-            if (range && rangeAnchor && ctx.SceneRef.Registry().valid(rangeAnchor.Handle())) {
-                const std::vector<Entity> traversal = ctx.SceneRef.GetHierarchyTraversalOrder();
-                auto first = std::find(traversal.begin(), traversal.end(), rangeAnchor);
-                auto last = std::find(traversal.begin(), traversal.end(), entity);
-                if (first != traversal.end() && last != traversal.end()) {
-                    if (first > last)
-                        std::swap(first, last);
-                    selection.assign(first, last + 1);
-                } else {
-                    selection = { entity };
-                    rangeAnchor = entity;
+    void HierarchyPanel::HandleRowClick(EditorContext& ctx, Entity entity) {
+        const ImGuiIO& io = ImGui::GetIO();
+        const uint64_t id = ctx.Session.Ids.Get(entity);
+        m_ClickedRowThisFrame = true;
+        if (io.KeyShift) {
+            // Range over the rows as displayed (Unity / Explorer behaviour).
+            Entity anchor = ctx.Session.Ids.Find(ctx.SceneRef, m_RangeAnchorId);
+            const std::vector<Entity>& rows = m_LastVisibleRows.empty() ? m_VisibleRows : m_LastVisibleRows;
+            auto first = std::find(rows.begin(), rows.end(), anchor);
+            auto last = std::find(rows.begin(), rows.end(), entity);
+            if (anchor && first != rows.end() && last != rows.end()) {
+                if (first > last)
+                    std::swap(first, last);
+                std::vector<Entity> range(first, last + 1);
+                if (io.KeyCtrl) {
+                    for (Entity existing : ctx.SelectedEntities)
+                        if (std::find(range.begin(), range.end(), existing) == range.end())
+                            range.push_back(existing);
                 }
-            } else if (additive) {
-                auto found = std::find(selection.begin(), selection.end(), entity);
-                if (found == selection.end())
-                    selection.push_back(entity);
-                else
-                    selection.erase(found);
-                if (!rangeAnchor)
-                    rangeAnchor = entity;
-            } else {
-                selection = { entity };
-                rangeAnchor = entity;
+                EditorCommands::SetSelection(ctx, range, entity);
+                return;
             }
+        }
+        if (io.KeyCtrl) {
+            EditorCommands::ToggleSelected(ctx, entity);
+            m_RangeAnchorId = id;
+            return;
+        }
+        m_RangeAnchorId = id;
+        if (EditorCommands::IsSelected(ctx, entity) && ctx.SelectedEntities.size() > 1) {
+            // Keep the multi-selection for a possible drag; collapse to this row on release.
+            m_PendingClickId = id;
+            ctx.Selected = entity;
+            return;
+        }
+        EditorCommands::SelectOnly(ctx, entity);
+    }
 
-            ctx.Selected = selection.empty() ? Entity{} : (IsSelected(ctx, entity) ? entity : selection.back());
-            ctx.SelectedAssetPath.clear();
-            ctx.SelectedAssetPaths.clear();
+    void HierarchyPanel::DrawRowContextMenu(EditorContext& ctx, Entity entity) {
+        EditorCommands::DrawEntityEditMenuItems(ctx);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Select Children")) {
+            std::vector<Entity> children = entity.GetComponent<HierarchyComponent>().Children;
+            if (!children.empty())
+                EditorCommands::SetSelection(ctx, children, children.front());
+        }
+        if (ImGui::MenuItem("Expand All Children"))
+            SetExpandedRecursive(ctx, entity, true);
+        if (ImGui::MenuItem("Collapse All Children"))
+            SetExpandedRecursive(ctx, entity, false);
+        if (ImGui::MenuItem("Create Empty Parent", "Ctrl+Shift+G"))
+            EditorCommands::CreateEmptyParent(ctx);
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Prefab")) {
+            Entity prefabRoot = PrefabRootOf(entity);
+            const std::string prefabPath = prefabRoot ? AssetDatabase::ResolvePath(prefabRoot.GetComponent<PrefabInstanceComponent>().Prefab.Guid) : std::string();
+            if (ImGui::MenuItem(prefabRoot ? "Save as New Prefab" : "Create Prefab"))
+                EditorCommands::CreatePrefab(ctx, entity);
+            if (ImGui::MenuItem("Open Asset in Context", nullptr, false, !prefabPath.empty()))
+                ctx.RequestOpenPrefabPath = prefabPath;
+            if (ImGui::MenuItem("Select Asset", nullptr, false, !prefabPath.empty())) {
+                ctx.Session.PingAssetPath = prefabPath;
+                ctx.Session.PingStartTime = ImGui::GetTime();
+            }
+            if (ImGui::MenuItem("Unpack", nullptr, false, prefabRoot == entity)) {
+                if (PrefabSerializer::Unpack(entity))
+                    MarkSceneDirty(ctx, "Unpack Prefab");
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::Separator();
+        EditorCommands::DrawCreateObjectMenu(ctx, entity);
+    }
+
+    void HierarchyPanel::DrawEntityRow(EditorContext& ctx, Entity entity, int depth) {
+        auto& hierarchy = entity.GetComponent<HierarchyComponent>();
+        const uint64_t id = ctx.Session.Ids.Get(entity);
+        const std::string& name = entity.GetComponent<NameComponent>().Name;
+        m_VisibleRows.push_back(entity);
+
+        // Leaf state is snapshotted before TreeNodeEx: a drop accepted on this very row can give
+        // it its first child, and TreePop must match what TreeNodeEx actually pushed.
+        const bool wasLeaf = hierarchy.Children.empty();
+        const bool expanded = !wasLeaf && m_Expanded.count(id) != 0;
+        const bool selected = EditorCommands::IsSelected(ctx, entity);
+        const bool renaming = m_RenamingId == id;
+
+        ImGui::PushID(static_cast<int>(id));
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_AllowOverlap;
+        if (!renaming)
+            flags |= ImGuiTreeNodeFlags_SpanFullWidth;
+        if (selected)
+            flags |= ImGuiTreeNodeFlags_Selected;
+        if (wasLeaf)
+            flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+        // Unity colors: prefab instances blue (red when the asset is missing), inactive grey.
+        const bool active = ctx.SceneRef.IsEffectivelyActive(entity);
+        Entity prefabRoot = PrefabRootOf(entity);
+        ImU32 textColor = ImGui::GetColorU32(ImGuiCol_Text);
+        if (prefabRoot) {
+            const bool missing = AssetDatabase::ResolvePath(prefabRoot.GetComponent<PrefabInstanceComponent>().Prefab.Guid).empty();
+            textColor = missing ? EditorColors::PrefabMissing() : EditorColors::PrefabText();
+        }
+        if (!active) {
+            ImVec4 c = ImGui::ColorConvertU32ToFloat4(textColor);
+            c.w *= 0.5f;
+            textColor = ImGui::ColorConvertFloat4ToU32(c);
         }
 
-        std::vector<Entity> TopLevelSelection(EditorContext& ctx) {
-            std::vector<Entity> roots;
-            for (Entity entity : ctx.SelectedEntities) {
-                if (!entity || !ctx.SceneRef.Registry().valid(entity.Handle()))
-                    continue;
-                bool ancestorSelected = false;
-                for (Entity parent = entity.GetComponent<HierarchyComponent>().Parent; parent;
-                     parent = parent.GetComponent<HierarchyComponent>().Parent) {
-                    if (IsSelected(ctx, parent)) {
-                        ancestorSelected = true;
-                        break;
+        // Ping highlight (an object selected from a reference field / the Scene view).
+        const double pingAge = ImGui::GetTime() - ctx.Session.PingStartTime;
+        if (ctx.Session.PingEntityId == id && pingAge < 1.5) {
+            const ImVec2 min(ImGui::GetWindowPos().x, ImGui::GetCursorScreenPos().y);
+            const ImVec2 max(min.x + ImGui::GetWindowWidth(), min.y + ImGui::GetFrameHeight());
+            const float alpha = static_cast<float>(1.0 - pingAge / 1.5);
+            ImGui::GetWindowDrawList()->AddRectFilled(min, max, (EditorColors::Ping() & 0x00FFFFFF) | (static_cast<ImU32>(alpha * 110.0f) << 24));
+        }
+
+        ImGui::SetNextItemOpen(expanded, ImGuiCond_Always);
+        ImGui::PushStyleColor(ImGuiCol_Text, textColor);
+        if (selected)
+            ImGui::PushStyleColor(ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(EditorColors::Selection()));
+        const std::string label = renaming ? std::string(IconForEntity(entity)) : std::string(IconForEntity(entity)) + "  " + name;
+        const bool open = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(id)), flags, "%s", label.c_str());
+        if (selected)
+            ImGui::PopStyleColor();
+        ImGui::PopStyleColor();
+        const ImVec2 rowMin = ImGui::GetItemRectMin();
+        const ImVec2 rowMax = ImGui::GetItemRectMax();
+
+        if (m_ScrollToId == id) {
+            ImGui::SetScrollHereY(0.4f);
+            m_ScrollToId = 0;
+        }
+
+        // Fold toggles (Alt = the whole branch, Unity).
+        if (ImGui::IsItemToggledOpen()) {
+            const bool nowOpen = !expanded;
+            if (ImGui::GetIO().KeyAlt)
+                SetExpandedRecursive(ctx, entity, nowOpen);
+            else if (nowOpen)
+                m_Expanded.insert(id);
+            else
+                m_Expanded.erase(id);
+        } else if (!renaming) {
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+                HandleRowClick(ctx, entity);
+            if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && m_PendingClickId == id &&
+                ImGui::GetIO().MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < ImGui::GetIO().MouseDragThreshold * ImGui::GetIO().MouseDragThreshold) {
+                EditorCommands::SelectOnly(ctx, entity);
+                m_PendingClickId = 0;
+            }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                m_ClickedRowThisFrame = true;
+                if (!selected)
+                    EditorCommands::SelectOnly(ctx, entity);
+            }
+            // Double-click frames the object in the Scene view (Unity).
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+                ctx.Session.RequestFrameSelected = true;
+        }
+
+        if (!renaming && ImGui::BeginDragDropSource()) {
+            if (!EditorCommands::IsSelected(ctx, entity))
+                EditorCommands::SelectOnly(ctx, entity);
+            m_PendingClickId = 0;
+            entt::entity handle = entity.Handle();
+            ImGui::SetDragDropPayload("HIERARCHY_ENTITY", &handle, sizeof(handle));
+            const size_t count = EditorCommands::TopLevelSelection(ctx).size();
+            if (count > 1)
+                ImGui::Text("%s  %s (+%zu)", IconForEntity(entity), name.c_str(), count - 1);
+            else
+                ImGui::Text("%s  %s", IconForEntity(entity), name.c_str());
+            ImGui::EndDragDropSource();
+        }
+
+        if (ImGui::BeginDragDropTarget()) {
+            // Top quarter = before this row, bottom quarter = after it (first child when the row
+            // is expanded), middle = make it a child -- Unity's three drop zones per row.
+            Entity dragged = DraggedHierarchyEntity(ctx);
+            const float edge = (rowMax.y - rowMin.y) * 0.25f;
+            const float mouseY = ImGui::GetIO().MousePos.y;
+            enum class Zone { Before, Child, After } zone = mouseY < rowMin.y + edge ? Zone::Before : (mouseY > rowMax.y - edge ? Zone::After : Zone::Child);
+            Entity parent = zone == Zone::Child ? entity : hierarchy.Parent;
+            bool asFirstChild = zone == Zone::After && expanded;
+            if (asFirstChild)
+                parent = entity;
+            if (dragged) {
+                const std::vector<Entity> moved = MovedEntities(ctx, dragged);
+                const bool targetIsMoved = std::find(moved.begin(), moved.end(), entity) != moved.end();
+                const bool valid = !targetIsMoved && CanMoveUnder(moved, parent);
+                if (valid) {
+                    ImDrawList* drawList = ImGui::GetWindowDrawList();
+                    const ImU32 highlight = IM_COL32(80, 160, 255, 255);
+                    const float indent = ImGui::GetTreeNodeToLabelSpacing();
+                    if (zone == Zone::Child)
+                        drawList->AddRect(rowMin, rowMax, highlight, 2.0f, 0, 2.0f);
+                    else {
+                        const float y = zone == Zone::Before ? rowMin.y : rowMax.y;
+                        const float x = rowMin.x + (asFirstChild ? indent : 0.0f) + indent * 0.5f;
+                        drawList->AddLine(ImVec2(x, y), ImVec2(rowMax.x, y), highlight, 2.0f);
+                        drawList->AddCircle(ImVec2(x, y), 3.0f, highlight, 8, 1.5f);
                     }
                 }
-                if (!ancestorSelected)
-                    roots.push_back(entity);
-            }
-            return roots;
-        }
-
-        void DuplicateSelection(EditorContext& ctx, Entity& rangeAnchor) {
-            std::vector<Entity> duplicates;
-            for (Entity source : TopLevelSelection(ctx)) {
-                Entity duplicate = PrefabSerializer::Duplicate(ctx.SceneRef, source);
-                if (duplicate)
-                    duplicates.push_back(duplicate);
-            }
-            if (duplicates.empty())
-                return;
-            ctx.SelectedEntities = duplicates;
-            ctx.Selected = duplicates.back();
-            ctx.SelectedAssetPath.clear();
-            ctx.SelectedAssetPaths.clear();
-            rangeAnchor = ctx.Selected;
-            MarkSceneDirty(ctx);
-        }
-
-        // A search box over a tree with drag-drop reparenting either has to hide/show
-        // whole subtrees (auto-expanding ancestors of any match) or fall back to a
-        // simpler flat list while searching -- this takes the flat-list route: while the
-        // search box has text, every matching entity in the WHOLE scene is listed (no
-        // tree structure, no drag-drop), still clickable to select. Empty search box
-        // shows the normal full tree UI, completely unchanged.
-        void DrawFilteredFlatList(EditorContext& ctx, const std::string& filter, std::vector<Entity>& pendingRemovals, Entity& rangeAnchor) {
-            for (auto handle : ctx.SceneRef.Registry().view<NameComponent>()) {
-                Entity entity(handle, &ctx.SceneRef);
-                const std::string& name = entity.GetComponent<NameComponent>().Name;
-                if (!ContainsCaseInsensitive(name, filter))
-                    continue;
-
-                ImGui::PushID(EntityId(entity));
-                bool selected = IsSelected(ctx, entity);
-                const std::string labelledName = std::string(IconForEntity(entity)) + " " + name;
-                if (ImGui::Selectable(labelledName.c_str(), selected))
-                    SelectEntity(ctx, entity, rangeAnchor, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
-                if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected)
-                    SelectEntity(ctx, entity, rangeAnchor, false, false);
-                if (ImGui::BeginPopupContextItem()) {
-                    DrawCreateObjectMenu(ctx, entity);
-                    ImGui::Separator();
-                    if (ImGui::MenuItem((std::string(EditorIcons::Copy) + " Duplicate").c_str(), "Ctrl+D"))
-                        DuplicateSelection(ctx, rangeAnchor);
-                    if (ImGui::MenuItem((std::string(EditorIcons::Trash) + " Remove").c_str(), "Delete"))
-                        pendingRemovals = TopLevelSelection(ctx);
-                    ImGui::EndPopup();
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY", ImGuiDragDropFlags_AcceptNoDrawDefaultRect)) {
+                    if (payload->Delivery && valid) {
+                        if (zone == Zone::Child)
+                            MoveEntities(ctx, moved, entity, {}, false, SIZE_MAX);
+                        else if (asFirstChild)
+                            MoveEntities(ctx, moved, entity, {}, false, 0);
+                        else
+                            MoveEntities(ctx, moved, parent, entity, zone == Zone::After, SIZE_MAX);
+                        m_Expanded.insert(ctx.Session.Ids.Get(parent));
+                    }
                 }
-                ImGui::PopID();
+            }
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+                if (payload->Delivery && InstantiateDroppedPrefab(ctx, payload, entity))
+                    m_Expanded.insert(id);
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        if (!renaming && ImGui::BeginPopupContextItem("EntityContext")) {
+            if (ImGui::IsWindowAppearing() && !EditorCommands::IsSelected(ctx, entity))
+                EditorCommands::SelectOnly(ctx, entity);
+            DrawRowContextMenu(ctx, entity);
+            ImGui::EndPopup();
+        }
+
+        // Inline rename field drawn over the row label.
+        if (renaming) {
+            ImGui::SameLine();
+            if (m_FocusRename) {
+                ImGui::SetKeyboardFocusHere();
+                m_FocusRename = false;
+            }
+            ImGui::SetNextItemWidth(-1.0f);
+            const bool submitted = ImGui::InputText("##Rename", m_RenameBuffer, sizeof(m_RenameBuffer),
+                ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+            const bool cancelled = ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape);
+            if (cancelled) {
+                m_RenamingId = 0;
+            } else if (submitted || ImGui::IsItemDeactivated()) {
+                if (m_RenameBuffer[0] != '\0' && name != m_RenameBuffer) {
+                    entity.GetComponent<NameComponent>().Name = m_RenameBuffer;
+                    MarkSceneDirty(ctx, "Rename");
+                }
+                m_RenamingId = 0;
+            }
+        } else {
+            // Active toggle at the row's right edge (Unity shows it in the Inspector header; the
+            // Hierarchy eye toggle is the common shortcut for it).
+            const bool selfActive = entity.GetComponent<ActiveComponent>().Active;
+            const float toggleWidth = ImGui::GetFrameHeight();
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - toggleWidth);
+            const bool hovered = ImGui::IsMouseHoveringRect(rowMin, rowMax);
+            if (hovered || !selfActive) {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.08f));
+                ImGui::PushStyleColor(ImGuiCol_Text, selfActive ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+                if (ImGui::Button(selfActive ? EditorIcons::Eye : EditorIcons::EyeSlash, ImVec2(toggleWidth, 0.0f))) {
+                    // Applies to the whole selection when this row is part of it.
+                    if (EditorCommands::IsSelected(ctx, entity)) {
+                        for (Entity target : ctx.SelectedEntities)
+                            EditorCommands::SetActive(ctx, target, !selfActive);
+                    } else {
+                        EditorCommands::SetActive(ctx, entity, !selfActive);
+                    }
+                    m_ClickedRowThisFrame = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                    ImGui::SetTooltip(selfActive ? "Deactivate (Alt+Shift+A)" : "Activate (Alt+Shift+A)");
+                ImGui::PopStyleVar();
+                ImGui::PopStyleColor(3);
+            } else {
+                ImGui::Dummy(ImVec2(toggleWidth, ImGui::GetFrameHeight()));
             }
         }
 
-        void DrawEntityNode(Entity entity, EditorContext& ctx, std::vector<Entity>& pendingRemovals, Entity& rangeAnchor) {
-            auto& hierarchy = entity.GetComponent<HierarchyComponent>();
+        if (!wasLeaf && open) {
+            // Copy: a drop accepted while drawing a child mutates the live Children vector.
+            std::vector<Entity> children = hierarchy.Children;
+            for (Entity child : children) {
+                if (IsLive(ctx, child))
+                    DrawEntityRow(ctx, child, depth + 1);
+            }
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+
+    void HierarchyPanel::DrawSearchResults(EditorContext& ctx) {
+        for (Entity entity : ctx.SceneRef.GetHierarchyTraversalOrder()) {
             const std::string& name = entity.GetComponent<NameComponent>().Name;
-
-            // Snapshotted BEFORE TreeNodeEx runs, and used for the TreePop decision
-            // below instead of re-reading hierarchy.Children live -- the drag-drop
-            // target a few lines down can append a new child to THIS SAME node
-            // (dropping something onto a currently-childless node is the most
-            // common way a user creates their first parent/child relationship).
-            // TreeNodeEx already committed to NoTreePushOnOpen (no push at all)
-            // based on the leaf state at call time; re-checking Children.empty()
-            // afterward and finding it non-empty then wrongly called TreePop()
-            // against a push that never happened, corrupting ImGui's ID/tree stack
-            // and crashing -- this was the actual "crash when dragging an entity
-            // onto another" bug.
-            bool wasLeaf = hierarchy.Children.empty();
-
-            ImGui::PushID(EntityId(entity));
-            const std::string labelledName = std::string(IconForEntity(entity)) + " " + name;
-
-            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-            if (IsSelected(ctx, entity))
-                flags |= ImGuiTreeNodeFlags_Selected;
-            if (wasLeaf)
-                flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-
-            // Cheap visual grouping, not a structural Hierarchy split -- entities
-            // aren't exclusively owned by a screen in this engine, so a hard
-            // partition of the tree would be dishonest. Same Top/Bottom colors as
-            // the Scene view's own camera markers (ScenePanel.cpp).
-            if (entity.HasComponent<LayerComponent>()) {
-                Layer layer = entity.GetComponent<LayerComponent>().Value;
-                ImVec4 color = (layer == Layer::TOP) ? ImVec4(0.3f, 0.9f, 0.9f, 1.0f) : ImVec4(0.95f, 0.6f, 0.2f, 1.0f);
-                if (layer == Layer::Default)
-                    color = ImVec4(0.7f, 0.7f, 0.7f, 1.0f);
-                ImGui::ColorButton("##LayerMarker", color,
-                    ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder | ImGuiColorEditFlags_NoDragDrop, ImVec2(8, 8));
-                ImGui::SameLine();
-            }
-
-            bool open = ImGui::TreeNodeEx(labelledName.c_str(), flags);
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
-                SelectEntity(ctx, entity, rangeAnchor, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !IsSelected(ctx, entity))
-                SelectEntity(ctx, entity, rangeAnchor, false, false);
-
-            if (ImGui::BeginDragDropSource()) {
-                if (!IsSelected(ctx, entity))
-                    SelectEntity(ctx, entity, rangeAnchor, false, false);
-                entt::entity handle = entity.Handle();
-                ImGui::SetDragDropPayload("HIERARCHY_ENTITY", &handle, sizeof(handle));
-                ImGui::Text("%s", labelledName.c_str());
-                ImGui::EndDragDropSource();
-            }
-            if (ImGui::BeginDragDropTarget()) {
-                // Top quarter = before this sibling, middle = child, bottom
-                // quarter = after this sibling. This makes reordering possible
-                // directly on a row instead of requiring a 4px invisible gap.
-                AcceptEntityRowDrop(ctx, entity);
-                ImGui::EndDragDropTarget();
-            }
-
-            if (ImGui::BeginPopupContextItem()) {
-                DrawCreateObjectMenu(ctx, entity);
-                ImGui::Separator();
-                if (ImGui::MenuItem((std::string(EditorIcons::Copy) + " Duplicate").c_str(), "Ctrl+D"))
-                    DuplicateSelection(ctx, rangeAnchor);
-                if (ImGui::MenuItem((std::string(EditorIcons::Trash) + " Remove").c_str(), "Delete"))
-                    pendingRemovals = TopLevelSelection(ctx);
-                ImGui::Separator();
-                if (ImGui::MenuItem("Create Prefab from Selection"))
-                    CreatePrefabFromSelection(ctx, entity);
+            if (!ContainsCaseInsensitive(name, m_SearchBuffer))
+                continue;
+            m_VisibleRows.push_back(entity);
+            const uint64_t id = ctx.Session.Ids.Get(entity);
+            ImGui::PushID(static_cast<int>(id));
+            const bool selected = EditorCommands::IsSelected(ctx, entity);
+            const std::string label = std::string(IconForEntity(entity)) + "  " + name;
+            if (ImGui::Selectable(label.c_str(), selected))
+                HandleRowClick(ctx, entity);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                ImGui::SetTooltip("%s", PathOf(entity).c_str());
+            if (ImGui::BeginPopupContextItem("SearchContext")) {
+                if (ImGui::IsWindowAppearing() && !selected)
+                    EditorCommands::SelectOnly(ctx, entity);
+                DrawRowContextMenu(ctx, entity);
                 ImGui::EndPopup();
-            }
-
-            // Matches TreeNodeEx exactly: it pushed a tree node iff (!wasLeaf &&
-            // open), so that's the only condition under which TreePop is valid.
-            if (!wasLeaf && open) {
-                // Copy, not a reference -- a drop accepted while drawing one child
-                // (e.g. reparenting a sibling onto it) mutates the *live*
-                // Children vector, which would invalidate this range-for if it
-                // were iterating that vector directly.
-                std::vector<Entity> children = hierarchy.Children;
-                for (Entity child : children)
-                    DrawEntityNode(child, ctx, pendingRemovals, rangeAnchor);
-                ImGui::TreePop();
             }
             ImGui::PopID();
         }
     }
 
+    void HierarchyPanel::HandleKeyboardNavigation(EditorContext& ctx) {
+        if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || ImGui::GetIO().WantTextInput || m_LastVisibleRows.empty())
+            return;
+        const ImGuiIO& io = ImGui::GetIO();
+        auto current = std::find(m_LastVisibleRows.begin(), m_LastVisibleRows.end(), ctx.Selected);
+        auto selectRow = [&](Entity entity) {
+            if (io.KeyShift && ctx.Selected) {
+                std::vector<Entity> extended = ctx.SelectedEntities;
+                extended.push_back(entity);
+                EditorCommands::SetSelection(ctx, extended, entity);
+            } else {
+                EditorCommands::SelectOnly(ctx, entity);
+                m_RangeAnchorId = ctx.Session.Ids.Get(entity);
+            }
+            m_ScrollToId = ctx.Session.Ids.Get(entity);
+        };
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+            if (current == m_LastVisibleRows.end())
+                selectRow(m_LastVisibleRows.front());
+            else if (current + 1 != m_LastVisibleRows.end())
+                selectRow(*(current + 1));
+        } else if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) {
+            if (current == m_LastVisibleRows.end())
+                selectRow(m_LastVisibleRows.back());
+            else if (current != m_LastVisibleRows.begin())
+                selectRow(*(current - 1));
+        } else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) && ctx.Selected) {
+            if (io.KeyAlt)
+                SetExpandedRecursive(ctx, ctx.Selected, true);
+            else
+                m_Expanded.insert(ctx.Session.Ids.Get(ctx.Selected));
+        } else if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) && ctx.Selected) {
+            const uint64_t id = ctx.Session.Ids.Get(ctx.Selected);
+            Entity parent = ctx.Selected.GetComponent<HierarchyComponent>().Parent;
+            if (io.KeyAlt)
+                SetExpandedRecursive(ctx, ctx.Selected, false);
+            else if (m_Expanded.count(id) && !ctx.Selected.GetComponent<HierarchyComponent>().Children.empty())
+                m_Expanded.erase(id);
+            else if (parent)
+                selectRow(parent);
+        } else if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) && ctx.Selected) {
+            BeginRename(ctx, ctx.Selected);
+        }
+    }
+
     void HierarchyPanel::OnImGuiRender(EditorContext& ctx) {
-        ImGui::Begin("Hierarchy");
-        NormalizeSelection(ctx, m_RangeAnchor);
+        if (!ctx.Session.ShowHierarchy)
+            return;
+        if (!ImGui::Begin("Hierarchy", &ctx.Session.ShowHierarchy)) {
+            ImGui::End();
+            return;
+        }
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+            ctx.Session.FocusedPanel = EditorPanel::Hierarchy;
 
-        ImGui::InputTextWithHint("##HierarchySearch", "Search...", m_SearchBuffer, sizeof(m_SearchBuffer));
+        if (ctx.Session.RequestRevealSelection) {
+            ctx.Session.RequestRevealSelection = false;
+            RevealSelection(ctx);
+        }
+        // A reference field pinged an entity: make its row visible.
+        if (ctx.Session.PingEntityId && ctx.Session.PingStartTime != m_HandledPingTime) {
+            m_HandledPingTime = ctx.Session.PingStartTime;
+            if (Entity pinged = ctx.Session.Ids.Find(ctx.SceneRef, ctx.Session.PingEntityId)) {
+                for (Entity parent = pinged.GetComponent<HierarchyComponent>().Parent; parent; parent = parent.GetComponent<HierarchyComponent>().Parent)
+                    m_Expanded.insert(ctx.Session.Ids.Get(parent));
+                m_SceneExpanded = true;
+                m_ScrollToId = ctx.Session.PingEntityId;
+                m_SearchBuffer[0] = 0;
+            }
+        }
+        if (ctx.Session.RequestRename) {
+            ctx.Session.RequestRename = false;
+            BeginRename(ctx, ctx.Selected);
+        }
+        if (m_RenamingId && !ctx.Session.Ids.Find(ctx.SceneRef, m_RenamingId))
+            m_RenamingId = 0;
 
+        // ---- Toolbar: "+" create menu and search (Unity's Hierarchy header).
+        if (ImGui::Button((std::string(EditorIcons::Add) + " " + EditorIcons::CaretDown).c_str()))
+            ImGui::OpenPopup("HierarchyCreate");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            ImGui::SetTooltip("Create a GameObject");
+        if (ImGui::BeginPopup("HierarchyCreate")) {
+            EditorCommands::DrawCreateObjectMenu(ctx);
+            ImGui::EndPopup();
+        }
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##HierarchySearch", (std::string(EditorIcons::Search) + " Search").c_str(), m_SearchBuffer, sizeof(m_SearchBuffer));
         ImGui::Separator();
 
-        // While searching, show a flat filtered list instead of the normal tree --
-        // see DrawFilteredFlatList's own comment for why (a tree with drag-drop
-        // reparenting doesn't have an obvious cheap way to hide/show whole subtrees).
+        m_LastVisibleRows = std::move(m_VisibleRows);
+        m_VisibleRows.clear();
+        m_ClickedRowThisFrame = false;
+
+        ImGui::BeginChild("HierarchyTree", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, 2.0f));
         if (m_SearchBuffer[0] != '\0') {
-            DrawFilteredFlatList(ctx, m_SearchBuffer, m_PendingRemovals, m_RangeAnchor);
+            DrawSearchResults(ctx);
         } else {
-            // A Scene is the synthetic root of its own hierarchy, just like Unity's
-            // scene header.  It deliberately is NOT an Entity: it owns the root
-            // entity list today and will own one independent entity list per loaded
-            // scene once additive scene loading arrives.  Keeping that distinction
-            // now avoids having to migrate every existing scene to a fake root
-            // GameObject later.
-            std::filesystem::path scenePath(ctx.ScenePath);
-            std::string sceneName = scenePath.stem().string();
+            // The Scene is the synthetic root (Unity's scene header row): not an Entity.
+            std::string sceneName = ctx.IsEditingPrefab ? std::filesystem::path(ctx.EditingPrefabPath).stem().string()
+                                                        : std::filesystem::path(ctx.ScenePath).stem().string();
             if (sceneName.empty())
-                sceneName = "Untitled Scene";
-            const std::string sceneLabel = std::string(EditorIcons::Map) + " " + sceneName;
+                sceneName = "Untitled";
+            const std::string sceneLabel = std::string(ctx.IsEditingPrefab ? EditorIcons::Cube : EditorIcons::Map) + "  " + sceneName + (ctx.SceneDirty ? "*" : "");
 
             ImGui::PushID("SceneHierarchyRoot");
-            ImGuiTreeNodeFlags sceneFlags = ImGuiTreeNodeFlags_OpenOnArrow |
-                ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
-            bool sceneOpen = ImGui::TreeNodeEx(sceneLabel.c_str(), sceneFlags);
+            ImGui::PushStyleColor(ImGuiCol_Header, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+            ImGui::SetNextItemOpen(m_SceneExpanded, ImGuiCond_Always);
+            ImGui::PushFont(EditorBoldFont());
+            const bool sceneOpen = ImGui::TreeNodeEx(sceneLabel.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth |
+                ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_FramePadding);
+            ImGui::PopFont();
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemToggledOpen())
+                m_SceneExpanded = !m_SceneExpanded;
 
-            // Dropping an existing entity on the Scene header reparents it to the
-            // real Scene root.  This is the same operation as dropping into the
-            // empty root-space below the tree, but the visible Scene node is the
-            // discoverable target users expect.
             if (ImGui::BeginDragDropTarget()) {
-                AcceptReparentDrop(ctx, Entity{});
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
-                    std::string guid = static_cast<const char*>(payload->Data);
-                    std::string path = AssetDatabase::ResolvePath(guid);
-                    if (!path.empty()) {
-                        Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path, {}, AssetRef{ guid });
-                        if (instance) {
-                            SelectEntity(ctx, instance, m_RangeAnchor, false, false);
-                            MarkSceneDirty(ctx);
-                        }
-                    }
+                if (Entity dragged = DraggedHierarchyEntity(ctx)) {
+                    const std::vector<Entity> moved = MovedEntities(ctx, dragged);
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
+                        if (payload->Delivery)
+                            MoveEntities(ctx, moved, Entity{}, {}, false, SIZE_MAX);
                 }
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID"))
+                    if (payload->Delivery)
+                        InstantiateDroppedPrefab(ctx, payload, Entity{});
                 ImGui::EndDragDropTarget();
             }
-
-            // Right-clicking the scene header creates root entities.  The same
-            // menu is available on blank panel space; right-clicking an Entity
-            // row still produces its child-oriented menu below.
             if (ImGui::BeginPopupContextItem("SceneRootContext")) {
-                DrawCreateObjectMenu(ctx);
+                if (ImGui::MenuItem(ctx.IsEditingPrefab ? "Save Prefab" : "Save Scene", "Ctrl+S"))
+                    SaveScene(ctx);
+                if (!ctx.IsEditingPrefab && ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
+                    ctx.RequestSaveSceneAs = true;
+                ImGui::Separator();
+                if (ImGui::MenuItem("Paste", "Ctrl+V", false, EditorCommands::HasClipboard(ctx))) {
+                    EditorCommands::ClearSelection(ctx);
+                    EditorCommands::Paste(ctx, false);
+                }
+                ImGui::Separator();
+                EditorCommands::DrawCreateObjectMenu(ctx);
                 ImGui::EndPopup();
             }
 
             if (sceneOpen) {
-                // Copy protects this traversal from a drag-drop reparenting
-                // mutation.  Top/Bottom remain ordinary child entities, so
-                // screen-layer inheritance keeps working exactly as before.
                 std::vector<Entity> roots = ctx.SceneRef.GetRootEntities();
-                for (Entity entity : roots)
-                    DrawEntityNode(entity, ctx, m_PendingRemovals, m_RangeAnchor);
+                for (Entity entity : roots) {
+                    if (IsLive(ctx, entity))
+                        DrawEntityRow(ctx, entity, 0);
+                }
                 ImGui::TreePop();
             }
             ImGui::PopID();
+        }
+        ImGui::PopStyleVar(2);
 
-        // Drop target filling the remaining panel space below the tree -- it moves
-        // an entity back to the unlayered scene root. InvisibleButton
-        // asserts on a zero-size axis, which GetContentRegionAvail() can return
-        // when the tree already fills the panel -- clamp to a 1px minimum.
+        // Blank space below the rows: drop target (move to scene root / instantiate prefab),
+        // click to deselect, right-click for the create menu.
         ImVec2 dropZoneSize = ImGui::GetContentRegionAvail();
         dropZoneSize.x = std::max(dropZoneSize.x, 1.0f);
-        dropZoneSize.y = std::max(dropZoneSize.y, 1.0f);
+        dropZoneSize.y = std::max(dropZoneSize.y, ImGui::GetFrameHeight());
         ImGui::InvisibleButton("##RootDropZone", dropZoneSize);
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift)
+            EditorCommands::ClearSelection(ctx);
         if (ImGui::BeginDragDropTarget()) {
-            AcceptReparentDrop(ctx, Entity{});
-            // A Prefab asset dropped here (not an existing HIERARCHY_ENTITY drag)
-            // instantiates a new copy at the scene root -- PrefabSerializer::Instantiate
-            // itself just logs an error and returns an empty Entity if the dropped
-            // asset isn't actually a valid prefab file, so no extension check needed
-            // here first.
-            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
-                std::string guid = static_cast<const char*>(payload->Data);
-                std::string path = AssetDatabase::ResolvePath(guid);
-                if (!path.empty()) {
-                    Entity instance = PrefabSerializer::Instantiate(ctx.SceneRef, path, {}, AssetRef{ guid });
-                    if (instance) {
-                        SelectEntity(ctx, instance, m_RangeAnchor, false, false);
-                        MarkSceneDirty(ctx);
-                    }
-                }
+            if (Entity dragged = DraggedHierarchyEntity(ctx)) {
+                const std::vector<Entity> moved = MovedEntities(ctx, dragged);
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("HIERARCHY_ENTITY"))
+                    if (payload->Delivery)
+                        MoveEntities(ctx, moved, Entity{}, {}, false, SIZE_MAX);
             }
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID"))
+                if (payload->Delivery)
+                    InstantiateDroppedPrefab(ctx, payload, Entity{});
             ImGui::EndDragDropTarget();
         }
-
-        // Right-click anywhere in the panel (including empty space below the
-        // list) for a Unity-style "Create Empty" context menu. NoOpenOverItems
-        // lets each node's own BeginPopupContextItem (Create Child Entity) take
-        // precedence when right-clicking directly on a row.
-        if (ImGui::BeginPopupContextWindow("HierarchyContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-            DrawCreateObjectMenu(ctx);
-            ImGui::EndPopup();
-        }
-        }
-
-        // Scope scene-object shortcuts to this window; typing in the search box
-        // must not turn Ctrl+D/Delete into a scene mutation.
-        if (!ctx.IsPlaying && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-            !ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl &&
-            ImGui::IsKeyPressed(ImGuiKey_D, false) && !ctx.SelectedEntities.empty())
-            DuplicateSelection(ctx, m_RangeAnchor);
-
-        // Only react while this panel has keyboard focus, and never turn a
-        // Delete keypress intended for the search box into an entity removal.
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-            !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete) &&
-            !ctx.SelectedEntities.empty()) {
-            m_PendingRemovals = TopLevelSelection(ctx);
-        }
-
-        // Unity-style quick rename. A modal avoids changing the tree row's ImGui ID/layout in
-        // the middle of traversal, and also works when the selection came from Scene or Game.
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-            !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2) &&
-            ctx.Selected && ctx.SceneRef.Registry().valid(ctx.Selected.Handle())) {
-            m_Renaming = ctx.Selected;
-            std::snprintf(m_RenameBuffer, sizeof(m_RenameBuffer), "%s",
-                m_Renaming.GetComponent<NameComponent>().Name.c_str());
-            ImGui::OpenPopup("Rename Entity");
-        }
-
-        if (m_Renaming && !ctx.SceneRef.Registry().valid(m_Renaming.Handle()))
-            m_Renaming = Entity{};
-        if (ImGui::BeginPopupModal("Rename Entity", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            if (ImGui::IsWindowAppearing())
-                ImGui::SetKeyboardFocusHere();
-            bool submitted = ImGui::InputText("Name", m_RenameBuffer, sizeof(m_RenameBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
-            if (submitted || ImGui::Button("Rename", ImVec2(100.0f, 0.0f))) {
-                if (m_Renaming && ctx.SceneRef.Registry().valid(m_Renaming.Handle())) {
-                    m_Renaming.GetComponent<NameComponent>().Name = m_RenameBuffer;
-                    MarkSceneDirty(ctx);
-                }
-                m_Renaming = Entity{};
-                ImGui::CloseCurrentPopup();
+        if (ImGui::BeginPopupContextItem("HierarchyBlankContext")) {
+            if (ImGui::MenuItem("Paste", "Ctrl+V", false, EditorCommands::HasClipboard(ctx))) {
+                EditorCommands::ClearSelection(ctx);
+                EditorCommands::Paste(ctx, false);
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(100.0f, 0.0f))) {
-                m_Renaming = Entity{};
-                ImGui::CloseCurrentPopup();
-            }
+            ImGui::Separator();
+            EditorCommands::DrawCreateObjectMenu(ctx);
             ImGui::EndPopup();
         }
 
-        bool removedAny = false;
-        for (Entity pendingRemoval : m_PendingRemovals) {
-            if (!pendingRemoval || !ctx.SceneRef.Registry().valid(pendingRemoval.Handle()))
-                continue;
-            ctx.SceneRef.DestroyEntity(pendingRemoval);
-            removedAny = true;
-        }
-        if (removedAny) {
-            ctx.SelectedEntities.erase(std::remove_if(ctx.SelectedEntities.begin(), ctx.SelectedEntities.end(), [&](Entity entity) {
-                return !entity || !ctx.SceneRef.Registry().valid(entity.Handle());
-            }), ctx.SelectedEntities.end());
-            ctx.Selected = ctx.SelectedEntities.empty() ? Entity{} : ctx.SelectedEntities.back();
-            m_RangeAnchor = ctx.Selected;
-            MarkSceneDirty(ctx);
-        }
-        m_PendingRemovals.clear();
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+            m_PendingClickId = 0;
 
+        HandleKeyboardNavigation(ctx);
+        ImGui::EndChild();
         ImGui::End();
     }
 

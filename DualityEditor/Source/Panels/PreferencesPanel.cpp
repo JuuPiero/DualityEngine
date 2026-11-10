@@ -22,7 +22,7 @@ namespace Duality {
         EditorSettings& settings = EditorSettings::Get();
 
         ImGui::TextUnformatted("Appearance");
-        const char* themeNames[] = { "Blue", "Pink", "Dark" };
+        const char* themeNames[] = { "Blue", "Pink", "Dark", "Unity Dark" };
         int themeIndex = static_cast<int>(EditorThemeFromString(settings.ColorTheme));
         ImGui::SetNextItemWidth(180.0f);
         if (ImGui::Combo("Color Theme", &themeIndex, themeNames, IM_ARRAYSIZE(themeNames))) {

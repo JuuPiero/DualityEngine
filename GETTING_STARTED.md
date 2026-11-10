@@ -19,12 +19,18 @@ trông đã cũ, vì vậy bạn luôn có thể chạy lại lệnh này sau kh
 
 ## 2. Làm quen với Editor
 
-Chạy `run.bat`. Bạn sẽ thấy:
+Chạy `run.bat`. Editor trông và hoạt động như Unity: Hierarchy bên trái, Scene/Game ở
+giữa, Inspector bên phải, Project/Console bên dưới, toolbar chính có tool Q W E R T và
+nút Play/Pause/Step ở giữa. Phím tắt quen thuộc của Unity đều dùng được (Ctrl+Z/Ctrl+Y
+undo/redo cho mọi thao tác, Ctrl+D duplicate, Ctrl+C/Ctrl+V copy/paste object, F2 đổi
+tên, F frame, Delete, Ctrl+P play, chuột phải + WASD để bay trong Scene 3D...) -- bảng
+đầy đủ ở `Docs/pages/editor.html`. Bạn sẽ thấy:
 
-- **File menu** (phía trên) -- Open Project, Save/Load Scene, **Save Scene As...**
-  (lưu một *bản snapshot* của scene hiện tại ra file mới, không đổi scene mà
-  Save/Load Scene đang thao tác -- đây là cách để có file scene thứ hai cho
+- **File menu** (phía trên) -- New Scene, Open Scene, Save (Ctrl+S), **Save As...**
+  (Ctrl+Shift+S -- giống Unity: lưu ra file mới và scene đang mở chuyển sang file đó;
+  đây là cách để có file scene thứ hai cho
   `SceneManager`/`Behaviour::LoadScene` nhắm tới, xem mục 8 và 10 bên dưới),
+  Open Project / Open Recent Project,
   **Build for 3DS**, và **Build for PC** (build lại `DualityPlayerDesktop`
   trong build tree desktop có sẵn -- không cần bước cook asset nào vì target
   đó tự đọc thẳng `Assets/` của project lúc chạy; sau khi build xong, chạy
@@ -51,15 +57,15 @@ Chạy `run.bat`. Bạn sẽ thấy:
   danh sách phẳng mọi entity khớp tên trong toàn scene (cây/kéo-thả trở lại khi
   xóa ô tìm kiếm). Chuột phải vào một entity để **Create Child Entity** hoặc
   **Create Prefab from Selection** (ghi ra `Assets/Prefabs/<Tên>.prefab`);
-  kéo một Prefab asset từ Content Browser thả vào khoảng trống của panel này để
+  kéo một Prefab asset từ Project thả vào khoảng trống của panel này để
   tạo bản sao (instantiate) vào scene.
-- **Properties** (bên phải) -- mọi component của entity đang chọn, với các field
+- **Inspector** (bên phải) -- mọi component của entity đang chọn, với các field
   có thể chỉnh sửa trực tiếp. Mọi entity đều có checkbox **Active** (tương đương
   `GameObject.SetActive` của Unity) cạnh Transform/Name/Tag. **+ Add Component**
   ở dưới cùng thêm component mới; nút "..." trên các component không bắt buộc sẽ
   xóa chúng. Checkbox **Lock** ở trên cùng ghim panel vào entity/asset đang hiện,
-  bỏ qua mọi lần chọn khác ở Hierarchy/Scene/Content Browser cho tới khi bỏ khóa
-  -- bật nó lên trước khi kéo một Material/Texture từ Content Browser vào field
+  bỏ qua mọi lần chọn khác ở Hierarchy/Scene/Project cho tới khi bỏ khóa
+  -- bật nó lên trước khi kéo một Material/Texture từ Project vào field
   `AssetRef` ở đây, nếu không click-để-bắt-đầu-kéo sẽ vô tình đổi luôn nội dung
   panel đang hiện.
 - **Scene** / **Game** (ở giữa, dạng tab) -- **Scene** chia thành hai pane cạnh
@@ -71,18 +77,18 @@ Chạy `run.bat`. Bạn sẽ thấy:
   Scale chuyển chế độ gizmo. Camera entity vẽ hẳn khung nhìn thật (frustum --
   mặt phẳng near/far, FOV) thay vì chỉ một điểm đánh dấu, nên bạn thấy chính
   xác camera đang nhìn về đâu; field **Background** (màu) của Camera trong
-  Properties chính là màu mà màn hình đó thực sự dùng để clear khi có camera.
+  Inspector chính là màu mà màn hình đó thực sự dùng để clear khi có camera.
   **Game** hiển thị chính xác những gì camera trong
   scene thực render -- tức hình ảnh bạn thực sự sẽ thấy trên máy console.
 - **Console** (phía dưới, dạng tab) -- log output (`Duality::Log`, kể cả
   `Behaviour::LogInfo/LogWarn/LogError` gọi từ script), có màu theo cấp độ
   (Trace/Info/Warn/Error), checkbox lọc theo cấp độ, ô tìm kiếm theo nội dung,
   và nút Clear.
-- **Content Browser** (phía dưới, dạng tab) -- trình duyệt thư mục `Assets/`
+- **Project** (phía dưới, dạng tab) -- trình duyệt thư mục `Assets/`
   của project hiện tại, có ô tìm kiếm lọc file theo tên trong thư mục đang mở
   (thư mục vẫn luôn hiện để còn điều hướng được). Kéo asset vào field
-  `AssetRef` trong Properties (texture, Material, Prefab, ...) để gán; kéo file
-  từ Explorer vào để import. **Click một lần vào file để chọn** -- Properties
+  `AssetRef` trong Inspector (texture, Material, Prefab, ...) để gán; kéo file
+  từ Explorer vào để import. **Click một lần vào file để chọn** -- Inspector
   hiện đúng loại Inspector theo phần đuôi file: `.mat` (Material, edit đầy đủ),
   `.asset` (ScriptableObject, edit đầy đủ), `.prefab`/`.scene` (tóm tắt
   read-only: số entity, tên root/entity gốc), ảnh (`.png`/`.jpg`/...) và
@@ -105,20 +111,20 @@ lúc bấm Play, nên không cần save trước khi Play để "giữ chỗ" n�
 
 1. **Hierarchy -> Create Entity.** Một entity trống mới xuất hiện và được chọn
    sẵn.
-2. **Properties -> + Add Component -> Sprite Renderer.** Entity sẽ hiển thị một
+2. **Inspector -> + Add Component -> Sprite Renderer.** Entity sẽ hiển thị một
    hình vuông trắng nhỏ tại vị trí do Transform xác định.
-3. Kéo một ảnh từ **Content Browser** vào field **Texture** của Sprite Renderer
-   trong Properties để tạo hình ảnh thật. (Nếu `Assets/` chưa có gì, trước tiên
+3. Kéo một ảnh từ **Project** vào field **Texture** của Sprite Renderer
+   trong Inspector để tạo hình ảnh thật. (Nếu `Assets/` chưa có gì, trước tiên
    hãy kéo một file `.png`/`.jpg` từ Windows Explorer vào -- file được copy vào
-   thư mục mà Content Browser đang hiển thị.)
+   thư mục mà Project đang hiển thị.)
 4. Chuyển sang chế độ xem **Scene**, chọn entity và kéo các tay nắm gizmo (các nút
    Translate/Rotate/Scale ở trên cùng chọn thao tác) để di chuyển/xoay/đổi kích
-   thước -- hoặc chỉnh trực tiếp các field `Transform` trong Properties.
+   thước -- hoặc chỉnh trực tiếp các field `Transform` trong Inspector.
 5. **+ Add Component -> Box Collider 2D** (hoặc **Circle Collider 2D**) cùng với
    **Rigidbody 2D** sẽ biến entity thành một vật thể physics -- bấm Play để xem nó
    phản ứng với trọng lực. Khi entity đang được chọn, collider hiện dưới dạng
    đường viền màu xanh lá trong Scene để bạn thấy phạm vi thật của nó; bật
-   checkbox **Edit** ngay trên component đó trong Properties để kéo tay nắm
+   checkbox **Edit** ngay trên component đó trong Inspector để kéo tay nắm
    resize trực tiếp trong viewport (chỉnh `Size`/`Radius`) thay vì gõ số tay.
 6. Chọn **File -> Save Scene** khi bạn đã hài lòng.
 
@@ -134,13 +140,13 @@ kiểu Unity và ánh sáng thật (Directional/Point/Spot) cho ra cùng một h
 hai nền tảng (bước 2 và 8 bên dưới; chi tiết ở README, mục "Rendering: Materials,
 Shaders & Lighting").
 
-1. **Properties -> + Add Component -> Mesh Renderer.** Entity hiển thị một
+1. **Inspector -> + Add Component -> Mesh Renderer.** Entity hiển thị một
    khối lập phương trắng (mặc định `Primitive = Cube`; có thể đổi sang `Sphere`
    hoặc `Plane`). Kích thước thật lấy từ `Transform -> Scale`, không có field
    `Size` riêng như Sprite Renderer.
-2. **Tạo Material.** Trong Content Browser, chuột phải vào khoảng trống ->
+2. **Tạo Material.** Trong Project, chuột phải vào khoảng trống ->
    **Create -> Material** -- tạo ngay `NewMaterial.mat` (shader `Lit/Diffuse`,
-   màu trắng, cull mặt sau) và tự đăng ký GUID. Click chọn file đó, Properties
+   màu trắng, cull mặt sau) và tự đăng ký GUID. Click chọn file đó, Inspector
    hiện Material inspector: quả cầu preview có ánh sáng, ô **Shader** (Lit/Diffuse,
    Lit/Specular, Toon/Lit, Mobile/VertexLit, Unlit/Color, Unlit/Texture,
    Unlit/Transparent, Unlit/Transparent Cutout, Unlit/Additive, Unlit/Vertex Color),
@@ -152,7 +158,7 @@ Shaders & Lighting").
    (chỉ có Color + Texture) vẫn mở được và hiển thị y như trước (Unlit/Texture
    hoặc Mobile/VertexLit).
 3. **Import mesh riêng (tùy chọn).** Field **Mesh** của Mesh Renderer nhận một
-   file `.obj` (Wavefront) kéo từ Content Browser -- khi được gán, nó thay thế
+   file `.obj` (Wavefront) kéo từ Project -- khi được gán, nó thay thế
    hẳn `Primitive`. Parser tự viết, không phụ thuộc thư viện ngoài (để chắc
    chắn build được cho devkitARM): chỉ đọc vị trí/texcoord/mặt (tam giác hoặc
    đa giác lồi, tự động tam giác hóa), không đọc normal/material trong file,
@@ -171,7 +177,7 @@ Shaders & Lighting").
    pan/orbit/zoom ở đây không đụng đến gameplay.
 6. **Gizmo 3D.** Cùng ba nút Translate/Rotate/Scale ở trên dùng chung với pane
    2D, chỉ khác là có thêm trục Z (xanh dương) bên cạnh X (đỏ)/Y (xanh lá).
-   Field Transform trong Properties luôn chỉnh được trực tiếp như một cách
+   Field Transform trong Inspector luôn chỉnh được trực tiếp như một cách
    thay thế.
 7. **Vật lý 3D (tùy chọn).** Giống hệt bước physics ở mục 3 nhưng cho 3D:
    **+ Add Component -> Rigidbody 3D** cùng với **Box Collider 3D** hoặc
@@ -200,7 +206,7 @@ Editor luôn có một project đang mở -- ở lần khởi chạy đầu tiê
 cấu trúc `SampleProject/` hiện có, và giống cách Unity tạo `location/name/` khi New
 Project). **File -> Open Project...** mở trình duyệt project để chọn file `.dproj`
 có sẵn; khi mở/tạo project khác, scene đang dùng sẽ được thay đổi, Play sẽ dừng nếu
-đang chạy, và Content Browser sẽ trỏ đến thư mục `Assets/` của project đó.
+đang chạy, và Project sẽ trỏ đến thư mục `Assets/` của project đó.
 
 Chưa có Project Hub / danh sách project gần đây (xem `ROADMAP.md`) -- New/Open
 Project chỉ là hộp thoại file thuần túy, không nhớ lịch sử.
@@ -232,7 +238,7 @@ Dù theo cách nào:
 
 1. Override các lifecycle method cần dùng (xem bên dưới).
 2. Gọi `REGISTER_BEHAVIOUR(MyBehaviour)` ở cuối file `.cpp` (đã có sẵn nếu tạo
-   qua Content Browser).
+   qua Project).
 3. Bấm **Reload Scripts** (trên toolbar của panel Game) để build lại
    `GameScripts` và hot-load vào Editor đang chạy -- không cần khởi động lại.
    Chạy nền (nút đổi thành "Reload Scripts (reloading...)" và mờ đi lúc đang
@@ -244,11 +250,11 @@ Dù theo cách nào:
    build). Một entity có thể gắn bao nhiêu script khác nhau tùy ý (hoặc gắn
    cùng một script nhiều lần) -- giống một GameObject trong Unity mang nhiều
    MonoBehaviour cùng lúc; mỗi script hiện thành một thẻ riêng trong
-   Properties, với nút "..." > Remove Script của riêng nó.
+   Inspector, với nút "..." > Remove Script của riêng nó.
 
-### Field hiện ra ở Properties (Inspector-editable fields)
+### Field hiện ra ở Inspector (Inspector-editable fields)
 
-Field public của script cũng hiện ra ở panel Properties được, giống
+Field public của script cũng hiện ra ở panel Inspector được, giống
 `[SerializeField]` của Unity -- một attribute thật trên từng field, kiểu
 `UPROPERTY()` của Unreal:
 
@@ -304,7 +310,7 @@ Ngoài C++, script còn có thể viết bằng **TypeScript** (chạy trên Qui
 desktop lẫn 3DS) với API giống Unity/PiaEngine. Cần cài **Node.js** (lệnh `node`
 có trong `PATH`) -- lần đầu Editor tự chạy `npm install` cho `Tools/TypeScript`.
 
-1. Chuột phải trong Content Browser -> **Create > TypeScript Script**, đặt tên
+1. Chuột phải trong Project -> **Create > TypeScript Script**, đặt tên
    (ví dụ `Rotator`) -> Editor tạo `Rotator.ts`.
 2. Mở file bằng VS Code (Edit > Preferences > Open Project in External Editor)
    -- project đã có sẵn `tsconfig.json` + `Library/Types/duality.d.ts` nên có
@@ -315,7 +321,7 @@ có trong `PATH`) -- lần đầu Editor tự chạy `npm install` cho `Tools/Ty
    import { MonoBehaviour, Time, Input, KeyCode, field } from 'duality';
 
    export class Rotator extends MonoBehaviour {
-     @field({ range: [0, 720] }) degreesPerSecond = 90;   // slider trong Properties
+     @field({ range: [0, 720] }) degreesPerSecond = 90;   // slider trong Inspector
      clockwise = true;                                    // field public thường: tự hiện + tự lưu
 
      start() { this.print(`Rotator trên ${this.gameObject.name}`); }
@@ -334,7 +340,7 @@ có trong `PATH`) -- lần đầu Editor tự chạy `npm install` cho `Tools/Ty
    `Assets/Rotator.ts:12:5: error: ...`. Nếu đang Play, bản mới được nạp ngay khi
    bấm Stop.
 5. Chọn entity -> **+ Add Component** -> `Rotator (TS)`. Field hiện trong
-   Properties như field C++, lưu vào scene cùng định dạng JSON.
+   Inspector như field C++, lưu vào scene cùng định dạng JSON.
 
 Mỗi class được `export` và kế thừa `MonoBehaviour` là một script (tên class =
 tên export, không trùng tên class C++). Lifecycle: `awake`, `onEnable`, `start`,
@@ -470,16 +476,16 @@ engine. Để định nghĩa một loại `ScriptableObject` mới:
 2. Đăng ký bằng `REGISTER_SCRIPTABLE_OBJECT(TênClass)` ở cuối file `.cpp`
    (thay vì `REGISTER_BEHAVIOUR`).
 3. Thêm file nguồn mới vào `GameScripts/CMakeLists.txt`.
-4. Trong Content Browser, chuột phải vào khoảng trống -> **Create ->
+4. Trong Project, chuột phải vào khoảng trống -> **Create ->
    ScriptableObject -> TênClass** để tạo một file `.asset` mới với giá
-   trị mặc định; click chọn file đó để chỉnh field ngay trong Properties
+   trị mặc định; click chọn file đó để chỉnh field ngay trong Inspector
    (tự động lưu xuống đĩa mỗi khi một field thay đổi).
 
 `GameScripts/Include/GameSettingsData.h` là ví dụ có sẵn
 (`PlayerSpeed`/`ScorePerCoin`/`GameTitle`), và
 `SampleProject/Assets/GameSettings.asset` là một instance thật của nó --
-mở project mẫu, chọn file này trong Content Browser để xem field hiện ra
-trong Properties.
+mở project mẫu, chọn file này trong Project để xem field hiện ra
+trong Inspector.
 
 **Âm thanh** -- one-shot (`ScriptAudio`) hoặc `AudioSource` component + `GetAudioSource().Play()`:
 ```cpp
@@ -575,16 +581,17 @@ chúng ta.
    hai collider chạm nhau. Vì lúc này chưa có `Scenes/Win.scene`, `LoadScene` vẫn
    sẽ thực hiện việc chuyển scene (không crash) nhưng nạp vào một scene RỖNG
    (Deserialize thất bại chỉ ghi lỗi vào Console, không phục hồi lại scene cũ) --
-   bấm Stop rồi **File -> Load Scene** để lấy lại scene gameplay ban đầu trước
-   khi làm tiếp bước 4.
+   bấm Stop -- Stop luôn khôi phục đúng scene gameplay trước lúc Play -- rồi làm
+   tiếp bước 4.
 
-4. **Tạo màn "Thắng".** Bấm Stop. Xóa (hoặc tạm giấu) các entity gameplay không
-   cần cho màn thắng nếu muốn scene này đơn giản, thêm một entity Sprite Renderer
-   màu khác để biết rõ đang ở scene mới (ví dụ đặt tên "WinScreen"). **File ->
-   Save Scene As...**, lưu vào `SampleProject/Assets/Scenes/Win.scene` (tạo thư
-   mục `Scenes` ngay trong hộp thoại nếu chưa có). Scene đang mở KHÔNG đổi sau
-   bước này -- **File -> Load Scene** để quay lại scene gameplay ban đầu trước
-   khi tiếp tục.
+4. **Tạo màn "Thắng".** Bấm Stop và **Ctrl+S** lưu scene gameplay. Xóa (hoặc tạm
+   giấu) các entity gameplay không cần cho màn thắng nếu muốn scene này đơn giản,
+   thêm một entity Sprite Renderer màu khác để biết rõ đang ở scene mới (ví dụ đặt
+   tên "WinScreen"). **File -> Save As...** (Ctrl+Shift+S), lưu vào
+   `SampleProject/Assets/Scenes/Win.scene` (tạo thư mục `Scenes` ngay trong hộp
+   thoại nếu chưa có). Giống Unity, scene đang mở giờ là `Win.scene` -- mở lại scene
+   gameplay bằng **File -> Open Scene...** (hoặc double-click file `.scene` trong
+   Project) trước khi tiếp tục.
 
 5. **Chạy lại từ đầu.** Bấm Play, đi tới đồng xu -- lần này `LoadScene
    ("Scenes/Win.scene")` sẽ thật sự chuyển Editor sang màn "Thắng" ngay giữa lúc

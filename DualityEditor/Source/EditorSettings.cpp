@@ -1,5 +1,6 @@
 #include "DualityEditor/EditorSettings.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -29,7 +30,12 @@ namespace Duality {
                 try {
                     file >> root;
                     settings.ExternalEditorPath = root.value("ExternalEditorPath", "");
-                    settings.ColorTheme = root.value("ColorTheme", "Blue");
+                    settings.ColorTheme = root.value("ColorTheme", "Unity");
+                    // Settings written before the Unity skin existed (no SettingsVersion) move
+                    // to it once; any later explicit choice in Preferences is kept.
+                    if (root.value("SettingsVersion", 1) < 2)
+                        settings.ColorTheme = "Unity";
+                    settings.RecentProjects = root.value("RecentProjects", std::vector<std::string>{});
                 } catch (const json::parse_error&) {
                     // Corrupt/empty file -- fall through with defaults rather than fail the
                     // whole Editor over one malformed preferences file.
@@ -38,6 +44,16 @@ namespace Duality {
             return settings;
         }();
         return instance;
+    }
+
+    void EditorSettings::AddRecentProject(const std::string& path) {
+        if (path.empty())
+            return;
+        const std::string normalized = std::filesystem::absolute(path).lexically_normal().string();
+        RecentProjects.erase(std::remove(RecentProjects.begin(), RecentProjects.end(), normalized), RecentProjects.end());
+        RecentProjects.insert(RecentProjects.begin(), normalized);
+        if (RecentProjects.size() > 10)
+            RecentProjects.resize(10);
     }
 
     bool EditorSettings::Save() {
@@ -50,6 +66,8 @@ namespace Duality {
         json root;
         root["ExternalEditorPath"] = ExternalEditorPath;
         root["ColorTheme"] = ColorTheme;
+        root["RecentProjects"] = RecentProjects;
+        root["SettingsVersion"] = 2;
 
         std::ofstream file(path);
         if (!file.is_open())

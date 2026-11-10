@@ -1,6 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <unordered_map>
+#include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "DualityEngine/ECS/Entity.h"
 #include "DualityEngine/Reflection/Field.h"
@@ -42,6 +47,17 @@ namespace Duality {
         // their corresponding copied entities. Returns the copied root or an empty Entity for
         // an invalid source.
         static Entity Duplicate(Scene& scene, Entity source);
+
+        // Editor clipboard (Copy / Paste). CopyToJson serializes each root with its subtree
+        // (roots nested inside another copied root are folded into it). EntityRefs between
+        // copied entities stay connected to the pasted copies; references to entities outside
+        // the copy are kept as external handles and reconnected on paste when the target still
+        // exists in the destination scene (`externalRemap` translates handles of the copy-time
+        // scene into the paste-time scene, e.g. after an Undo rebuilt every handle). Pasted roots
+        // keep their copied world transform under `parent` (empty = scene root).
+        static nlohmann::json CopyToJson(Scene& scene, const std::vector<Entity>& roots);
+        static std::vector<Entity> PasteFromJson(Scene& scene, const nlohmann::json& clipboard, Entity parent = {},
+            const std::unordered_map<uint32_t, uint32_t>* externalRemap = nullptr);
     };
 
 }

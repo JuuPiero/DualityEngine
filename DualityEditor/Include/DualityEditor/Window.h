@@ -19,8 +19,20 @@ namespace Duality {
     // need to know anything about GLFW itself.
     class Window {
     public:
-        Window(int width, int height, const std::string& title);
+        // `background` (automation runs): the window is created without taking keyboard focus
+        // so a scripted editor test never steals input from whatever the user is doing.
+        Window(int width, int height, const std::string& title, bool background = false);
         ~Window();
+
+        void SetTitle(const std::string& title);
+        // Cancels (false) or requests (true) closing -- used to keep the editor open while the
+        // "save changes?" prompt is showing.
+        void SetShouldClose(bool shouldClose);
+
+        // Captures the next rendered frame (the whole editor, all docked panels) to a 24-bit
+        // BMP file. Rendered into an offscreen framebuffer, so it works even when the window
+        // is covered by other windows.
+        void RequestScreenshot(const std::string& path) { m_ScreenshotPath = path; }
 
         Window(const Window&) = delete;
         Window& operator=(const Window&) = delete;
@@ -40,7 +52,10 @@ namespace Duality {
         void SetDropCallback(const std::function<void(const std::vector<std::string>&)>& callback) { m_DropCallback = callback; }
 
     private:
+        void CaptureScreenshot();
+
         GLFWwindow* m_Handle = nullptr;
+        std::string m_ScreenshotPath;
         int m_Width, m_Height;
         std::function<void(Event&)> m_EventCallback;
         std::function<void(const std::vector<std::string>&)> m_DropCallback;

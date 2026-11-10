@@ -10,7 +10,11 @@ namespace Duality {
     enum class GizmoMode {
         Translate,
         Rotate,
-        Scale
+        Scale,
+        // Q: the View (hand) tool -- left-drag pans the Scene view, nothing is manipulated.
+        View,
+        // T: the Rect tool -- 2D move + resize of a SpriteRenderer's Size / a UI rect.
+        Rect
     };
 
     // Which handle of the active gizmo is under the mouse (or being

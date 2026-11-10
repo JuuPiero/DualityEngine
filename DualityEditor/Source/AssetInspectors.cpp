@@ -281,7 +281,7 @@ namespace Duality {
         // is one click away from opening, instead of needing to go find and double-click it again.
         void DrawSceneAsset(const std::string& path, EditorContext& ctx) {
             if (ImGui::Button("Open Scene") && !ctx.IsEditingPrefab)
-                OpenScene(ctx, path);
+                OpenSceneWithPrompt(ctx, path);
             if (ctx.IsEditingPrefab)
                 ImGui::TextDisabled("Exit Prefab Mode to open a scene.");
             ImGui::Separator();

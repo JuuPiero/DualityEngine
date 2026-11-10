@@ -12,6 +12,8 @@ DualityPlayer/romfs/AssetManifest.json
 build-check
 build-render
 build-3ds-render
+build-editor-upgrade
+build-3ds-editor
 
 # TypeScript scripting: generated bundles / project type stubs / the toolchain's npm install.
 DualityPlayer/romfs/Scripts/

@@ -14,41 +14,83 @@
                 <div class="eyebrow">API Reference</div>
                 <h1>Editor Panels</h1>
                 <p class="lede">
-                    Editor desktop dựng bằng Dear ImGui, layout dock kiểu Unity/Cocos Creator mặc
-                    định. Mở project cố định tại <code>SampleProject/</code> khi khởi động — tạo
-                    project mới qua <strong>File → New Project...</strong>, hoặc mở project có
-                    sẵn qua <strong>File → Open Project...</strong>, chọn file <code>.dproj</code>.
+                    Editor desktop dựng bằng Dear ImGui, hành vi và giao diện theo <strong>Unity</strong>:
+                    skin tối kiểu Unity (font Segoe UI của Windows, icon Font Awesome), layout mặc
+                    định Hierarchy trái · Scene/Game giữa · Inspector phải · Project/Console dưới,
+                    toolbar chính dưới menu (tool Q W E R T, Pivot/Center, Global/Local, snap; nút
+                    Play/Pause/Step ở giữa; Layout bên phải). Khi khởi động mở project
+                    <code>SampleProject/</code> (hoặc <code>--project &lt;file.dproj&gt;</code>), đổi
+                    project qua <strong>File → Open Project... / Open Recent Project</strong>.
                 </p>
 
-                <h2 style="border-top:none;margin-top:0">Menu Bar</h2>
+                <h2 style="border-top:none;margin-top:0">Layout &amp; cửa sổ</h2>
+                <p>
+                    Tên cửa sổ theo Unity: <strong>Hierarchy</strong>, <strong>Scene</strong>,
+                    <strong>Game</strong>, <strong>Inspector</strong>, <strong>Project</strong> (trước đây
+                    là "Content Browser" — <code>imgui.ini</code> cũ được tự đổi tên nên layout đã
+                    lưu không mất), <strong>Console</strong>, <strong>Lighting</strong>. Layout dock được
+                    lưu trong <code>imgui.ini</code> và khôi phục lần sau; chỉ khi chưa có layout lưu
+                    (hoặc chọn <strong>Window → Layouts → Reset All Layouts</strong> / nút
+                    <strong>Layout ▾</strong> trên toolbar) editor mới dựng lại layout mặc định.
+                    Đóng một cửa sổ bằng nút ×, mở lại qua <strong>Window → General</strong>.
+                    Tiêu đề cửa sổ OS: <code>DualityEditor - &lt;Project&gt; - &lt;Scene&gt;*</code>
+                    (<code>*</code> = còn thay đổi chưa lưu, kèm <code>[Playing]</code>/<code>[Paused]</code>).
+                    Theme: <strong>Edit → Preferences → Color Theme</strong> (Unity Dark mặc định, còn
+                    Blue / Pink / Dark).
+                </p>
+
+                <h2>Menu</h2>
                 <table>
-                    <tr><th>Mục</th><th>Hành vi</th></tr>
-                    <tr><td>New Project...</td><td>Hiện dialog Save (giống <strong>Save Scene As...</strong>) để chọn vị trí + tên — vd chọn <code>F:\Projects\MyGame.dproj</code> thì tạo folder project riêng <code>F:\Projects\MyGame\MyGame.dproj</code> + <code>F:\Projects\MyGame\Assets\</code> (giống layout <code>SampleProject/</code>, giống cách Unity hỏi vị trí+tên rồi tạo <code>location/name/</code>), rồi mở luôn project mới đó.</td></tr>
-                    <tr><td>Open Project...</td><td>Chọn file <code>.dproj</code>; dừng Play nếu đang chạy, đổi hẳn project/scene/root Content Browser.</td></tr>
-                    <tr><td>Save Scene</td><td>Ghi scene hiện tại ra file đang active (<code>ScenePath</code>). Phím tắt <strong>Ctrl+S</strong>. Sau khi lưu, cờ dirty (dấu <code>*</code> cạnh tên scene trên menu bar) được xoá.</td></tr>
-                    <tr><td>Load Scene</td><td>Xoá sạch scene hiện tại rồi đọc lại từ đĩa — trước đây có bug nạp đè lên scene cũ thay vì xoá trước, đã fix. Xoá dirty flag.</td></tr>
-                    <tr><td>Open Scene...</td><td>Chọn một file <code>.scene</code> bất kỳ và chuyển sang nó — <strong>có</strong> đổi luôn scene mà Save/Load Scene thao tác từ đó về sau, khác Save Scene As...</td></tr>
-                    <tr><td>Save Scene As...</td><td>Ghi một <em>bản chụp</em> scene hiện tại ra file mới do người dùng chọn — <strong>không</strong> đổi scene Save/Load Scene đang thao tác. Cách để project có thêm scene thứ hai cho <code>SceneManager</code>/<code>LoadScene</code> nhắm tới.</td></tr>
-                    <tr><td>Build for 3DS / Build for PC</td><td>Xem <a href="build-deploy.html">Build &amp; Deploy</a>.</td></tr>
-                    <tr><td>Build Settings...</td><td>Mở cửa sổ nổi (không dock) quản lý danh sách scene đóng gói vào bản build — xem mục <strong>Build Settings</strong> bên dưới.</td></tr>
+                    <tr><th>Menu</th><th>Mục</th></tr>
+                    <tr><td>File</td><td>New Scene (Ctrl+N), Open Scene... (Ctrl+O), Revert Scene, Save (Ctrl+S), Save As... (Ctrl+Shift+S — giống Unity: ghi ra file mới <strong>và</strong> scene đang mở chuyển sang file đó; scene "Untitled" bấm Save cũng hỏi tên file), New Project..., Open Project..., Open Recent Project, Build Settings... (Ctrl+Shift+B), Build for 3DS / Build for PC, Exit.</td></tr>
+                    <tr><td>Edit</td><td>Undo &lt;tên thao tác&gt; / Redo &lt;tên thao tác&gt;, Select All, Deselect All, Cut/Copy/Paste/Paste As Child, Rename, Duplicate, Delete, Frame Selected, Play/Pause/Step, Project Settings..., Preferences...</td></tr>
+                    <tr><td>GameObject</td><td>Create Empty, Create Empty Parent, 3D Object (Cube/Sphere/Capsule/Plane), 2D Object (Sprite/Tilemap), Effects (Particle System/Line), Light (Directional/Point/Spot), Audio (Audio Source/Listener), UI (Canvas + Panel/Image/Text/Button/Slider/Toggle/Input Field cho từng màn), Camera (2D/3D cho Top/Bottom), 3DS Screen Roots, Toggle Active State. Cùng menu này có ở nút <strong>+</strong> và chuột phải trong Hierarchy.</td></tr>
+                    <tr><td>Component</td><td>Thêm component theo nhóm (Rendering, Effects, Animation, Physics 2D, Physics, Audio, UI, Camera, Miscellaneous) vào mọi object đang chọn.</td></tr>
+                    <tr><td>Window</td><td>General (Scene, Game, Inspector, Hierarchy, Project, Console), Rendering → Lighting, Package Manager, Layouts → Reset.</td></tr>
                 </table>
 
-                <h3>Menu Edit</h3>
-                <p>Menu mới thêm phiên bản này, đặt cạnh File theo đúng vị trí quen thuộc của Unity (<strong>File → Build Settings</strong>, <strong>Edit → Project Settings/Preferences</strong>).</p>
+                <h2>Phím tắt (giống Unity)</h2>
                 <table>
-                    <tr><th>Mục</th><th>Hành vi</th></tr>
-                    <tr><td>Project Settings...</td><td>Mở panel xem thông tin project đang mở, chỉ đọc — xem mục <strong>Project Settings</strong> bên dưới.</td></tr>
-                    <tr><td>Preferences...</td><td>Mở panel cấu hình external editor dùng chung cho máy, không riêng project — xem mục <strong>Preferences</strong> bên dưới.</td></tr>
+                    <tr><th>Phím</th><th>Tác dụng</th><th>Phạm vi</th></tr>
+                    <tr><td>Ctrl+Z / Ctrl+Y, Ctrl+Shift+Z</td><td>Undo / Redo</td><td>Toàn editor (trừ khi đang gõ trong ô text)</td></tr>
+                    <tr><td>Ctrl+S / Ctrl+Shift+S</td><td>Save / Save As</td><td>Toàn editor</td></tr>
+                    <tr><td>Ctrl+N / Ctrl+O</td><td>New Scene / Open Scene</td><td>Toàn editor</td></tr>
+                    <tr><td>Ctrl+P / Ctrl+Shift+P / Ctrl+Alt+P</td><td>Play-Stop / Pause / Step</td><td>Toàn editor</td></tr>
+                    <tr><td>Q W E R T</td><td>View (bàn tay) / Move / Rotate / Scale / Rect tool</td><td>Toàn editor (không khi đang giữ chuột phải bay trong Scene)</td></tr>
+                    <tr><td>Z / X</td><td>Đổi Pivot ↔ Center / Global ↔ Local</td><td>Toàn editor</td></tr>
+                    <tr><td>Ctrl+Shift+N / Alt+Shift+N</td><td>Create Empty / Create Empty Child</td><td>Toàn editor</td></tr>
+                    <tr><td>Ctrl+Shift+G</td><td>Create Empty Parent (gom selection vào object mới)</td><td>Toàn editor</td></tr>
+                    <tr><td>Alt+Shift+A</td><td>Bật/tắt Active của selection</td><td>Toàn editor</td></tr>
+                    <tr><td>Ctrl+D</td><td>Duplicate</td><td>Hierarchy / Scene (trong Project: nhân bản asset)</td></tr>
+                    <tr><td>Ctrl+C / Ctrl+X / Ctrl+V / Ctrl+Shift+V</td><td>Copy / Cut / Paste / Paste As Child</td><td>Hierarchy / Scene</td></tr>
+                    <tr><td>Delete (Shift+Delete)</td><td>Xoá object đang chọn</td><td>Hierarchy / Scene (trong Project: xoá asset, có hỏi)</td></tr>
+                    <tr><td>Ctrl+A</td><td>Select All</td><td>Hierarchy / Scene</td></tr>
+                    <tr><td>F2 (Enter trong Hierarchy)</td><td>Đổi tên tại chỗ</td><td>Hierarchy / Scene / Project</td></tr>
+                    <tr><td>F (double-click trong Hierarchy)</td><td>Frame Selected</td><td>Hierarchy / Scene</td></tr>
+                    <tr><td>↑ ↓ ← → (Alt = cả nhánh)</td><td>Di chuyển selection, mở/đóng node</td><td>Hierarchy</td></tr>
+                    <tr><td>Ctrl khi kéo handle</td><td>Increment snapping (Move 0.25, Rotate 15°, Scale 0.1 — chỉnh ở nút nam châm trên toolbar)</td><td>Scene</td></tr>
+                    <tr><td>Chuột phải + W A S D Q E (Shift = nhanh, lăn chuột = tốc độ)</td><td>Bay (fly-through)</td><td>Scene 3D</td></tr>
+                    <tr><td>Alt + chuột trái / Alt + chuột phải / chuột giữa / lăn</td><td>Orbit / Zoom / Pan / Zoom</td><td>Scene 3D (2D: chuột giữa hoặc phải để pan, lăn zoom theo vị trí con trỏ)</td></tr>
+                    <tr><td>Ctrl + lăn chuột</td><td>Đổi cỡ icon</td><td>Project</td></tr>
                 </table>
 
-                <p>Menu bar cũng hiện tên file scene đang active (<code>Scene: Scene.scene</code> hoặc <code>Scene.scene*</code> khi có thay đổi chưa lưu) — dễ theo dõi khi nhiều thao tác (Open Scene.../double-click/nút "Open Scene") có thể đổi nó.</p>
-
-                <div class="callout note">
-                    <span class="callout-title">Scene dirty &amp; Ctrl+S</span>
-                    Mọi chỉnh sửa ở Edit mode (Properties, Hierarchy, gizmo Scene view, thêm/xoá component…)
-                    đánh dấu scene <strong>dirty</strong>. Play mode không đánh dấu (thay đổi runtime revert khi Stop).
-                    <strong>Ctrl+S</strong> gọi cùng hàm với <strong>File → Save Scene</strong> (<code>SceneOps::SaveScene</code>).
-                </div>
+                <h2>Undo / Redo &amp; scene dirty</h2>
+                <p>
+                    Mọi thay đổi scene đều undo được: sửa field Inspector, kéo gizmo / handle
+                    collider / UI rect, tạo / xoá / duplicate / paste / reparent / đổi thứ tự, thêm /
+                    xoá / reset / paste component, bật-tắt active, thao tác prefab. Mỗi
+                    <em>tương tác</em> là <strong>một</strong> bước: cả một lần kéo slider hay kéo gizmo,
+                    cả một lần gõ tên (bước được chốt khi thả chuột / rời ô text). Menu Edit hiện tên
+                    bước ("Undo Move", "Redo Add Rigidbody 2D"...). Undo/Redo khôi phục luôn
+                    <strong>selection</strong> và trạng thái mở/đóng của Hierarchy nhờ ID ổn định của
+                    entity (chỉ nằm trong bộ nhớ editor, không ghi vào file scene). Lịch sử giữ tối đa
+                    128 bước. Thay đổi lúc Play không vào lịch sử và bị hoàn tác khi Stop.
+                </p>
+                <p>
+                    Scene có thay đổi chưa lưu hiện <code>*</code> ở tiêu đề cửa sổ, menu bar và
+                    dòng scene của Hierarchy. Mở scene khác, New Scene, mở/tạo project, thoát editor
+                    khi scene đang dirty đều hỏi kiểu Unity: <strong>Save / Don't Save / Cancel</strong>.
+                </p>
 
                 <h2>Build Settings</h2>
                 <p>
@@ -111,118 +153,150 @@
 
                 <h2>Hierarchy</h2>
                 <p>
-                    Liệt kê entity trong scene, phân theo <strong>Top Screen</strong>/<strong>Bottom
-                    Screen</strong>/<strong>Ungrouped</strong> (dựa theo <code>LayerComponent</code>
-                    gắn trên root). Click chọn entity. <strong>Create Entity</strong> tạo entity
-                    rỗng mới. Kéo-thả để reparent (thả lên node) hoặc đổi thứ tự anh em (thả vào
-                    khoảng giữa hai node). Chuột phải một entity: <strong>Create Child Entity</strong>,
-                    <strong>Create Prefab from Selection</strong>.
+                    Cây cha-con của scene, hàng đầu là chính scene (tên + <code>*</code> khi dirty,
+                    chuột phải: Save/Save As/Paste/Create). Click chọn, <strong>Ctrl+click</strong>
+                    thêm/bớt, <strong>Shift+click</strong> chọn dải; kéo một object đang nằm trong
+                    selection là kéo cả selection. Thả lên ¼ trên/dưới của một dòng để chèn
+                    trước/sau (thả ¼ dưới của node đang mở = thành con đầu tiên), thả giữa dòng để làm
+                    con; thả vào khoảng trống = về gốc scene; thả asset <code>.prefab</code> = tạo
+                    instance. <strong>Alt+click</strong> mũi tên mở/đóng cả nhánh. Object chọn từ
+                    Scene view / field tham chiếu được tự mở cha và cuộn tới. Object inactive hiện
+                    mờ; nút mắt ở mép phải mỗi dòng bật/tắt Active (áp dụng cho cả selection).
+                    Prefab instance tô <span style="color:#7cb2ee">xanh kiểu Unity</span> (đỏ nếu
+                    asset mất). F2 / Enter đổi tên tại chỗ; double-click = Frame Selected trong Scene.
+                    Chuột phải một dòng: Cut/Copy/Paste/Paste As Child/Rename/Duplicate/Delete,
+                    Select Children, Expand/Collapse All, Create Empty Parent, Prefab (Create /
+                    Open / Select Asset / Unpack) và toàn bộ menu GameObject để tạo con.
                 </p>
 
-                <h2>Properties</h2>
+                <h2>Inspector</h2>
                 <p>
-                    Hiện mọi component trên entity đang chọn — field hoàn toàn generic qua
-                    reflection (xem <a href="architecture.html">Kiến trúc</a>), thêm component/field
-                    mới không cần sửa code Editor. Mọi entity có checkbox <strong>Active</strong>
-                    ngay cạnh Transform/Name/Tag. Component không bắt buộc có nút "..." để gỡ; nút
-                    <strong>+ Add Component</strong> ở cuối liệt kê mọi loại chưa có trên entity.
+                    Đầu Inspector là header GameObject kiểu Unity: checkbox <strong>Active</strong>,
+                    ô tên, nút khoá (🔒 = Lock, ghim Inspector vào selection hiện tại), dòng
+                    <strong>Tag</strong> (danh sách tag có sẵn + "Add Tag") và <strong>Layer</strong>
+                    (Inherit / Default / TOP / BOTTOM — tương ứng <code>LayerComponent</code>), rồi dòng
+                    <strong>Prefab</strong> (Open = Prefab Mode, Select = ping asset, Overrides ▾ =
+                    số giá trị khác prefab, Revert All / Apply All / Unpack).
                 </p>
                 <p>
-                    Ví dụ một field kiểu này: <code>CameraComponent</code> có thêm
-                    <strong>Background</strong> — màu clear riêng cho camera đó, hiện dưới dạng
-                    color picker trong Properties; <code>SceneRenderer.cpp</code> dùng đúng màu
-                    này khi render màn có gắn camera, thay vì một màu clear hardcode như trước.
-                    Danh sách đầy đủ field từng component xem
-                    <a href="components.html">Components Reference</a>.
+                    Mỗi component là một thẻ: mũi tên gập, icon, checkbox Enabled (nếu có), tên đậm,
+                    nút <strong>⋮</strong> (hoặc chuột phải header): Reset, Remove Component, Move
+                    Up/Down (cho script; component có sẵn giữ thứ tự cố định), Copy Component, Paste
+                    Component Values, Paste Component As New, và với script thêm <strong>Edit
+                    Script</strong> (mở file bằng external editor trong Preferences). Field theo kiểu
+                    Unity: nhãn bên trái (kéo ngang nhãn số để "scrub" giá trị), vector dạng
+                    <code>X [ ] Y [ ] Z [ ]</code>, màu là ô màu + ô hex (<code>RRGGBB(AA)</code>), asset /
+                    entity là <em>object field</em> có icon/thumbnail: click = ping trong Project /
+                    Hierarchy, double-click = chọn, kéo-thả để gán, nút ◎ mở bộ chọn có tìm kiếm,
+                    chuột phải = Clear. List hiện dạng Element 0..n với nút + / −.
                 </p>
                 <p>
-                    <strong>Lock</strong> (kiểu Unity Inspector) — ghim panel vào entity/asset đang
-                    hiện, bỏ qua lựa chọn mới ở Hierarchy/Scene/Content Browser cho tới khi bỏ
-                    khoá. Ít cần thiết hơn từ khi Content Browser đổi cách bắt click sang
-                    mouse-release (không còn tự chọn lại khi bắt đầu kéo-thả asset) — nhưng vẫn
-                    hữu ích để ghim khi duyệt chỗ khác.
+                    <strong>Chọn nhiều object</strong>: chỉ hiện component mà tất cả cùng có; giá trị
+                    khác nhau hiện "—" (từng thành phần X/Y/Z riêng); sửa một lần áp dụng cho tất cả
+                    và là một bước Undo (sửa X chỉ đổi X, Y/Z của từng object giữ nguyên). Script
+                    chỉnh từng object một.
                 </p>
                 <p>
-                    Script gắn qua <strong>+ Add Component → Add Script</strong> — một submenu con
-                    liệt kê mọi class script đã đăng ký, chọn một class là gắn ngay. Danh sách này
-                    gộp chung script dùng riêng của project đang mở (<code>Assets/Scripts/</code>,
-                    tạo qua Content Browser's <strong>Create → Script</strong> — xem
-                    <a href="assets.html">Asset Pipeline</a>) lẫn script dùng chung cấp engine
-                    (<code>GameScripts/Include/</code>+<code>Source/</code>) — sau khi build, cả
-                    hai nằm chung một <code>ScriptRegistry</code>, không còn phân biệt được nguồn
-                    gốc ở đây. Một entity có thể mang nhiều script khác nhau cùng lúc (hoặc cùng
-                    một script nhiều lần), mỗi script hiện thành một card riêng trong mục
-                    <strong>Scripts</strong> của Properties, kèm field public đánh dấu
-                    <code>DUALITY_PROPERTY()</code> của riêng nó (xem
-                    <a href="architecture.html">Kiến trúc</a>) và nút "..." →
-                    <strong>Remove Script</strong> riêng để gỡ đúng script đó. Sửa lúc Edit lưu
-                    cùng scene; sửa lúc đang Play chỉ ảnh hưởng object đang sống, mất khi Stop.
+                    <strong>Prefab override</strong>: trên instance, field khác giá trị trong file
+                    <code>.prefab</code> hiện chữ đậm + vạch xanh bên trái; chuột phải nhãn →
+                    <strong>Revert</strong>. Component thêm vào instance có "(+)" ở header. (Vị trí /
+                    góc quay của root không tính là override, như Unity.)
+                </p>
+                <p>
+                    <strong>Add Component</strong>: popup tìm kiếm theo nhóm (drill-down như Unity):
+                    Rendering, Effects, Animation, Physics 2D, Physics, Audio, UI, Camera,
+                    Miscellaneous, <strong>Scripts</strong> (mỗi class ghi <code>(C++)</code> hoặc
+                    <code>(TS)</code>) và <strong>New Script</strong> — gõ tên, chọn TypeScript hoặc
+                    C++, "Create and Add" tạo file trong <code>Assets/Scripts/</code> và gắn ngay
+                    (TypeScript tự biên dịch; C++ cần Reload Scripts). Gõ tên chưa tồn tại trong ô
+                    tìm kiếm cũng có mục "New script '...'" . Kéo file script từ Project thả vào
+                    Inspector cũng thêm script đó.
+                </p>
+                <p>
+                    Field <code>DUALITY_PROPERTY</code> (C++), <code>@field</code> (TypeScript) và field
+                    component có sẵn dùng chung bộ vẽ field này. Sửa lúc Edit lưu cùng scene; sửa lúc
+                    Play chỉ ảnh hưởng object đang sống, mất khi Stop. Khi chọn asset trong Project,
+                    Inspector hiện inspector riêng của loại asset đó.
                 </p>
 
-                <h2>Scene (panel edit)</h2>
+                <h2>Scene</h2>
                 <p>
-                    Hai pane song song Top/Bottom, mỗi pane một camera tự do (pan/zoom/orbit) độc
-                    lập với camera thật trong scene — không bao giờ sửa
-                    <code>CameraComponent</code> khi chỉ đang thao tác xem, giống Unity's
-                    Scene-vs-Game. Nút <strong>2D | 3D</strong> mỗi pane chuyển pipeline render.
+                    Hai pane Top/Bottom (kéo thanh chia ở giữa để đổi tỉ lệ, double-click để về
+                    50/50), mỗi pane một camera editor riêng với nút <strong>2D | 3D</strong>.
                 </p>
                 <table>
-                    <tr><th>Chế độ</th><th>Thao tác chuột</th></tr>
-                    <tr><td>2D</td><td>Kéo-giữa (middle-drag) pan, lăn chuột zoom, click trái chọn sprite/kéo gizmo.</td></tr>
-                    <tr><td>3D</td><td>Click/kéo trái chọn + kéo gizmo, kéo phải orbit (quaternion thật, không giới hạn gimbal-lock), kéo-giữa pan, lăn chuột zoom.</td></tr>
+                    <tr><th>Thao tác</th><th>Hành vi</th></tr>
+                    <tr><td>Click / Ctrl+click / Shift+click</td><td>Chọn / thêm-bớt / thêm vào selection. Click chỗ trống bỏ chọn.</td></tr>
+                    <tr><td>Kéo chuột trái (không trúng handle)</td><td>Khung chọn (marquee) — chọn mọi renderer/camera/light/collider có pivot nằm trong khung (Ctrl/Shift = cộng thêm).</td></tr>
+                    <tr><td>Handle Move/Rotate/Scale</td><td>Tác động lên cả selection (object cha-con chỉ tính cha). Pivot: handle ở object chính; Center: ở tâm selection (Rotate/Scale quanh tâm). Global/Local: trục thế giới hay theo góc quay object chính (3D). Giữ Ctrl để snap. Một lần kéo = một bước Undo.</td></tr>
+                    <tr><td>Rect tool (T)</td><td>2D: viền + 4 góc để đổi <code>Size</code> của Sprite (góc đối diện đứng yên), ô vuông giữa để di chuyển.</td></tr>
+                    <tr><td>View tool (Q)</td><td>Kéo trái để pan, không chọn/không sửa gì.</td></tr>
+                    <tr><td>3D</td><td>Chuột phải: nhìn quanh + WASD/QE bay (Shift nhanh, lăn chuột đổi tốc độ, hiện ở header pane); Alt+trái orbit; Alt+phải hoặc lăn: zoom; chuột giữa: pan; F: frame selection.</td></tr>
+                    <tr><td>2D</td><td>Chuột giữa / phải: pan; lăn: zoom về phía con trỏ; F: frame selection.</td></tr>
                 </table>
                 <p>
-                    Cả hai chế độ vẽ lưới kiểu Unity/Cocos (xem <a href="rendering.html">Rendering</a>)
-                    và khung frustum thật cho camera entity thay vì chấm phẳng. Nút
-                    <strong>Translate / Rotate / Scale</strong> đổi chế độ gizmo cho entity đang
-                    chọn — kéo handle sửa Transform trực tiếp, thấy ngay ở cả Scene, Game, và bản
-                    build 3DS thật. <code>Transform.Rotation</code> luôn tính bằng độ.
+                    Object đang chọn có viền cam kiểu Unity (hình chữ nhật xoay của sprite ở 2D, hộp
+                    bao ở 3D). Collider của object đang chọn vẽ viền xanh lá với handle kéo đổi kích
+                    thước. Cả hai chế độ vẽ lưới và frustum camera; entity inactive biến mất khỏi Scene
+                    giống Game view, nhưng gizmo vẫn hiện để chỉnh.
                 </p>
-                <p>
-                    Collider (<code>BoxCollider2DComponent</code>/<code>CircleCollider2DComponent</code>/
-                    <code>BoxCollider3DComponent</code>/<code>SphereCollider3DComponent</code>) vẽ
-                    viền wireframe xanh lá — giờ chỉ hiện cho entity đang <strong>được
-                    chọn</strong>, không còn hiện đồng thời cho mọi collider trong scene như
-                    trước. Viền này có sẵn handle để kéo resize, nhưng handle chỉ phản hồi kéo khi
-                    checkbox <strong>Edit</strong> của đúng component đó (trong Properties) đang
-                    bật — mặc định tắt, để việc chọn/di chuyển entity trong viewport không vô tình
-                    bóp méo collider.
-                </p>
-                <div class="callout">
-                    Entity <strong>inactive</strong> (checkbox Active tắt) biến mất khỏi cả hai
-                    pane Scene ngay lập tức, giống Game view — không chỉ mờ đi như quy ước gốc của
-                    Unity. Collider/frustum camera/gizmo vẫn hiện để còn chỉnh sửa được entity đó
-                    trong lúc inactive.
-                </div>
 
-                <h2>Game</h2>
+                <h2>Game &amp; Play mode</h2>
                 <p>
-                    Vẽ đúng những gì camera TopCamera/BottomCamera thật render, xếp chồng theo
-                    đúng bố cục vật lý máy (Top trên, Bottom dưới) — cùng render pass 3DS thật
-                    dùng. <strong>Play/Stop</strong> chạy toàn bộ vòng đời runtime (script, physics
-                    2D/3D, sự kiện va chạm/trigger, UI); Stop phục hồi <em>đúng</em> trạng thái
-                    trước khi Play (xem <a href="architecture.html">Kiến trúc</a>).
-                    <strong>Reload Scripts</strong> build lại <code>GameScripts</code> trên một
-                    thread nền (không đứng hình Editor lúc build) rồi hot-load vào Editor đang
-                    chạy mà không khởi động lại — nút tự đổi thành "Reload Scripts (reloading...)"
-                    và bị disable trong lúc build đang chạy. Reconfigure (<code>cmake -B</code>)
-                    chạy trước build mỗi lần — cần thiết để nhặt được script project vừa tạo (hoặc
-                    project vừa đổi), không chỉ file đã sửa; <strong>File → Open Project...</strong>/
-                    <strong>New Project...</strong> cũng tự kích hoạt bước reload này, không cần
-                    bấm tay.
-                </p>
-                <p>
-                    Click/chạm vào ảnh mỗi màn ở đây (lúc đang Play) được resolve đúng về toạ độ
-                    pixel local của màn đó — <code>Behaviour::GetPointerPosition()</code>/<code>ScreenPointToRay3D</code>
-                    hoạt động y hệt Play-in-Editor như trên <code>DualityPlayerDesktop</code> hay
-                    3DS thật.
+                    Nút <strong>Play / Pause / Step</strong> ở giữa toolbar (Ctrl+P, Ctrl+Shift+P,
+                    Ctrl+Alt+P). Khi Play cả editor phủ màu đỏ nhạt (play-mode tint) để nhắc rằng
+                    thay đổi lúc này sẽ mất. Pause dừng game (Scene/Inspector vẫn dùng được); Step
+                    chạy đúng một frame cố định 1/60s (bấm Step khi chưa Play = vào Play ở trạng thái
+                    Pause). Stop khôi phục <em>đúng</em> scene trước Play và giữ nguyên selection.
+                    Panel Game vẽ đúng những gì camera thật render (Top trên, Bottom dưới), có
+                    <strong>Reload Scripts</strong> (build lại <code>GameScripts</code> ở thread nền) và
+                    thống kê render. Click vào ảnh mỗi màn lúc Play được quy đổi đúng về toạ độ pixel
+                    của màn đó. UI rect kéo/resize trực tiếp trong Game view (có Undo).
                 </p>
 
                 <h2>Console</h2>
-                <p>Xem log <code>Duality::Log</code> (kể cả <code>Behaviour::LogInfo/Warn/Error</code> từ script), tô màu theo mức (Trace/Info/Warn/Error), lọc theo mức + ô tìm kiếm text.</p>
+                <p>
+                    Toolbar kiểu Unity: <strong>Clear</strong>, <strong>Collapse</strong> (gộp dòng trùng,
+                    hiện số lần), <strong>Clear on Play</strong>, <strong>Error Pause</strong> (lỗi mới
+                    lúc Play → tự Pause), ô tìm kiếm và ba nút lọc Info/Warning/Error kèm số lượng.
+                    Click một dòng để xem toàn văn ở khung chi tiết bên dưới (kéo thanh chia để đổi
+                    chiều cao, chọn/copy được); chuột phải → Copy.
+                </p>
 
-                <h2>Content Browser</h2>
-                <p>Xem chi tiết ở <a href="assets.html">Asset Pipeline</a> — gồm cả menu <strong>Create → Script</strong> để thêm script riêng cho project đang mở.</p>
+                <h2>Project</h2>
+                <p>
+                    Hai cột: cây thư mục (Assets, Packages) bên trái và lưới asset bên phải. Thanh trên:
+                    nút <strong>+ ▾</strong> (Create: Folder, C++ Script, TypeScript Script, Scene,
+                    Material, ScriptableObject), breadcrumb bấm được (Assets › Folder › ..., thả asset
+                    lên để di chuyển) và ô tìm kiếm (tìm trong <em>mọi</em> thư mục con). Thanh dưới:
+                    đường dẫn asset đang chọn và thanh trượt cỡ icon (hoặc Ctrl+lăn chuột). Chuột phải
+                    asset: Open, Show in Explorer, Copy Path, Rename (F2), Duplicate (Ctrl+D), Delete;
+                    chuột phải khoảng trống: Create, Show in Explorer, Refresh. Kéo một object từ
+                    Hierarchy thả vào lưới để tạo prefab ở thư mục đang xem. Field asset trong
+                    Inspector "ping" asset ở đây (mở đúng thư mục, viền vàng nhấp nháy). Chi tiết
+                    pipeline asset: <a href="assets.html">Asset Pipeline</a>.
+                </p>
+
+                <h2>Editor automation (kiểm thử)</h2>
+                <p>
+                    <code>DualityEditor --editor-test script.txt [--project Game.dproj] [--size 1600x900]</code>
+                    chạy editor với một kịch bản: cửa sổ không giành focus, phím/chuột được đưa thẳng vào
+                    hàng đợi input của ImGui trong chính process (không đụng chuột/bàn phím thật), lệnh
+                    gọi thẳng tầng command của editor, <code>screenshot file.bmp</code> chụp toàn bộ editor
+                    (render offscreen). Process thoát với mã = số kiểm tra thất bại. Lệnh chính:
+                    <code>wait N</code>, <code>select / select-add / select-none</code>,
+                    <code>cmd undo|redo|duplicate|delete|copy|cut|paste|paste-child|create-empty|create-empty-child|create-parent|create-prefab|toggle-active|select-all|play|stop|pause|step|save|new-scene|frame|rename|reset-layout</code>,
+                    <code>key ctrl+d</code>, <code>keydown/keyup ctrl</code>, <code>type text</code>,
+                    <code>click x y [right]</code>, <code>drag x1 y1 x2 y2 [button] [steps]</code>,
+                    <code>wheel d</code>, <code>focus Hierarchy</code>, <code>window hierarchy off</code>,
+                    <code>tool move</code>, <code>set / set-ref / add-component / rename-selected</code>,
+                    <code>expect-field / expect-ref / expect-count / expect-name-count / expect-selected(-min) /
+                    expect-primary / expect-exists / expect-missing / expect-parent / expect-dirty /
+                    expect-playing / expect-paused / expect-undo-label / expect-undo-steps / expect-tool</code>,
+                    <code>print-field</code>, <code>screenshot</code>, <code>quit</code>. Tên entity có thể
+                    là đường dẫn <code>Cha/Con</code> hoặc <code>#2:Tên</code> (cái thứ hai). Nên chạy với
+                    một <em>bản sao</em> project và <code>APPDATA</code> riêng để không đụng file thật.
+                </p>
 
                 <div class="page-nav">
                     <a class="prev" href="assets.html"><span class="dir">← Trước</span>Asset Pipeline</a>
